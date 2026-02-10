@@ -8,7 +8,7 @@ The ESP32-S3-RLCD-4.2 is a development board featuring a 4.2" reflective LCD tha
 
 | Component | Specification |
 |-----------|---------------|
-| **Display** | 4.2" RLCD, 300×400 pixels, black/white, SPI (ST7305 driver) |
+| **Display** | 4.2" RLCD, 300×400 pixels, 1-bit monochrome, SPI (ST7305 driver) |
 | **SoC** | ESP32-S3-WROOM-1-N16R8 (dual-core Xtensa LX7 @ 240MHz) |
 | **Memory** | 16MB Flash, 8MB PSRAM, 512KB SRAM |
 | **Connectivity** | WiFi 2.4GHz, Bluetooth 5 LE |
