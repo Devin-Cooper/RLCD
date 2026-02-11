@@ -40,4 +40,17 @@ void strokeBezierTextureBall(IFramebuffer& fb, const PointF* points, size_t coun
                               float smoothness = 0.5f, float spacing = 2.0f,
                               const bool* texture = nullptr, int16_t texWidth = 8, int16_t texHeight = 8);
 
+/// Brush texture selection for strokes
+enum class BrushId {
+    Heavy = 0,  ///< Default 8x8 organic brush
+    Fine = 1    ///< Smaller 6x6 brush for delicate lines
+};
+
+/// Fine 6x6 brush texture for satellite hex outlines
+extern const bool FINE_BRUSH_6X6[6][6];
+
+/// Texture-ball stroke with brush selection
+void strokeBezierTextureBall(IFramebuffer& fb, const PointF* points, size_t count,
+                              BrushId brush, float smoothness = 0.5f, float spacing = 2.0f);
+
 } // namespace rendering

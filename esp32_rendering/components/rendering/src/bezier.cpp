@@ -17,6 +17,16 @@ const bool DEFAULT_BALL_8X8[8][8] = {
     {false, false, true,  true,  true,  true,  false, false}
 };
 
+// Fine 6x6 brush texture - smaller, tighter strokes
+const bool FINE_BRUSH_6X6[6][6] = {
+    {false, true,  true,  true,  true,  false},
+    {true,  true,  true,  true,  true,  true },
+    {true,  true,  false, false, true,  true },
+    {true,  true,  false, false, true,  true },
+    {true,  true,  true,  true,  true,  true },
+    {false, true,  true,  true,  true,  false}
+};
+
 // Linear interpolation for floats
 static inline float lerp(float a, float b, float t) {
     return a + t * (b - a);
@@ -243,6 +253,28 @@ void strokeBezierTextureBall(IFramebuffer& fb, const PointF* points, size_t coun
             }
         }
     }
+}
+
+void strokeBezierTextureBall(IFramebuffer& fb, const PointF* points, size_t count,
+                              BrushId brush, float smoothness, float spacing) {
+    const bool* texture;
+    int16_t texWidth, texHeight;
+
+    switch (brush) {
+        case BrushId::Fine:
+            texture = &FINE_BRUSH_6X6[0][0];
+            texWidth = 6;
+            texHeight = 6;
+            break;
+        case BrushId::Heavy:
+        default:
+            texture = &DEFAULT_BALL_8X8[0][0];
+            texWidth = 8;
+            texHeight = 8;
+            break;
+    }
+
+    strokeBezierTextureBall(fb, points, count, smoothness, spacing, texture, texWidth, texHeight);
 }
 
 } // namespace rendering
