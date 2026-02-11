@@ -24,6 +24,12 @@ from .bezier import (
     draw_bezier_curve,
     DEFAULT_BALL_8X8,
 )
+from .vector_font import (
+    NUMERALS,
+    render_numeral,
+    render_string,
+    get_string_width,
+)
 
 __all__ = [
     "Framebuffer",
@@ -44,4 +50,8 @@ __all__ = [
     "stroke_bezier_texture_ball",
     "draw_bezier_curve",
     "DEFAULT_BALL_8X8",
+    "NUMERALS",
+    "render_numeral",
+    "render_string",
+    "get_string_width",
 ]
