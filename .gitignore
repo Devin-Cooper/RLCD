@@ -53,3 +53,9 @@ managed_components/
 # IDE/Editor caches
 .cache/
 .vscode/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo

@@ -10,8 +10,8 @@ These tests verify:
 """
 
 import unittest
-from framebuffer import Framebuffer
-from vector_font import (
+from rendering.framebuffer import Framebuffer
+from rendering.vector_font import (
     NUMERALS,
     render_numeral,
     render_string,

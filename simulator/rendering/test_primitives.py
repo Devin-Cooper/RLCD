@@ -11,8 +11,8 @@ These tests verify:
 """
 
 import unittest
-from framebuffer import Framebuffer
-from primitives import (
+from rendering.framebuffer import Framebuffer
+from rendering.primitives import (
     draw_line,
     draw_polygon,
     fill_polygon,

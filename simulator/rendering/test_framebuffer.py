@@ -10,7 +10,7 @@ These tests verify:
 """
 
 import unittest
-from framebuffer import Framebuffer
+from rendering.framebuffer import Framebuffer
 
 
 class TestFramebufferBasics(unittest.TestCase):

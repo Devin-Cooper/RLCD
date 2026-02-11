@@ -24,8 +24,8 @@ pygame_mock.K_q = 113
 sys.modules['pygame'] = pygame_mock
 
 # Now import our modules - display will use the mock pygame
-from framebuffer import Framebuffer
-from display import Display
+from rendering.framebuffer import Framebuffer
+from rendering.display import Display
 
 
 class TestDisplayInitialization(unittest.TestCase):

@@ -10,8 +10,8 @@ These tests verify:
 """
 
 import unittest
-from framebuffer import Framebuffer
-from patterns import (
+from rendering.framebuffer import Framebuffer
+from rendering.patterns import (
     BAYER_4X4,
     Pattern,
     pattern_test,

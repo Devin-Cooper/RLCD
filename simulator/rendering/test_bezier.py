@@ -13,30 +13,17 @@ Tests cover:
 import math
 import pytest
 
-try:
-    from .bezier import (
-        auto_tangent,
-        cubic_bezier,
-        cubic_bezier_derivative,
-        subdivide_bezier,
-        stroke_bezier_texture_ball,
-        draw_bezier_curve,
-        DEFAULT_BALL_8X8,
-        _bezier_flatness,
-    )
-    from .framebuffer import Framebuffer
-except ImportError:
-    from bezier import (
-        auto_tangent,
-        cubic_bezier,
-        cubic_bezier_derivative,
-        subdivide_bezier,
-        stroke_bezier_texture_ball,
-        draw_bezier_curve,
-        DEFAULT_BALL_8X8,
-        _bezier_flatness,
-    )
-    from framebuffer import Framebuffer
+from rendering.bezier import (
+    auto_tangent,
+    cubic_bezier,
+    cubic_bezier_derivative,
+    subdivide_bezier,
+    stroke_bezier_texture_ball,
+    draw_bezier_curve,
+    DEFAULT_BALL_8X8,
+    _bezier_flatness,
+)
+from rendering.framebuffer import Framebuffer
 
 
 class TestAutoTangent:
