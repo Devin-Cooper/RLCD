@@ -9,6 +9,12 @@ from .primitives import (
     draw_circle,
     fill_circle,
 )
+from .patterns import (
+    BAYER_4X4,
+    Pattern,
+    pattern_test,
+    fill_polygon_pattern,
+)
 
 __all__ = [
     "Framebuffer",
@@ -18,4 +24,8 @@ __all__ = [
     "fill_rect",
     "draw_circle",
     "fill_circle",
+    "BAYER_4X4",
+    "Pattern",
+    "pattern_test",
+    "fill_polygon_pattern",
 ]
