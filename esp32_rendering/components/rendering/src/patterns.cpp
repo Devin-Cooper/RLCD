@@ -12,6 +12,19 @@ const uint8_t BAYER_4X4[4][4] = {
     {15,  7, 13,  5}
 };
 
+// 8x8 dense crosshatch pattern (~60% ink coverage)
+// Diagonal lines at 45° and 135° with 2px thickness, superimposed
+const uint8_t CROSSHATCH_8X8[8] = {
+    0b11000011,  // row 0: 4 bits
+    0b11100111,  // row 1: 6 bits
+    0b01111110,  // row 2: 6 bits
+    0b00111100,  // row 3: 4 bits
+    0b00111100,  // row 4: 4 bits
+    0b01111110,  // row 5: 6 bits
+    0b11100111,  // row 6: 6 bits
+    0b11000011   // row 7: 4 bits  (total: 40 bits = 62.5%)
+};
+
 void fillPolygonPattern(IFramebuffer& fb, const Point* points, size_t count, Pattern pattern) {
     if (count < 3) return;
 
