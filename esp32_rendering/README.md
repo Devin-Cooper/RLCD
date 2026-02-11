@@ -140,6 +140,31 @@ display.init();
 display.show(fb);  // Transfer framebuffer to display
 ```
 
+## ST7305 Display Configuration
+
+The ST7305 reflective LCD requires specific initialization settings to prevent flickering with dithered patterns. The driver uses the official Waveshare BSP settings:
+
+### Critical Settings
+
+| Register | Value | Purpose |
+|----------|-------|---------|
+| 0xC1 (VSHP) | 0x41 | Source driving voltage |
+| 0xC4 | 0x41 | Voltage setting |
+| 0xD8 | 0xA6, 0xE9 | Panel timing control |
+| 0xB2 | 0x05 | Booster setting |
+| 0xB0 | 0x64 | Frequency setting |
+| 0x21 | - | **Display Inversion ON** |
+
+### Display Inversion Mode
+
+The display **must** use Display Inversion ON (0x21) to prevent flickering with high-frequency patterns like Bayer dithering or checkerboards. This requires inverting the pixel logic in the driver:
+
+- Buffer initialized to 0xFF (white background)
+- BLACK pixels: clear the corresponding bit
+- WHITE pixels: bit remains set
+
+See `docs/ST7305_FLICKER_INVESTIGATION.md` for detailed analysis of the flicker issue and solution.
+
 ## Memory Usage
 
 | Component | Size | Location |

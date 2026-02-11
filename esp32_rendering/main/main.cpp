@@ -4,6 +4,7 @@
 #include <esp_timer.h>
 
 #include "rendering/framebuffer.hpp"
+#include "rendering/mask_buffer.hpp"
 #include "rendering/primitives.hpp"
 #include "rendering/patterns.hpp"
 #include "rendering/bezier.hpp"
@@ -191,6 +192,86 @@ static void demoAnimation(IFramebuffer& fb, st7305::Display& display) {
     }
 }
 
+// Demo 6: Mask buffer clipping
+static void demoMaskBuffer(IFramebuffer& fb, st7305::Display& display) {
+    ESP_LOGI(TAG, "Demo: Mask Buffer");
+
+    MaskBuffer400x300 mask;
+
+    // Test 1: Circle mask - only draw inside circle
+    mask.clear(WHITE);  // WHITE = blocked everywhere
+    fillCircle(mask, 200, 150, 100, BLACK);  // BLACK = allowed
+
+    fb.setMask(&mask);
+    fb.clear(WHITE);
+
+    // Draw pattern that will be clipped to circle
+    fillRectPattern(fb, 0, 0, 400, 300, Pattern::Medium);
+
+    // Add label outside mask area (won't be clipped because we disable mask)
+    fb.setMask(nullptr);
+    renderString(fb, "CIRCLE MASK", 120, 260, 18, 24, 3, 2, BLACK);
+
+    display.show(fb);
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    // Test 2: Inverted mask - draw outside circle (cutout effect)
+    mask.invert();
+    fb.setMask(&mask);
+    fb.clear(WHITE);
+    fillRectPattern(fb, 0, 0, 400, 300, Pattern::Dense);
+
+    fb.setMask(nullptr);
+    renderString(fb, "CUTOUT", 165, 145, 18, 24, 3, 2, BLACK);
+
+    display.show(fb);
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    // Test 3: Polygon mask
+    mask.clear(WHITE);
+    Point star[] = {
+        {200, 50}, {230, 120}, {300, 130}, {250, 180},
+        {270, 250}, {200, 210}, {130, 250}, {150, 180},
+        {100, 130}, {170, 120}
+    };
+    fillPolygon(mask, star, 10, BLACK);
+
+    fb.setMask(&mask);
+    fb.clear(WHITE);
+    fillRectPattern(fb, 0, 0, 400, 300, Pattern::Sparse);
+
+    fb.setMask(nullptr);
+    renderString(fb, "STAR MASK", 135, 270, 18, 24, 3, 2, BLACK);
+
+    display.show(fb);
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    // Cleanup
+    fb.setMask(nullptr);
+}
+
+// Demo 7: Lowercase letters
+static void demoLowercase(IFramebuffer& fb) {
+    ESP_LOGI(TAG, "Demo: Lowercase Letters");
+
+    fb.clear(WHITE);
+
+    // Full lowercase alphabet
+    renderString(fb, "abcdefghijklm", 10, 10, 22, 32, 2, 2, BLACK);
+    renderString(fb, "nopqrstuvwxyz", 10, 50, 22, 32, 2, 2, BLACK);
+
+    // Mixed case examples
+    renderString(fb, "Hello World", 10, 100, 20, 28, 3, 2, BLACK);
+    renderString(fb, "ESP32-S3 Demo", 10, 135, 20, 28, 3, 2, BLACK);
+
+    // Descenders test (g, j, p, q, y)
+    renderString(fb, "gyp jumping joy", 10, 180, 18, 26, 2, 2, BLACK);
+
+    // Quick brown fox
+    renderString(fb, "The quick brown", 10, 220, 16, 22, 2, 2, BLACK);
+    renderString(fb, "fox jumps lazy", 10, 250, 16, 22, 2, 2, BLACK);
+}
+
 // Run all demos
 static void runDemos(IFramebuffer& fb, st7305::Display& display) {
     // Primitives
@@ -215,6 +296,15 @@ static void runDemos(IFramebuffer& fb, st7305::Display& display) {
 
     // Animation
     demoAnimation(fb, display);
+
+    // Mask buffer
+    demoMaskBuffer(fb, display);
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    // Lowercase letters
+    demoLowercase(fb);
+    display.show(fb);
+    vTaskDelay(pdMS_TO_TICKS(2000));
 }
 
 extern "C" void app_main() {

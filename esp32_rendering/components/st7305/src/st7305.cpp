@@ -169,14 +169,14 @@ void Display::initDisplay() {
     sendData(0x11);
     sendData(0x04);
 
-    // Gate Driving Voltage
+    // VSHP Setting (from official Waveshare BSP)
     sendCommand(0xC1);
-    sendData(0x69);
-    sendData(0x69);
-    sendData(0x69);
-    sendData(0x69);
+    sendData(0x41);
+    sendData(0x41);
+    sendData(0x41);
+    sendData(0x41);
 
-    // Source Driving Voltage
+    // Voltage setting
     sendCommand(0xC2);
     sendData(0x19);
     sendData(0x19);
@@ -184,10 +184,10 @@ void Display::initDisplay() {
     sendData(0x19);
 
     sendCommand(0xC4);
-    sendData(0x4B);
-    sendData(0x4B);
-    sendData(0x4B);
-    sendData(0x4B);
+    sendData(0x41);
+    sendData(0x41);
+    sendData(0x41);
+    sendData(0x41);
 
     sendCommand(0xC5);
     sendData(0x19);
@@ -195,14 +195,14 @@ void Display::initDisplay() {
     sendData(0x19);
     sendData(0x19);
 
-    // Panel Control
+    // Panel Control / Timing (from official Waveshare BSP)
     sendCommand(0xD8);
-    sendData(0x80);
+    sendData(0xA6);
     sendData(0xE9);
 
-    // Booster Setting
+    // Booster Setting (from official Waveshare BSP)
     sendCommand(0xB2);
-    sendData(0x02);
+    sendData(0x05);
 
     // Waveform Timing 1
     sendCommand(0xB3);
@@ -262,12 +262,12 @@ void Display::initDisplay() {
     sendCommand(0xB9);
     sendData(0x20);
 
-    // Frequency Setting
+    // Frequency Setting (from official Waveshare BSP)
     sendCommand(0xB8);
     sendData(0x29);
 
-    // Display Inversion Off (0x20) - use 0x21 for inverted
-    sendCommand(0x20);
+    // Display Inversion ON (try 0x21 instead of 0x20)
+    sendCommand(0x21);
 
     // Column Address Set
     sendCommand(0x2A);
@@ -279,7 +279,7 @@ void Display::initDisplay() {
     sendData(0x00);
     sendData(0xC7);
 
-    // Tearing Effect Line On
+    // Tearing Effect Line ON (restore)
     sendCommand(0x35);
     sendData(0x00);
 
@@ -303,7 +303,8 @@ void Display::clear(bool color) {
     if (!displayBuffer_) return;
 
     size_t bufferSize = (config_.width * config_.height) / 8;
-    std::memset(displayBuffer_, color ? 0xFF : 0x00, bufferSize);
+    // With Display Inversion ON: clear bits = BLACK, set bits = WHITE
+    std::memset(displayBuffer_, color ? 0x00 : 0xFF, bufferSize);
 
     // Set column address
     sendCommand(0x2A);
@@ -324,7 +325,9 @@ void Display::convertToDisplayFormat(const rendering::IFramebuffer& fb) {
     if (!displayBuffer_ || !pixelIndexLUT_ || !pixelBitLUT_) return;
 
     size_t bufferSize = (config_.width * config_.height) / 8;
-    std::memset(displayBuffer_, 0x00, bufferSize);
+    // With Display Inversion ON (0x21), clear bits = BLACK, set bits = WHITE
+    // Start with all bits set (white background)
+    std::memset(displayBuffer_, 0xFF, bufferSize);
 
     const uint8_t* srcBuffer = fb.buffer();
     int srcBytesPerRow = (fb.width() + 7) / 8;
@@ -337,11 +340,11 @@ void Display::convertToDisplayFormat(const rendering::IFramebuffer& fb) {
             bool pixel = (srcBuffer[srcByteIdx] & srcBit) != 0;
 
             if (pixel) {
-                // Set pixel in display buffer using LUT
+                // BLACK pixel: clear bit in display buffer (inverted mode)
                 size_t lutIdx = lutIndex(x, y);
                 uint16_t dstByteIdx = pixelIndexLUT_[lutIdx];
                 uint8_t dstBit = pixelBitLUT_[lutIdx];
-                displayBuffer_[dstByteIdx] |= dstBit;
+                displayBuffer_[dstByteIdx] &= ~dstBit;
             }
         }
     }

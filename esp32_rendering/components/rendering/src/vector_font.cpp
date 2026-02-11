@@ -242,6 +242,150 @@ static const uint8_t GLYPH_Z_S0[] = {10,10, 90,10, 10,90, 90,90};
 static const GlyphStroke GLYPH_Z_STROKES[] = {{GLYPH_Z_S0, 4}};
 static const Glyph GLYPH_Z = {GLYPH_Z_STROKES, 1};
 
+// Lowercase letters - angular style matching uppercase
+// Lowercase occupies y range 30-90 (x-height) with descenders extending to 115
+
+// Letter a - angular with stem
+static const uint8_t GLYPH_a_S0[] = {85,90, 85,45, 70,30, 25,30, 10,45, 10,60, 25,75, 85,75};
+static const uint8_t GLYPH_a_S1[] = {85,75, 85,90};
+static const GlyphStroke GLYPH_a_STROKES[] = {{GLYPH_a_S0, 8}, {GLYPH_a_S1, 2}};
+static const Glyph GLYPH_a = {GLYPH_a_STROKES, 2};
+
+// Letter b - stem with bowl
+static const uint8_t GLYPH_b_S0[] = {15,10, 15,90, 70,90, 85,75, 85,45, 70,30, 15,30};
+static const GlyphStroke GLYPH_b_STROKES[] = {{GLYPH_b_S0, 7}};
+static const Glyph GLYPH_b = {GLYPH_b_STROKES, 1};
+
+// Letter c - open curve
+static const uint8_t GLYPH_c_S0[] = {85,40, 70,30, 25,30, 10,45, 10,75, 25,90, 70,90, 85,80};
+static const GlyphStroke GLYPH_c_STROKES[] = {{GLYPH_c_S0, 8}};
+static const Glyph GLYPH_c = {GLYPH_c_STROKES, 1};
+
+// Letter d - bowl with stem
+static const uint8_t GLYPH_d_S0[] = {85,10, 85,90, 30,90, 15,75, 15,45, 30,30, 85,30};
+static const GlyphStroke GLYPH_d_STROKES[] = {{GLYPH_d_S0, 7}};
+static const Glyph GLYPH_d = {GLYPH_d_STROKES, 1};
+
+// Letter e - angular with crossbar
+static const uint8_t GLYPH_e_S0[] = {10,60, 85,60, 85,45, 70,30, 25,30, 10,45, 10,75, 25,90, 70,90, 85,80};
+static const GlyphStroke GLYPH_e_STROKES[] = {{GLYPH_e_S0, 10}};
+static const Glyph GLYPH_e = {GLYPH_e_STROKES, 1};
+
+// Letter f - hook with crossbar
+static const uint8_t GLYPH_f_S0[] = {85,20, 70,10, 45,10, 30,25, 30,90};
+static const uint8_t GLYPH_f_S1[] = {15,45, 55,45};
+static const GlyphStroke GLYPH_f_STROKES[] = {{GLYPH_f_S0, 5}, {GLYPH_f_S1, 2}};
+static const Glyph GLYPH_f = {GLYPH_f_STROKES, 2};
+
+// Letter g - bowl with descender (descender goes to y=115)
+static const uint8_t GLYPH_g_S0[] = {85,30, 30,30, 15,45, 15,70, 30,85, 85,85, 85,105, 70,115, 25,115, 10,105};
+static const GlyphStroke GLYPH_g_STROKES[] = {{GLYPH_g_S0, 10}};
+static const Glyph GLYPH_g = {GLYPH_g_STROKES, 1};
+
+// Letter h - stem with shoulder
+static const uint8_t GLYPH_h_S0[] = {15,10, 15,90};
+static const uint8_t GLYPH_h_S1[] = {15,45, 30,30, 70,30, 85,45, 85,90};
+static const GlyphStroke GLYPH_h_STROKES[] = {{GLYPH_h_S0, 2}, {GLYPH_h_S1, 5}};
+static const Glyph GLYPH_h = {GLYPH_h_STROKES, 2};
+
+// Letter i - stem with dot
+static const uint8_t GLYPH_i_S0[] = {50,30, 50,90};
+static const uint8_t GLYPH_i_S1[] = {50,10, 55,15, 50,20, 45,15, 50,10};
+static const GlyphStroke GLYPH_i_STROKES[] = {{GLYPH_i_S0, 2}, {GLYPH_i_S1, 5}};
+static const Glyph GLYPH_i = {GLYPH_i_STROKES, 2};
+
+// Letter j - hook with dot (descender to y=115)
+static const uint8_t GLYPH_j_S0[] = {60,30, 60,100, 45,115, 20,115};
+static const uint8_t GLYPH_j_S1[] = {60,10, 65,15, 60,20, 55,15, 60,10};
+static const GlyphStroke GLYPH_j_STROKES[] = {{GLYPH_j_S0, 4}, {GLYPH_j_S1, 5}};
+static const Glyph GLYPH_j = {GLYPH_j_STROKES, 2};
+
+// Letter k - stem with angular arms
+static const uint8_t GLYPH_k_S0[] = {15,10, 15,90};
+static const uint8_t GLYPH_k_S1[] = {80,30, 15,60, 85,90};
+static const GlyphStroke GLYPH_k_STROKES[] = {{GLYPH_k_S0, 2}, {GLYPH_k_S1, 3}};
+static const Glyph GLYPH_k = {GLYPH_k_STROKES, 2};
+
+// Letter l - simple stem
+static const uint8_t GLYPH_l_S0[] = {50,10, 50,90};
+static const GlyphStroke GLYPH_l_STROKES[] = {{GLYPH_l_S0, 2}};
+static const Glyph GLYPH_l = {GLYPH_l_STROKES, 1};
+
+// Letter m - double arch
+static const uint8_t GLYPH_m_S0[] = {10,90, 10,30, 25,30, 40,45, 40,90};
+static const uint8_t GLYPH_m_S1[] = {40,45, 55,30, 75,30, 90,45, 90,90};
+static const GlyphStroke GLYPH_m_STROKES[] = {{GLYPH_m_S0, 5}, {GLYPH_m_S1, 5}};
+static const Glyph GLYPH_m = {GLYPH_m_STROKES, 2};
+
+// Letter n - single arch
+static const uint8_t GLYPH_n_S0[] = {15,90, 15,30, 30,30, 70,30, 85,45, 85,90};
+static const GlyphStroke GLYPH_n_STROKES[] = {{GLYPH_n_S0, 6}};
+static const Glyph GLYPH_n = {GLYPH_n_STROKES, 1};
+
+// Letter o - closed oval
+static const uint8_t GLYPH_o_S0[] = {25,30, 75,30, 90,45, 90,75, 75,90, 25,90, 10,75, 10,45, 25,30};
+static const GlyphStroke GLYPH_o_STROKES[] = {{GLYPH_o_S0, 9}};
+static const Glyph GLYPH_o = {GLYPH_o_STROKES, 1};
+
+// Letter p - stem with bowl (descender to y=115)
+static const uint8_t GLYPH_p_S0[] = {15,115, 15,30, 70,30, 85,45, 85,70, 70,85, 15,85};
+static const GlyphStroke GLYPH_p_STROKES[] = {{GLYPH_p_S0, 7}};
+static const Glyph GLYPH_p = {GLYPH_p_STROKES, 1};
+
+// Letter q - bowl with stem (descender to y=115)
+static const uint8_t GLYPH_q_S0[] = {85,115, 85,30, 30,30, 15,45, 15,70, 30,85, 85,85};
+static const GlyphStroke GLYPH_q_STROKES[] = {{GLYPH_q_S0, 7}};
+static const Glyph GLYPH_q = {GLYPH_q_STROKES, 1};
+
+// Letter r - stem with shoulder
+static const uint8_t GLYPH_r_S0[] = {20,90, 20,30};
+static const uint8_t GLYPH_r_S1[] = {20,50, 35,35, 60,30, 85,35};
+static const GlyphStroke GLYPH_r_STROKES[] = {{GLYPH_r_S0, 2}, {GLYPH_r_S1, 4}};
+static const Glyph GLYPH_r = {GLYPH_r_STROKES, 2};
+
+// Letter s - double curve
+static const uint8_t GLYPH_s_S0[] = {85,40, 70,30, 30,30, 15,40, 15,50, 30,60, 70,60, 85,70, 85,80, 70,90, 30,90, 15,80};
+static const GlyphStroke GLYPH_s_STROKES[] = {{GLYPH_s_S0, 12}};
+static const Glyph GLYPH_s = {GLYPH_s_STROKES, 1};
+
+// Letter t - stem with crossbar
+static const uint8_t GLYPH_t_S0[] = {40,10, 40,75, 55,90, 80,90};
+static const uint8_t GLYPH_t_S1[] = {20,30, 65,30};
+static const GlyphStroke GLYPH_t_STROKES[] = {{GLYPH_t_S0, 4}, {GLYPH_t_S1, 2}};
+static const Glyph GLYPH_t = {GLYPH_t_STROKES, 2};
+
+// Letter u - open bottom
+static const uint8_t GLYPH_u_S0[] = {15,30, 15,75, 30,90, 70,90, 85,75, 85,30};
+static const GlyphStroke GLYPH_u_STROKES[] = {{GLYPH_u_S0, 6}};
+static const Glyph GLYPH_u = {GLYPH_u_STROKES, 1};
+
+// Letter v - angular
+static const uint8_t GLYPH_v_S0[] = {10,30, 50,90, 90,30};
+static const GlyphStroke GLYPH_v_STROKES[] = {{GLYPH_v_S0, 3}};
+static const Glyph GLYPH_v = {GLYPH_v_STROKES, 1};
+
+// Letter w - double v
+static const uint8_t GLYPH_w_S0[] = {5,30, 25,90, 50,50, 75,90, 95,30};
+static const GlyphStroke GLYPH_w_STROKES[] = {{GLYPH_w_S0, 5}};
+static const Glyph GLYPH_w = {GLYPH_w_STROKES, 1};
+
+// Letter x - crossed
+static const uint8_t GLYPH_x_S0[] = {15,30, 85,90};
+static const uint8_t GLYPH_x_S1[] = {85,30, 15,90};
+static const GlyphStroke GLYPH_x_STROKES[] = {{GLYPH_x_S0, 2}, {GLYPH_x_S1, 2}};
+static const Glyph GLYPH_x = {GLYPH_x_STROKES, 2};
+
+// Letter y - v with descender (descender to y=115)
+static const uint8_t GLYPH_y_S0[] = {15,30, 50,75};
+static const uint8_t GLYPH_y_S1[] = {85,30, 50,75, 35,100, 20,115};
+static const GlyphStroke GLYPH_y_STROKES[] = {{GLYPH_y_S0, 2}, {GLYPH_y_S1, 4}};
+static const Glyph GLYPH_y = {GLYPH_y_STROKES, 2};
+
+// Letter z - angular
+static const uint8_t GLYPH_z_S0[] = {15,30, 85,30, 15,90, 85,90};
+static const GlyphStroke GLYPH_z_STROKES[] = {{GLYPH_z_S0, 4}};
+static const Glyph GLYPH_z = {GLYPH_z_STROKES, 1};
+
 const Glyph* getGlyph(char c) {
     if (c >= '0' && c <= '9') {
         static const Glyph* DIGITS[] = {
@@ -263,7 +407,14 @@ const Glyph* getGlyph(char c) {
     }
 
     if (c >= 'a' && c <= 'z') {
-        return getGlyph(c - 'a' + 'A');  // Uppercase fallback
+        static const Glyph* LOWERCASE[] = {
+            &GLYPH_a, &GLYPH_b, &GLYPH_c, &GLYPH_d, &GLYPH_e,
+            &GLYPH_f, &GLYPH_g, &GLYPH_h, &GLYPH_i, &GLYPH_j,
+            &GLYPH_k, &GLYPH_l, &GLYPH_m, &GLYPH_n, &GLYPH_o,
+            &GLYPH_p, &GLYPH_q, &GLYPH_r, &GLYPH_s, &GLYPH_t,
+            &GLYPH_u, &GLYPH_v, &GLYPH_w, &GLYPH_x, &GLYPH_y, &GLYPH_z
+        };
+        return LOWERCASE[c - 'a'];
     }
 
     // Handle punctuation and special characters
@@ -281,12 +432,26 @@ const Glyph* getGlyph(char c) {
 
 float getCharWidthMultiplier(char c) {
     switch (static_cast<unsigned char>(c)) {
+        // Punctuation
         case ':': return 0.5f;
         case '.': return 0.33f;
         case '-': return 0.67f;
         case '/': return 0.5f;
         case ' ': return 0.5f;
         case 0xB0: return 0.33f;  // Degree symbol
+
+        // Narrow lowercase
+        case 'i': return 0.4f;
+        case 'j': return 0.4f;
+        case 'l': return 0.35f;
+        case 'r': return 0.6f;
+        case 't': return 0.5f;
+        case 'f': return 0.5f;
+
+        // Wide lowercase
+        case 'm': return 1.0f;
+        case 'w': return 1.0f;
+
         default: return 1.0f;
     }
 }

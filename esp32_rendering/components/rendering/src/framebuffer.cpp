@@ -7,7 +7,7 @@ static const char* TAG = "framebuffer";
 namespace rendering {
 
 template<int16_t WIDTH, int16_t HEIGHT>
-Framebuffer<WIDTH, HEIGHT>::Framebuffer() : buffer_(nullptr) {
+Framebuffer<WIDTH, HEIGHT>::Framebuffer() : buffer_(nullptr), mask_(nullptr) {
     // Allocate in PSRAM for large buffers, SRAM for small
     if (BUFFER_SIZE > 1024) {
         buffer_ = static_cast<uint8_t*>(
@@ -40,8 +40,9 @@ Framebuffer<WIDTH, HEIGHT>::~Framebuffer() {
 
 template<int16_t WIDTH, int16_t HEIGHT>
 Framebuffer<WIDTH, HEIGHT>::Framebuffer(Framebuffer&& other) noexcept
-    : buffer_(other.buffer_) {
+    : buffer_(other.buffer_), mask_(other.mask_) {
     other.buffer_ = nullptr;
+    other.mask_ = nullptr;
 }
 
 template<int16_t WIDTH, int16_t HEIGHT>
@@ -51,7 +52,9 @@ Framebuffer<WIDTH, HEIGHT>& Framebuffer<WIDTH, HEIGHT>::operator=(Framebuffer&& 
             heap_caps_free(buffer_);
         }
         buffer_ = other.buffer_;
+        mask_ = other.mask_;
         other.buffer_ = nullptr;
+        other.mask_ = nullptr;
     }
     return *this;
 }
@@ -62,13 +65,35 @@ void Framebuffer<WIDTH, HEIGHT>::setPixel(int16_t x, int16_t y, Color color) {
         return;
     }
 
+    // Check mask if set (BLACK in mask = drawing allowed)
+    if (mask_ && mask_->getPixel(x, y) != BLACK) {
+        return;  // Mask blocks this pixel
+    }
+
     size_t idx = byteIndex(x, y);
-    uint8_t mask = bitMask(x);
+    uint8_t bitmask = bitMask(x);
 
     if (color) {
-        buffer_[idx] |= mask;  // Set bit for black
+        buffer_[idx] |= bitmask;
     } else {
-        buffer_[idx] &= ~mask; // Clear bit for white
+        buffer_[idx] &= ~bitmask;
+    }
+}
+
+template<int16_t WIDTH, int16_t HEIGHT>
+void Framebuffer<WIDTH, HEIGHT>::setPixelDirect(int16_t x, int16_t y, Color color) {
+    if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT || !buffer_) {
+        return;
+    }
+
+    // No mask check - direct pixel access
+    size_t idx = byteIndex(x, y);
+    uint8_t bitmask = bitMask(x);
+
+    if (color) {
+        buffer_[idx] |= bitmask;
+    } else {
+        buffer_[idx] &= ~bitmask;
     }
 }
 
@@ -103,6 +128,22 @@ void Framebuffer<WIDTH, HEIGHT>::fillSpan(int16_t y, int16_t xStart, int16_t xEn
 
     // Empty or invalid span
     if (xStart >= xEnd) return;
+
+    // If mask is set, use per-pixel path
+    if (mask_) {
+        for (int16_t x = xStart; x < xEnd; ++x) {
+            if (mask_->getPixel(x, y) == BLACK) {
+                size_t idx = byteIndex(x, y);
+                uint8_t bit = bitMask(x);
+                if (color) {
+                    buffer_[idx] |= bit;
+                } else {
+                    buffer_[idx] &= ~bit;
+                }
+            }
+        }
+        return;
+    }
 
     // Calculate byte boundaries
     int16_t startByte = xStart >> 3;

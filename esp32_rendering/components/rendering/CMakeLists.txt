@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS
         "src/framebuffer.cpp"
+        "src/mask_buffer.cpp"
         "src/primitives.cpp"
         "src/patterns.cpp"
         "src/bezier.cpp"
