@@ -2,45 +2,63 @@
 Tests for the vector_font module.
 
 These tests verify:
-- NUMERALS dictionary structure and completeness
+- GLYPHS/NUMERALS dictionary structure and completeness
 - render_numeral scaling and stroke width
 - render_string character spacing and layout
 - get_string_width calculations
+- Layout helpers (centered, right-aligned, multiline)
 - Edge cases and boundary conditions
 """
 
 import unittest
 from rendering.framebuffer import Framebuffer
 from rendering.vector_font import (
+    GLYPHS,
     NUMERALS,
     render_numeral,
     render_string,
+    render_string_centered,
+    render_string_right,
+    render_multiline,
     get_string_width,
     _scale_point,
     _draw_thick_line,
+    _get_char_width,
 )
 
 
-class TestNumeralsStructure(unittest.TestCase):
-    """Test the NUMERALS dictionary structure."""
+class TestGlyphsStructure(unittest.TestCase):
+    """Test the GLYPHS dictionary structure."""
 
     def test_all_digits_defined(self):
         """All digits 0-9 should be defined."""
         for digit in '0123456789':
-            self.assertIn(digit, NUMERALS, f"Digit '{digit}' should be defined")
+            self.assertIn(digit, GLYPHS, f"Digit '{digit}' should be defined")
+
+    def test_all_uppercase_letters_defined(self):
+        """All uppercase letters A-Z should be defined."""
+        for letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+            self.assertIn(letter, GLYPHS, f"Letter '{letter}' should be defined")
 
     def test_colon_defined(self):
         """Colon should be defined for clock display."""
-        self.assertIn(':', NUMERALS)
+        self.assertIn(':', GLYPHS)
 
     def test_additional_characters_defined(self):
         """Additional useful characters should be defined."""
-        self.assertIn('-', NUMERALS)
-        self.assertIn('.', NUMERALS)
+        self.assertIn('-', GLYPHS)
+        self.assertIn('.', GLYPHS)
+        self.assertIn('/', GLYPHS)
+        self.assertIn('°', GLYPHS)
+        self.assertIn('%', GLYPHS)
 
-    def test_numeral_structure(self):
-        """Each numeral should be a list of strokes, each stroke a list of points."""
-        for char, strokes in NUMERALS.items():
+    def test_numerals_is_alias_for_glyphs(self):
+        """NUMERALS should be an alias for GLYPHS for backward compatibility."""
+        self.assertIs(NUMERALS, GLYPHS)
+
+    def test_glyph_structure(self):
+        """Each glyph should be a list of strokes, each stroke a list of points."""
+        for char, strokes in GLYPHS.items():
             self.assertIsInstance(strokes, list, f"'{char}' should have a list of strokes")
             self.assertGreater(len(strokes), 0, f"'{char}' should have at least one stroke")
 
@@ -58,7 +76,7 @@ class TestNumeralsStructure(unittest.TestCase):
 
     def test_coordinates_in_range(self):
         """All coordinates should be in 0-100 range."""
-        for char, strokes in NUMERALS.items():
+        for char, strokes in GLYPHS.items():
             for i, stroke in enumerate(strokes):
                 for j, (x, y) in enumerate(stroke):
                     self.assertGreaterEqual(x, 0,
@@ -69,6 +87,24 @@ class TestNumeralsStructure(unittest.TestCase):
                         f"'{char}' stroke {i} point {j} y={y} should be >= 0")
                     self.assertLessEqual(y, 100,
                         f"'{char}' stroke {i} point {j} y={y} should be <= 100")
+
+
+class TestNumeralsStructure(unittest.TestCase):
+    """Test the NUMERALS dictionary structure (backward compatibility)."""
+
+    def test_all_digits_defined(self):
+        """All digits 0-9 should be defined."""
+        for digit in '0123456789':
+            self.assertIn(digit, NUMERALS, f"Digit '{digit}' should be defined")
+
+    def test_colon_defined(self):
+        """Colon should be defined for clock display."""
+        self.assertIn(':', NUMERALS)
+
+    def test_additional_characters_defined(self):
+        """Additional useful characters should be defined."""
+        self.assertIn('-', NUMERALS)
+        self.assertIn('.', NUMERALS)
 
 
 class TestScalePoint(unittest.TestCase):
@@ -153,7 +189,7 @@ class TestRenderNumeral(unittest.TestCase):
     def test_unknown_character(self):
         """Unknown character should not cause error or draw anything."""
         fb = Framebuffer()
-        render_numeral(fb, 'X', 10, 10, 50, 80)
+        render_numeral(fb, '@', 10, 10, 50, 80)  # '@' is not defined
 
         # Buffer should be empty
         self.assertTrue(all(b == 0 for b in fb.buffer))
@@ -420,6 +456,219 @@ class TestEdgeCases(unittest.TestCase):
         count = sum(1 for x in range(fb.WIDTH) for y in range(fb.HEIGHT)
                    if fb.get_pixel(x, y))
         self.assertGreater(count, 0)
+
+    def test_all_letters_render(self):
+        """All uppercase letters should render without error."""
+        for letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+            fb = Framebuffer()
+            render_numeral(fb, letter, 50, 50, 40, 60)
+
+            count = sum(1 for x in range(100) for y in range(120)
+                       if fb.get_pixel(x, y))
+            self.assertGreater(count, 0, f"Letter '{letter}' should render pixels")
+
+    def test_punctuation_renders(self):
+        """Punctuation characters should render correctly."""
+        for char in '/%°':
+            fb = Framebuffer()
+            render_numeral(fb, char, 50, 50, 40, 60)
+
+            count = sum(1 for x in range(100) for y in range(120)
+                       if fb.get_pixel(x, y))
+            self.assertGreater(count, 0, f"Character '{char}' should render pixels")
+
+
+class TestGetCharWidth(unittest.TestCase):
+    """Test the _get_char_width helper function."""
+
+    def test_regular_char_full_width(self):
+        """Regular characters should have full width."""
+        self.assertEqual(_get_char_width('A', 30), 30)
+        self.assertEqual(_get_char_width('0', 30), 30)
+
+    def test_colon_half_width(self):
+        """Colon should be half width."""
+        self.assertEqual(_get_char_width(':', 30), 15)
+
+    def test_period_third_width(self):
+        """Period should be one-third width."""
+        self.assertEqual(_get_char_width('.', 30), 10)
+
+    def test_minus_two_thirds_width(self):
+        """Minus should be two-thirds width."""
+        self.assertEqual(_get_char_width('-', 30), 20)
+
+    def test_slash_half_width(self):
+        """Slash should be half width."""
+        self.assertEqual(_get_char_width('/', 30), 15)
+
+    def test_degree_third_width(self):
+        """Degree symbol should be one-third width."""
+        self.assertEqual(_get_char_width('°', 30), 10)
+
+    def test_percent_full_width(self):
+        """Percent should be full width."""
+        self.assertEqual(_get_char_width('%', 30), 30)
+
+    def test_space_half_width(self):
+        """Space should be half width."""
+        self.assertEqual(_get_char_width(' ', 30), 15)
+
+
+class TestGetStringWidthExtended(unittest.TestCase):
+    """Test get_string_width with new characters."""
+
+    def test_slash_width(self):
+        """Slash should contribute half char_width."""
+        # "/" = 15
+        width = get_string_width("/", 30, spacing=0)
+        self.assertEqual(width, 15)
+
+    def test_degree_width(self):
+        """Degree symbol should contribute third char_width."""
+        # "°" = 10
+        width = get_string_width("°", 30, spacing=0)
+        self.assertEqual(width, 10)
+
+    def test_percent_width(self):
+        """Percent should contribute full char_width."""
+        # "%" = 30
+        width = get_string_width("%", 30, spacing=0)
+        self.assertEqual(width, 30)
+
+    def test_mixed_string(self):
+        """Mixed string with new characters."""
+        # "25°C" = 30 + 4 + 30 + 4 + 10 + 4 + 30 = 112
+        width = get_string_width("25°C", 30, spacing=4)
+        self.assertEqual(width, 112)
+
+    def test_letters_width(self):
+        """Letters should have full width."""
+        # "ABC" = 30 + 4 + 30 + 4 + 30 = 98
+        width = get_string_width("ABC", 30, spacing=4)
+        self.assertEqual(width, 98)
+
+
+class TestRenderStringCentered(unittest.TestCase):
+    """Test render_string_centered function."""
+
+    def test_centered_string(self):
+        """String should be centered on given x coordinate."""
+        fb = Framebuffer()
+        center_x = 200
+        render_string_centered(fb, "ABC", center_x, 50, 30, 50, spacing=4)
+
+        # Find leftmost and rightmost pixels
+        pixels = [(x, y) for x in range(fb.WIDTH) for y in range(fb.HEIGHT)
+                  if fb.get_pixel(x, y)]
+        self.assertGreater(len(pixels), 0)
+
+        leftmost = min(p[0] for p in pixels)
+        rightmost = max(p[0] for p in pixels)
+        center = (leftmost + rightmost) // 2
+
+        # Center should be close to center_x (within a few pixels)
+        self.assertAlmostEqual(center, center_x, delta=5)
+
+    def test_centered_single_char(self):
+        """Single character should be centered."""
+        fb = Framebuffer()
+        render_string_centered(fb, "X", 200, 50, 40, 60)
+
+        count = sum(1 for x in range(fb.WIDTH) for y in range(fb.HEIGHT)
+                   if fb.get_pixel(x, y))
+        self.assertGreater(count, 0)
+
+
+class TestRenderStringRight(unittest.TestCase):
+    """Test render_string_right function."""
+
+    def test_right_aligned_string(self):
+        """String should end at given x coordinate."""
+        fb = Framebuffer()
+        right_x = 300
+        render_string_right(fb, "123", right_x, 50, 30, 50, spacing=4)
+
+        # Find rightmost pixel
+        pixels = [(x, y) for x in range(fb.WIDTH) for y in range(fb.HEIGHT)
+                  if fb.get_pixel(x, y)]
+        self.assertGreater(len(pixels), 0)
+
+        rightmost = max(p[0] for p in pixels)
+
+        # Rightmost should be close to right_x (within stroke width)
+        self.assertLessEqual(rightmost, right_x + 2)
+
+    def test_right_aligned_single_char(self):
+        """Single character should be right-aligned."""
+        fb = Framebuffer()
+        render_string_right(fb, "5", 250, 50, 40, 60)
+
+        count = sum(1 for x in range(fb.WIDTH) for y in range(fb.HEIGHT)
+                   if fb.get_pixel(x, y))
+        self.assertGreater(count, 0)
+
+
+class TestRenderMultiline(unittest.TestCase):
+    """Test render_multiline function."""
+
+    def test_multiline_left_aligned(self):
+        """Multiple lines should render with vertical spacing."""
+        fb = Framebuffer()
+        lines = ["AB", "CD"]
+        render_multiline(fb, lines, 50, 50, 25, 40, line_spacing=10, align="left")
+
+        # Should have pixels in both top and bottom regions
+        top_count = sum(1 for x in range(fb.WIDTH) for y in range(50, 90)
+                       if fb.get_pixel(x, y))
+        bottom_count = sum(1 for x in range(fb.WIDTH) for y in range(100, 140)
+                          if fb.get_pixel(x, y))
+
+        self.assertGreater(top_count, 0, "Top line should have pixels")
+        self.assertGreater(bottom_count, 0, "Bottom line should have pixels")
+
+    def test_multiline_centered(self):
+        """Centered multiline text."""
+        fb = Framebuffer()
+        lines = ["X", "XYZ"]
+        render_multiline(fb, lines, 200, 50, 25, 40, line_spacing=10, align="center")
+
+        count = sum(1 for x in range(fb.WIDTH) for y in range(fb.HEIGHT)
+                   if fb.get_pixel(x, y))
+        self.assertGreater(count, 0)
+
+    def test_multiline_right_aligned(self):
+        """Right-aligned multiline text."""
+        fb = Framebuffer()
+        lines = ["12", "345"]
+        render_multiline(fb, lines, 300, 50, 25, 40, line_spacing=10, align="right")
+
+        count = sum(1 for x in range(fb.WIDTH) for y in range(fb.HEIGHT)
+                   if fb.get_pixel(x, y))
+        self.assertGreater(count, 0)
+
+    def test_empty_lines(self):
+        """Empty lines list should not crash."""
+        fb = Framebuffer()
+        render_multiline(fb, [], 50, 50, 25, 40)
+
+        # Should not crash, buffer should be empty
+        self.assertTrue(all(b == 0 for b in fb.buffer))
+
+    def test_kwargs_passed_through(self):
+        """Keyword arguments should be passed to render functions."""
+        fb1 = Framebuffer()
+        fb2 = Framebuffer()
+
+        render_multiline(fb1, ["A"], 50, 50, 30, 50, stroke_width=1)
+        render_multiline(fb2, ["A"], 50, 50, 30, 50, stroke_width=4)
+
+        count1 = sum(1 for x in range(fb1.WIDTH) for y in range(fb1.HEIGHT)
+                    if fb1.get_pixel(x, y))
+        count2 = sum(1 for x in range(fb2.WIDTH) for y in range(fb2.HEIGHT)
+                    if fb2.get_pixel(x, y))
+
+        self.assertGreater(count2, count1)
 
 
 class TestVisualOutput(unittest.TestCase):

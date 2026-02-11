@@ -31,7 +31,9 @@ A Python/Pygame simulator for prototyping 1-bit display designs before deploying
 - **Drawing primitives** - Bresenham lines, scanline polygon fill, midpoint circles
 - **Bayer dithering** - 5 pattern levels for visual texture (0%, 25%, 50%, 75%, 100%)
 - **Bezier curves** - Cubic beziers with auto-smooth tangents and texture-ball strokes
-- **Vector typography** - Geometric numerals (0-9) with scalable stroke width
+- **Vector typography** - Full A-Z alphabet, numerals 0-9, punctuation with scalable stroke width
+- **Animation system** - Breathing, wiggle, and transition effects for organic movement
+- **Layout helpers** - Centered, right-aligned, and multi-line text rendering
 
 #### Running the Simulator
 
@@ -45,15 +47,17 @@ python main.py --scale 2
 
 **Controls:**
 - `SPACE` - Cycle through demo modes
-- `1-4` - Jump to specific mode
+- `1-5` - Jump to specific mode
+- `A` - Toggle animation effects
 - `S` - Save screenshot
 - `Q` / `ESC` - Quit
 
 **Demo Modes:**
-1. **Patterns** - All 5 dither patterns in hexagonal shapes
-2. **Bezier** - Organic curves with texture-ball strokes
+1. **Patterns** - All 5 dither patterns in hexagonal shapes (breathing animation)
+2. **Bezier** - Organic curves with texture-ball strokes (wiggle animation)
 3. **Numerals** - Full digit set at multiple sizes with live clock
-4. **Clock Sketch** - Combined composition preview
+4. **Clock Sketch** - Combined composition preview (wiggle + breathing)
+5. **Typography** - Full A-Z alphabet, sample phrases, and mixed text
 
 ### hello_vu
 
@@ -85,9 +89,10 @@ RLCD/
 │   │   ├── primitives.py   # Lines, polygons, circles
 │   │   ├── patterns.py     # Bayer dither patterns
 │   │   ├── bezier.py       # Curves and texture-ball strokes
-│   │   ├── vector_font.py  # Geometric numerals
+│   │   ├── vector_font.py  # A-Z letters, numerals, punctuation
+│   │   ├── animation.py    # Breathing, wiggle, transitions
 │   │   └── display.py      # Pygame visualization
-│   ├── demo.py             # 4-mode interactive showcase
+│   ├── demo.py             # 5-mode interactive showcase
 │   └── main.py             # Entry point
 ├── hello_vu/               # ESP-IDF VU meter project
 │   ├── main/

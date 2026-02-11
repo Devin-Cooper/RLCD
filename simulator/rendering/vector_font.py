@@ -1,14 +1,15 @@
 """
-Vector font for geometric line-based numerals.
+Vector font for geometric line-based characters.
 
-This module provides scalable numerals for clock display rendering.
-Each numeral is defined as a series of line segment strokes in a
-0-100 unit coordinate space, allowing resolution-independent scaling.
+This module provides scalable numerals, letters, and punctuation for
+display rendering. Each character is defined as a series of line segment
+strokes in a 0-100 unit coordinate space, allowing resolution-independent scaling.
 
 Design style:
 - Angular/geometric aesthetic inspired by hexagonal shapes
-- Bold, readable silhouettes
+- Bold, readable silhouettes (spanning roughly 5-95 in x, 10-90 in y)
 - All straight line segments (no curves)
+- 15-unit diagonal cuts at corners for angular/hexagonal appearance
 - Optimized for 1-bit display with high contrast
 """
 
@@ -20,10 +21,10 @@ except ImportError:
     from primitives import draw_line
 
 
-# Each numeral is a list of strokes. Each stroke is a list of (x, y) points.
+# Each glyph is a list of strokes. Each stroke is a list of (x, y) points.
 # Coordinates are in a 0-100 unit square, scaled at render time.
 # Strokes are connected polylines - each point connects to the next.
-NUMERALS = {
+GLYPHS = {
     # 0: Hexagonal shape with angled corners
     '0': [
         [(20, 10), (80, 10), (95, 25), (95, 75), (80, 90), (20, 90), (5, 75), (5, 25), (20, 10)]
@@ -96,7 +97,176 @@ NUMERALS = {
     '.': [
         [(50, 80), (58, 85), (50, 90), (42, 85), (50, 80)]
     ],
+
+    # Forward slash
+    '/': [
+        [(85, 10), (15, 90)]
+    ],
+
+    # Degree symbol (small circle at top)
+    '°': [
+        [(30, 10), (70, 10), (85, 25), (85, 40), (70, 55), (30, 55), (15, 40), (15, 25), (30, 10)]
+    ],
+
+    # Percent sign
+    '%': [
+        [(85, 10), (15, 90)],  # Slash
+        [(15, 10), (35, 10), (40, 15), (40, 30), (35, 35), (15, 35), (10, 30), (10, 15), (15, 10)],  # Top circle
+        [(65, 65), (85, 65), (90, 70), (90, 85), (85, 90), (65, 90), (60, 85), (60, 70), (65, 65)]  # Bottom circle
+    ],
+
+    # Uppercase letters A-Z with angular/hexagonal style
+    'A': [
+        [(5, 90), (5, 75), (20, 10), (80, 10), (95, 75), (95, 90)],
+        [(20, 60), (80, 60)]
+    ],
+
+    'B': [
+        [(10, 10), (10, 90), (75, 90), (90, 75), (90, 55), (75, 45)],
+        [(10, 45), (75, 45), (90, 35), (90, 20), (75, 10), (10, 10)]
+    ],
+
+    'C': [
+        [(90, 25), (75, 10), (25, 10), (10, 25), (10, 75), (25, 90), (75, 90), (90, 75)]
+    ],
+
+    'D': [
+        [(10, 10), (10, 90), (70, 90), (90, 70), (90, 30), (70, 10), (10, 10)]
+    ],
+
+    'E': [
+        [(90, 10), (10, 10), (10, 90), (90, 90)],
+        [(10, 50), (70, 50)]
+    ],
+
+    'F': [
+        [(90, 10), (10, 10), (10, 90)],
+        [(10, 50), (70, 50)]
+    ],
+
+    'G': [
+        [(90, 25), (75, 10), (25, 10), (10, 25), (10, 75), (25, 90), (75, 90), (90, 75), (90, 50), (50, 50)]
+    ],
+
+    'H': [
+        [(10, 10), (10, 90)],
+        [(90, 10), (90, 90)],
+        [(10, 50), (90, 50)]
+    ],
+
+    'I': [
+        [(30, 10), (70, 10)],
+        [(50, 10), (50, 90)],
+        [(30, 90), (70, 90)]
+    ],
+
+    'J': [
+        [(30, 10), (90, 10)],
+        [(70, 10), (70, 75), (55, 90), (25, 90), (10, 75)]
+    ],
+
+    'K': [
+        [(10, 10), (10, 90)],
+        [(90, 10), (10, 50), (90, 90)]
+    ],
+
+    'L': [
+        [(10, 10), (10, 90), (90, 90)]
+    ],
+
+    'M': [
+        [(5, 90), (5, 20), (15, 10), (50, 45), (85, 10), (95, 20), (95, 90)]
+    ],
+
+    'N': [
+        [(10, 90), (10, 20), (20, 10), (90, 80), (90, 10)]
+    ],
+
+    'O': [
+        [(20, 10), (80, 10), (95, 25), (95, 75), (80, 90), (20, 90), (5, 75), (5, 25), (20, 10)]
+    ],
+
+    'P': [
+        [(10, 90), (10, 10), (75, 10), (90, 25), (90, 40), (75, 55), (10, 55)]
+    ],
+
+    'Q': [
+        [(20, 10), (80, 10), (95, 25), (95, 75), (80, 90), (20, 90), (5, 75), (5, 25), (20, 10)],
+        [(60, 65), (95, 95)]
+    ],
+
+    'R': [
+        [(10, 90), (10, 10), (75, 10), (90, 25), (90, 40), (75, 55), (10, 55)],
+        [(55, 55), (90, 90)]
+    ],
+
+    'S': [
+        [(90, 25), (75, 10), (25, 10), (10, 25), (10, 40), (25, 50), (75, 50), (90, 60), (90, 75), (75, 90), (25, 90), (10, 75)]
+    ],
+
+    'T': [
+        [(10, 10), (90, 10)],
+        [(50, 10), (50, 90)]
+    ],
+
+    'U': [
+        [(10, 10), (10, 75), (25, 90), (75, 90), (90, 75), (90, 10)]
+    ],
+
+    'V': [
+        [(5, 10), (50, 90), (95, 10)]
+    ],
+
+    'W': [
+        [(5, 10), (20, 90), (50, 55), (80, 90), (95, 10)]
+    ],
+
+    'X': [
+        [(10, 10), (90, 90)],
+        [(90, 10), (10, 90)]
+    ],
+
+    'Y': [
+        [(10, 10), (50, 50), (90, 10)],
+        [(50, 50), (50, 90)]
+    ],
+
+    'Z': [
+        [(10, 10), (90, 10), (10, 90), (90, 90)]
+    ],
 }
+
+# Backward compatibility alias
+NUMERALS = GLYPHS
+
+
+def _get_char_width(char: str, char_width: int) -> int:
+    """
+    Get the actual width for a character.
+
+    Args:
+        char: The character
+        char_width: The base character width
+
+    Returns:
+        The actual width for the character
+    """
+    if char == ':':
+        return char_width // 2
+    elif char == '.':
+        return char_width // 3
+    elif char == '-':
+        return char_width * 2 // 3
+    elif char == '/':
+        return char_width // 2
+    elif char == '°':
+        return char_width // 3
+    elif char == '%':
+        return char_width
+    elif char == ' ':
+        return char_width // 2
+    else:
+        return char_width
 
 
 def _scale_point(x: float, y: float,
@@ -183,11 +353,11 @@ def render_numeral(
     color: bool = True
 ) -> None:
     """
-    Render a numeral scaled to fit bounding box.
+    Render a character scaled to fit bounding box.
 
     Args:
         fb: Framebuffer to draw on
-        char: Character to render ('0'-'9', ':', '-', '.')
+        char: Character to render (0-9, A-Z, punctuation)
         x: Left edge of bounding box
         y: Top edge of bounding box
         width: Width of bounding box
@@ -195,10 +365,10 @@ def render_numeral(
         stroke_width: Width of strokes in pixels (default 2)
         color: True for black, False for white (default True)
     """
-    if char not in NUMERALS:
+    if char not in GLYPHS:
         return
 
-    strokes = NUMERALS[char]
+    strokes = GLYPHS[char]
 
     for stroke in strokes:
         if len(stroke) < 2:
@@ -226,7 +396,7 @@ def render_string(
     **kwargs
 ) -> None:
     """
-    Render string of numerals with spacing.
+    Render string of characters with spacing.
 
     Args:
         fb: Framebuffer to draw on
@@ -242,22 +412,14 @@ def render_string(
     current_x = x
 
     for char in text:
-        if char in NUMERALS:
-            # Colon is typically narrower
-            if char == ':':
-                actual_width = char_width // 2
-            elif char == '.':
-                actual_width = char_width // 3
-            elif char == '-':
-                actual_width = char_width * 2 // 3
-            else:
-                actual_width = char_width
+        actual_width = _get_char_width(char, char_width)
 
+        if char in GLYPHS:
             render_numeral(fb, char, current_x, y, actual_width, char_height, **kwargs)
             current_x += actual_width + spacing
         elif char == ' ':
             # Space advances by half character width
-            current_x += char_width // 2 + spacing
+            current_x += actual_width + spacing
         else:
             # Unknown character - skip but advance
             current_x += char_width + spacing
@@ -285,23 +447,105 @@ def get_string_width(
     total_width = 0
 
     for i, char in enumerate(text):
-        if char in NUMERALS:
-            if char == ':':
-                actual_width = char_width // 2
-            elif char == '.':
-                actual_width = char_width // 3
-            elif char == '-':
-                actual_width = char_width * 2 // 3
-            else:
-                actual_width = char_width
-            total_width += actual_width
-        elif char == ' ':
-            total_width += char_width // 2
-        else:
-            total_width += char_width
+        total_width += _get_char_width(char, char_width)
 
         # Add spacing after each character except the last
         if i < len(text) - 1:
             total_width += spacing
 
     return total_width
+
+
+def render_string_centered(
+    fb: Framebuffer,
+    text: str,
+    center_x: int, y: int,
+    char_width: int, char_height: int,
+    spacing: int = 4,
+    **kwargs
+) -> None:
+    """
+    Render string of characters centered horizontally on center_x.
+
+    Args:
+        fb: Framebuffer to draw on
+        text: String to render
+        center_x: X coordinate for the center of the string
+        y: Top edge of bounding box
+        char_width: Width of each character bounding box
+        char_height: Height of each character bounding box
+        spacing: Horizontal spacing between characters (default 4)
+        **kwargs: Additional arguments passed to render_numeral
+                  (stroke_width, color)
+    """
+    string_width = get_string_width(text, char_width, spacing)
+    x = center_x - string_width // 2
+    render_string(fb, text, x, y, char_width, char_height, spacing, **kwargs)
+
+
+def render_string_right(
+    fb: Framebuffer,
+    text: str,
+    right_x: int, y: int,
+    char_width: int, char_height: int,
+    spacing: int = 4,
+    **kwargs
+) -> None:
+    """
+    Render string of characters right-aligned at right_x.
+
+    Args:
+        fb: Framebuffer to draw on
+        text: String to render
+        right_x: X coordinate for the right edge of the string
+        y: Top edge of bounding box
+        char_width: Width of each character bounding box
+        char_height: Height of each character bounding box
+        spacing: Horizontal spacing between characters (default 4)
+        **kwargs: Additional arguments passed to render_numeral
+                  (stroke_width, color)
+    """
+    string_width = get_string_width(text, char_width, spacing)
+    x = right_x - string_width
+    render_string(fb, text, x, y, char_width, char_height, spacing, **kwargs)
+
+
+def render_multiline(
+    fb: Framebuffer,
+    lines: list[str],
+    x: int, y: int,
+    char_width: int, char_height: int,
+    line_spacing: int = 8,
+    align: str = "left",
+    **kwargs
+) -> None:
+    """
+    Render multiple lines of text with vertical spacing.
+
+    Args:
+        fb: Framebuffer to draw on
+        lines: List of strings to render
+        x: X coordinate (left edge for "left", center for "center", right edge for "right")
+        y: Top edge of first line
+        char_width: Width of each character bounding box
+        char_height: Height of each character bounding box
+        line_spacing: Vertical spacing between lines (default 8)
+        align: Text alignment - "left", "center", or "right" (default "left")
+        **kwargs: Additional arguments passed to render_numeral
+                  (stroke_width, color, spacing)
+    """
+    spacing = kwargs.pop('spacing', 4)
+    current_y = y
+
+    for line in lines:
+        if align == "center":
+            render_string_centered(fb, line, x, current_y, char_width, char_height,
+                                   spacing=spacing, **kwargs)
+        elif align == "right":
+            render_string_right(fb, line, x, current_y, char_width, char_height,
+                                spacing=spacing, **kwargs)
+        else:  # left
+            render_string(fb, line, x, current_y, char_width, char_height,
+                          spacing=spacing, **kwargs)
+
+        current_y += char_height + line_spacing

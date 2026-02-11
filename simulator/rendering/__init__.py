@@ -25,10 +25,25 @@ from .bezier import (
     DEFAULT_BALL_8X8,
 )
 from .vector_font import (
+    GLYPHS,
     NUMERALS,
     render_numeral,
     render_string,
+    render_string_centered,
+    render_string_right,
+    render_multiline,
     get_string_width,
+)
+from .animation import (
+    lerp,
+    ease_in_out,
+    ease_in_out_sine,
+    breathing_scale,
+    breathing_offset,
+    wiggle_points,
+    wiggle_int_points,
+    transition_points,
+    AnimationState,
 )
 
 # Display is optional - only imported if pygame is available
@@ -58,9 +73,23 @@ __all__ = [
     "stroke_bezier_texture_ball",
     "draw_bezier_curve",
     "DEFAULT_BALL_8X8",
+    "GLYPHS",
     "NUMERALS",
     "render_numeral",
     "render_string",
+    "render_string_centered",
+    "render_string_right",
+    "render_multiline",
     "get_string_width",
     "Display",
+    # Animation functions
+    "lerp",
+    "ease_in_out",
+    "ease_in_out_sine",
+    "breathing_scale",
+    "breathing_offset",
+    "wiggle_points",
+    "wiggle_int_points",
+    "transition_points",
+    "AnimationState",
 ]

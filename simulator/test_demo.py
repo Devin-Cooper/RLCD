@@ -94,14 +94,16 @@ class TestToolkitDemo:
     """Tests for the ToolkitDemo class."""
 
     def test_initialization(self):
-        """Demo should initialize with mode 0."""
+        """Demo should initialize with mode 0 and animation enabled."""
         fb = Framebuffer()
         demo = ToolkitDemo(fb)
         assert demo.mode == 0
         assert demo.fb is fb
+        assert demo.animation_enabled is True
+        assert demo.frame == 0
 
     def test_next_mode_cycles(self):
-        """next_mode should cycle through 0-3."""
+        """next_mode should cycle through 0-4."""
         fb = Framebuffer()
         demo = ToolkitDemo(fb)
 
@@ -113,10 +115,12 @@ class TestToolkitDemo:
         demo.next_mode()
         assert demo.mode == 3
         demo.next_mode()
+        assert demo.mode == 4
+        demo.next_mode()
         assert demo.mode == 0  # Wraps around
 
     def test_set_mode_valid(self):
-        """set_mode should accept valid modes 0-3."""
+        """set_mode should accept valid modes 0-4."""
         fb = Framebuffer()
         demo = ToolkitDemo(fb)
 
@@ -129,6 +133,9 @@ class TestToolkitDemo:
         demo.set_mode(3)
         assert demo.mode == 3
 
+        demo.set_mode(4)
+        assert demo.mode == 4
+
     def test_set_mode_invalid(self):
         """set_mode should ignore invalid modes."""
         fb = Framebuffer()
@@ -140,7 +147,7 @@ class TestToolkitDemo:
         demo.set_mode(-1)  # Invalid
         assert demo.mode == 2  # Unchanged
 
-        demo.set_mode(4)  # Invalid
+        demo.set_mode(5)  # Invalid
         assert demo.mode == 2  # Unchanged
 
     def test_get_mode_name(self):
@@ -159,6 +166,38 @@ class TestToolkitDemo:
 
         demo.set_mode(3)
         assert demo.get_mode_name() == "Clock Sketch"
+
+        demo.set_mode(4)
+        assert demo.get_mode_name() == "Typography"
+
+    def test_toggle_animation(self):
+        """toggle_animation should toggle and return new state."""
+        fb = Framebuffer()
+        demo = ToolkitDemo(fb)
+
+        # Initially enabled
+        assert demo.animation_enabled is True
+
+        # Toggle off
+        result = demo.toggle_animation()
+        assert result is False
+        assert demo.animation_enabled is False
+
+        # Toggle on
+        result = demo.toggle_animation()
+        assert result is True
+        assert demo.animation_enabled is True
+
+    def test_frame_increments_on_draw(self):
+        """Frame counter should increment each time draw() is called."""
+        fb = Framebuffer()
+        demo = ToolkitDemo(fb)
+
+        assert demo.frame == 0
+        demo.draw()
+        assert demo.frame == 1
+        demo.draw()
+        assert demo.frame == 2
 
 
 class TestDemoDrawing:
@@ -249,14 +288,33 @@ class TestDemoDrawing:
         )
         assert has_black
 
+    def test_draw_typography_mode(self):
+        """Drawing in typography mode should not crash."""
+        fb = Framebuffer()
+        demo = ToolkitDemo(fb)
+        demo.set_mode(4)
+
+        # Should not raise
+        demo.draw()
+
+        # Framebuffer should have some pixels set
+        has_black = any(
+            fb.get_pixel(x, y)
+            for x in range(0, fb.WIDTH, 10)
+            for y in range(0, fb.HEIGHT, 10)
+        )
+        assert has_black
+
     def test_all_modes_produce_different_output(self):
         """Each mode should produce visually different output."""
         fb = Framebuffer()
         demo = ToolkitDemo(fb)
+        # Disable animation for consistent output
+        demo.animation_enabled = False
 
         # Collect pixel patterns for each mode
         patterns = []
-        for mode in range(4):
+        for mode in range(5):
             demo.set_mode(mode)
             demo.draw()
 
@@ -283,6 +341,7 @@ class TestDemoModeConstants:
         assert hasattr(ToolkitDemo, "MODE_BEZIER")
         assert hasattr(ToolkitDemo, "MODE_NUMERALS")
         assert hasattr(ToolkitDemo, "MODE_CLOCK")
+        assert hasattr(ToolkitDemo, "MODE_TYPOGRAPHY")
 
     def test_mode_constants_values(self):
         """Mode constants should have correct values."""
@@ -290,11 +349,74 @@ class TestDemoModeConstants:
         assert ToolkitDemo.MODE_BEZIER == 1
         assert ToolkitDemo.MODE_NUMERALS == 2
         assert ToolkitDemo.MODE_CLOCK == 3
+        assert ToolkitDemo.MODE_TYPOGRAPHY == 4
 
     def test_mode_names_list(self):
-        """MODE_NAMES should have 4 entries."""
-        assert len(ToolkitDemo.MODE_NAMES) == 4
+        """MODE_NAMES should have 5 entries."""
+        assert len(ToolkitDemo.MODE_NAMES) == 5
         assert all(isinstance(name, str) for name in ToolkitDemo.MODE_NAMES)
+
+
+class TestAnimationHelpers:
+    """Tests for animation helper methods."""
+
+    def test_breathing_scale_range(self):
+        """Breathing scale should stay within min/max bounds."""
+        fb = Framebuffer()
+        demo = ToolkitDemo(fb)
+
+        # Test over many frames
+        for frame in range(200):
+            demo.frame = frame
+            scale = demo._breathing_scale(speed=1.0, min_val=0.9, max_val=1.1)
+            assert 0.9 <= scale <= 1.1, f"Scale {scale} out of bounds at frame {frame}"
+
+    def test_breathing_scale_default_params(self):
+        """Breathing scale with defaults should work."""
+        fb = Framebuffer()
+        demo = ToolkitDemo(fb)
+        demo.frame = 50
+
+        scale = demo._breathing_scale()
+        assert 0.95 <= scale <= 1.05
+
+    def test_wiggle_offset_returns_tuple(self):
+        """Wiggle offset should return a tuple of two floats."""
+        fb = Framebuffer()
+        demo = ToolkitDemo(fb)
+        demo.frame = 25
+
+        offset = demo._wiggle_offset(seed=0, amplitude=2.0, frequency=1.0)
+        assert isinstance(offset, tuple)
+        assert len(offset) == 2
+        assert isinstance(offset[0], float)
+        assert isinstance(offset[1], float)
+
+    def test_wiggle_offset_amplitude(self):
+        """Wiggle offset should stay within amplitude bounds."""
+        fb = Framebuffer()
+        demo = ToolkitDemo(fb)
+
+        amplitude = 5.0
+        for frame in range(200):
+            demo.frame = frame
+            dx, dy = demo._wiggle_offset(seed=0, amplitude=amplitude)
+            assert abs(dx) <= amplitude, f"dx {dx} exceeds amplitude at frame {frame}"
+            assert abs(dy) <= amplitude, f"dy {dy} exceeds amplitude at frame {frame}"
+
+    def test_wiggle_offset_different_seeds(self):
+        """Different seeds should produce different offsets."""
+        fb = Framebuffer()
+        demo = ToolkitDemo(fb)
+        demo.frame = 50
+
+        offset0 = demo._wiggle_offset(seed=0)
+        offset1 = demo._wiggle_offset(seed=1)
+        offset2 = demo._wiggle_offset(seed=2)
+
+        # At least some should be different (very unlikely to be same)
+        offsets = [offset0, offset1, offset2]
+        assert len(set(offsets)) > 1, "Different seeds should produce different offsets"
 
 
 if __name__ == "__main__":

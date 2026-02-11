@@ -2,18 +2,20 @@
 """
 Interactive toolkit demo for RLCD rendering engine.
 
-Provides a 4-mode showcase of the rendering toolkit capabilities:
+Provides a 5-mode showcase of the rendering toolkit capabilities:
 1. Patterns - Dither pattern showcase in hexagonal shapes
 2. Bezier - Organic curves with texture-ball strokes
 3. Numerals - Full digit set at various sizes
 4. Clock sketch - Composition preview combining all features
+5. Typography - Full alphabet and text samples
 
 Usage:
     python demo.py [--scale N]
 
 Controls:
     SPACE  - Cycle to next demo mode
-    1-4    - Jump to specific mode
+    1-5    - Jump to specific mode
+    A      - Toggle animation
     Q/ESC  - Quit
 """
 
@@ -65,14 +67,15 @@ def generate_rounded_rect_points(
 
 
 class ToolkitDemo:
-    """Interactive 4-mode toolkit demonstration."""
+    """Interactive 5-mode toolkit demonstration."""
 
     MODE_PATTERNS = 0
     MODE_BEZIER = 1
     MODE_NUMERALS = 2
     MODE_CLOCK = 3
+    MODE_TYPOGRAPHY = 4
 
-    MODE_NAMES = ["Patterns", "Bezier Curves", "Numerals", "Clock Sketch"]
+    MODE_NAMES = ["Patterns", "Bezier Curves", "Numerals", "Clock Sketch", "Typography"]
 
     def __init__(self, fb: Framebuffer):
         """
@@ -83,15 +86,37 @@ class ToolkitDemo:
         """
         self.fb = fb
         self.mode = 0
+        self.animation_enabled = True
+        self.frame = 0
 
     def next_mode(self) -> None:
         """Cycle to the next demo mode."""
-        self.mode = (self.mode + 1) % 4
+        self.mode = (self.mode + 1) % 5
 
     def set_mode(self, mode: int) -> None:
-        """Set a specific demo mode (0-3)."""
-        if 0 <= mode < 4:
+        """Set a specific demo mode (0-4)."""
+        if 0 <= mode < 5:
             self.mode = mode
+
+    def toggle_animation(self) -> bool:
+        """Toggle animation on/off and return new state."""
+        self.animation_enabled = not self.animation_enabled
+        return self.animation_enabled
+
+    def _breathing_scale(self, speed=1.0, min_val=0.95, max_val=1.05) -> float:
+        """Calculate breathing scale based on frame count."""
+        t = self.frame * speed * 0.05  # Convert frames to time-like value
+        factor = (math.sin(t) + 1) / 2  # 0 to 1
+        return min_val + factor * (max_val - min_val)
+
+    def _wiggle_offset(self, seed=0, amplitude=2.0, frequency=1.0) -> tuple[float, float]:
+        """Calculate wiggle offset based on frame count and seed."""
+        t = self.frame * 0.1 * frequency
+        phase_x = seed * 2.39996  # Golden angle for variety
+        phase_y = seed * 1.61803
+        dx = amplitude * math.sin(t + phase_x)
+        dy = amplitude * math.cos(t + phase_y)
+        return (dx, dy)
 
     def get_mode_name(self) -> str:
         """Get the name of the current mode."""
@@ -100,6 +125,7 @@ class ToolkitDemo:
     def draw(self) -> None:
         """Draw the current demo mode."""
         self.fb.clear()
+        self.frame += 1  # Increment each frame
 
         if self.mode == 0:
             self._demo_patterns()
@@ -109,6 +135,8 @@ class ToolkitDemo:
             self._demo_numerals()
         elif self.mode == 3:
             self._demo_clock_sketch()
+        elif self.mode == 4:
+            self._demo_typography()
 
         # Draw mode indicator at bottom
         self._draw_mode_label()
@@ -142,8 +170,13 @@ class ToolkitDemo:
         ]
 
         # Calculate hexagon layout
-        hex_radius = 45
-        spacing = hex_radius * 2 + 20
+        base_hex_radius = 45
+        if self.animation_enabled:
+            breathing = self._breathing_scale(speed=0.8, min_val=0.95, max_val=1.05)
+            hex_radius = int(base_hex_radius * breathing)
+        else:
+            hex_radius = base_hex_radius
+        spacing = base_hex_radius * 2 + 20
         start_x = 70
         center_y = self.fb.HEIGHT // 2 - 20
 
@@ -198,13 +231,20 @@ class ToolkitDemo:
         # Draw several bezier curves showcasing the organic stroke style
 
         # 1. Flowing S-curve across the top
-        s_curve_points = [
+        base_s_curve_points = [
             (50.0, 80.0),
             (130.0, 40.0),
             (200.0, 120.0),
             (280.0, 60.0),
             (350.0, 100.0),
         ]
+        if self.animation_enabled:
+            s_curve_points = []
+            for idx, (x, y) in enumerate(base_s_curve_points):
+                dx, dy = self._wiggle_offset(seed=idx, amplitude=3.0)
+                s_curve_points.append((x + dx, y + dy))
+        else:
+            s_curve_points = base_s_curve_points
         stroke_bezier_texture_ball(
             self.fb,
             s_curve_points,
@@ -380,14 +420,19 @@ class ToolkitDemo:
             spacing=2.5,
         )
 
-        # Render time centered in the frame
+        # Render time centered in the frame (with optional wiggle)
         time_width = get_string_width(time_str, char_width=48, spacing=8)
         time_x = 60 + (280 - time_width) // 2
+        time_y = 90
+        if self.animation_enabled:
+            dx, dy = self._wiggle_offset(seed=0, amplitude=2.0, frequency=0.5)
+            time_x = int(time_x + dx)
+            time_y = int(time_y + dy)
         render_string(
             self.fb,
             time_str,
             time_x,
-            90,
+            time_y,
             char_width=48,
             char_height=65,
             spacing=8,
@@ -395,14 +440,21 @@ class ToolkitDemo:
         )
 
         # Draw decorative hexagonal containers with patterns on sides
+        # Calculate breathing radius for decorative hexagons
+        base_side_radius = 28
+        if self.animation_enabled:
+            breathing = self._breathing_scale(speed=0.6, min_val=0.92, max_val=1.08)
+            side_radius = int(base_side_radius * breathing)
+        else:
+            side_radius = base_side_radius
 
         # Left hexagon with DENSE pattern
-        left_hex = generate_hexagon(35, 120, 28)
+        left_hex = generate_hexagon(35, 120, side_radius)
         draw_polygon(self.fb, left_hex, True)
         fill_polygon_pattern(self.fb, left_hex, Pattern.DENSE)
 
         # Right hexagon with MEDIUM pattern
-        right_hex = generate_hexagon(365, 120, 28)
+        right_hex = generate_hexagon(365, 120, side_radius)
         draw_polygon(self.fb, right_hex, True)
         fill_polygon_pattern(self.fb, right_hex, Pattern.MEDIUM)
 
@@ -443,14 +495,21 @@ class ToolkitDemo:
         )
 
         # Decorative corner elements with small hexagons and patterns
+        # Calculate breathing radius for corner hexagons
+        base_corner_radius = 18
+        if self.animation_enabled:
+            corner_breathing = self._breathing_scale(speed=1.0, min_val=0.9, max_val=1.1)
+            corner_radius = int(base_corner_radius * corner_breathing)
+        else:
+            corner_radius = base_corner_radius
 
         # Top-left corner
-        tl_hex = generate_hexagon(25, 25, 18)
+        tl_hex = generate_hexagon(25, 25, corner_radius)
         draw_polygon(self.fb, tl_hex, True)
         fill_polygon_pattern(self.fb, tl_hex, Pattern.SPARSE)
 
         # Top-right corner
-        tr_hex = generate_hexagon(375, 25, 18)
+        tr_hex = generate_hexagon(375, 25, corner_radius)
         draw_polygon(self.fb, tr_hex, True)
         fill_polygon_pattern(self.fb, tr_hex, Pattern.SPARSE)
 
@@ -488,6 +547,109 @@ class ToolkitDemo:
         br_hex = generate_hexagon(375, 265, 12)
         fill_polygon(self.fb, br_hex, True)
 
+    def _demo_typography(self) -> None:
+        """
+        Demo mode 5: Typography showcase.
+
+        Displays the full alphabet and various text samples:
+        - Full A-Z in two rows
+        - Sample phrase "THE QUICK BROWN FOX"
+        - Day abbreviations
+        - Month abbreviations
+        - Mixed display with date/time/weather format
+        """
+        y_offset = 10
+
+        # Row 1: A-M
+        render_string(
+            self.fb,
+            "ABCDEFGHIJKLM",
+            10,
+            y_offset,
+            char_width=28,
+            char_height=36,
+            spacing=2,
+            stroke_width=2,
+        )
+        y_offset += 42
+
+        # Row 2: N-Z
+        render_string(
+            self.fb,
+            "NOPQRSTUVWXYZ",
+            10,
+            y_offset,
+            char_width=28,
+            char_height=36,
+            spacing=2,
+            stroke_width=2,
+        )
+        y_offset += 48
+
+        # Sample phrase
+        render_string(
+            self.fb,
+            "THE QUICK BROWN FOX",
+            10,
+            y_offset,
+            char_width=18,
+            char_height=24,
+            spacing=2,
+            stroke_width=2,
+        )
+        y_offset += 32
+
+        # Day abbreviations
+        render_string(
+            self.fb,
+            "SUN MON TUE WED THU FRI SAT",
+            10,
+            y_offset,
+            char_width=12,
+            char_height=16,
+            spacing=2,
+            stroke_width=1,
+        )
+        y_offset += 24
+
+        # Month abbreviations - row 1
+        render_string(
+            self.fb,
+            "JAN FEB MAR APR MAY JUN",
+            10,
+            y_offset,
+            char_width=12,
+            char_height=16,
+            spacing=2,
+            stroke_width=1,
+        )
+        y_offset += 22
+
+        # Month abbreviations - row 2
+        render_string(
+            self.fb,
+            "JUL AUG SEP OCT NOV DEC",
+            10,
+            y_offset,
+            char_width=12,
+            char_height=16,
+            spacing=2,
+            stroke_width=1,
+        )
+        y_offset += 28
+
+        # Mixed display: date/time/temperature format
+        render_string(
+            self.fb,
+            "MON 02/10 72F 45%",
+            20,
+            y_offset,
+            char_width=20,
+            char_height=28,
+            spacing=3,
+            stroke_width=2,
+        )
+
 
 def run_demo(scale: int = 2) -> int:
     """
@@ -516,7 +678,8 @@ def run_demo(scale: int = 2) -> int:
     print(f"Display: {fb.WIDTH}x{fb.HEIGHT} (scale: {scale}x)")
     print("\nControls:")
     print("  SPACE  - Next mode")
-    print("  1-4    - Jump to mode")
+    print("  1-5    - Jump to mode")
+    print("  A      - Toggle animation")
     print("  S      - Save screenshot")
     print("  Q/ESC  - Quit")
     print(f"\nStarting in mode: {demo.get_mode_name()}")
@@ -547,6 +710,12 @@ def run_demo(scale: int = 2) -> int:
                     elif event.key == pygame.K_4:
                         demo.set_mode(3)
                         print(f"Mode: {demo.get_mode_name()}")
+                    elif event.key == pygame.K_5:
+                        demo.set_mode(4)
+                        print(f"Mode: {demo.get_mode_name()}")
+                    elif event.key == pygame.K_a:
+                        enabled = demo.toggle_animation()
+                        print(f"Animation: {'ON' if enabled else 'OFF'}")
                     elif event.key == pygame.K_s:
                         filename = f"demo_mode{demo.mode + 1}_{int(time.time())}.png"
                         display.save_screenshot(filename)
