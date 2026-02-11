@@ -10,6 +10,7 @@
 #include "rendering/bezier.hpp"
 #include "rendering/vector_font.hpp"
 #include "rendering/animation.hpp"
+#include "rendering/clock_face.hpp"
 #include "st7305.hpp"
 
 static const char* TAG = "main";
@@ -272,6 +273,39 @@ static void demoLowercase(IFramebuffer& fb) {
     renderString(fb, "fox jumps lazy", 10, 250, 16, 22, 2, 2, BLACK);
 }
 
+// Demo: Clock face
+static void demoClock(IFramebuffer& fb, st7305::Display& display) {
+    ESP_LOGI(TAG, "Demo: Observatory Clock");
+
+    AnimationState anim(getTime());
+    constexpr uint32_t CLOCK_SEED = 42;
+
+    // Mock clock data
+    ClockData clockData = {
+        .hours = 14,       // 2 PM
+        .minutes = 47,
+        .dayOfWeek = 2,    // Tuesday
+        .month = 2,
+        .day = 11,
+        .tempF = 68,
+        .humidity = 45
+    };
+
+    for (int frame = 0; frame < 300; frame++) {  // 30 seconds at 10 FPS
+        anim.update(getTime());
+
+        ClockAnimState clockAnim = {
+            .elapsed = anim.elapsed(),
+            .showColon = (static_cast<int>(anim.elapsed() * 2) % 2) == 0  // 0.5 Hz blink
+        };
+
+        renderObservatoryClock(fb, clockData, clockAnim, CLOCK_SEED);
+
+        display.show(fb);
+        vTaskDelay(pdMS_TO_TICKS(100));  // 10 FPS
+    }
+}
+
 // Run all demos
 static void runDemos(IFramebuffer& fb, st7305::Display& display) {
     // Primitives
@@ -305,6 +339,9 @@ static void runDemos(IFramebuffer& fb, st7305::Display& display) {
     demoLowercase(fb);
     display.show(fb);
     vTaskDelay(pdMS_TO_TICKS(2000));
+
+    // Clock face
+    demoClock(fb, display);
 }
 
 extern "C" void app_main() {
