@@ -15,6 +15,15 @@ from .patterns import (
     pattern_test,
     fill_polygon_pattern,
 )
+from .bezier import (
+    auto_tangent,
+    cubic_bezier,
+    cubic_bezier_derivative,
+    subdivide_bezier,
+    stroke_bezier_texture_ball,
+    draw_bezier_curve,
+    DEFAULT_BALL_8X8,
+)
 
 __all__ = [
     "Framebuffer",
@@ -28,4 +37,11 @@ __all__ = [
     "Pattern",
     "pattern_test",
     "fill_polygon_pattern",
+    "auto_tangent",
+    "cubic_bezier",
+    "cubic_bezier_derivative",
+    "subdivide_bezier",
+    "stroke_bezier_texture_ball",
+    "draw_bezier_curve",
+    "DEFAULT_BALL_8X8",
 ]
