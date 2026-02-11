@@ -560,4 +560,30 @@ void renderMultiline(IFramebuffer& fb, const char* const* lines, size_t lineCoun
     }
 }
 
+void renderStringWithHalo(IFramebuffer& fb, const char* text, int16_t x, int16_t y,
+                          int16_t charWidth, int16_t charHeight, int16_t spacing,
+                          int16_t strokeWidth, Color textColor, Color haloColor) {
+    // Render halo in 8 directions (±1 pixel offsets)
+    for (int16_t dx = -1; dx <= 1; dx++) {
+        for (int16_t dy = -1; dy <= 1; dy++) {
+            if (dx == 0 && dy == 0) continue;
+            renderString(fb, text, x + dx, y + dy, charWidth, charHeight,
+                        spacing, strokeWidth, haloColor);
+        }
+    }
+    // Render text on top
+    renderString(fb, text, x, y, charWidth, charHeight, spacing, strokeWidth, textColor);
+}
+
+void renderStringCenteredWithHalo(IFramebuffer& fb, const char* text,
+                                   int16_t centerX, int16_t y,
+                                   int16_t charWidth, int16_t charHeight,
+                                   int16_t spacing, int16_t strokeWidth,
+                                   Color textColor, Color haloColor) {
+    int16_t width = getStringWidth(text, charWidth, spacing);
+    int16_t x = centerX - width / 2;
+    renderStringWithHalo(fb, text, x, y, charWidth, charHeight, spacing,
+                         strokeWidth, textColor, haloColor);
+}
+
 } // namespace rendering

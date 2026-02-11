@@ -47,6 +47,19 @@ void renderStringRight(IFramebuffer& fb, const char* text, int16_t rightX, int16
                        int16_t charWidth, int16_t charHeight, int16_t spacing = 4,
                        int16_t strokeWidth = 2, Color color = BLACK);
 
+/// Render string with contrasting halo (for text on patterned backgrounds)
+/// Renders text with an outline in haloColor, then text in textColor on top
+void renderStringWithHalo(IFramebuffer& fb, const char* text, int16_t x, int16_t y,
+                          int16_t charWidth, int16_t charHeight, int16_t spacing,
+                          int16_t strokeWidth, Color textColor, Color haloColor);
+
+/// Render centered string with contrasting halo
+void renderStringCenteredWithHalo(IFramebuffer& fb, const char* text,
+                                   int16_t centerX, int16_t y,
+                                   int16_t charWidth, int16_t charHeight,
+                                   int16_t spacing, int16_t strokeWidth,
+                                   Color textColor, Color haloColor);
+
 /// Text alignment options for multiline rendering
 enum class TextAlign { Left, Center, Right };
 
