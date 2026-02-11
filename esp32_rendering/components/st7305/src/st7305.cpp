@@ -266,8 +266,8 @@ void Display::initDisplay() {
     sendCommand(0xB8);
     sendData(0x29);
 
-    // Display Inversion
-    sendCommand(0x21);
+    // Display Inversion Off (0x20) - use 0x21 for inverted
+    sendCommand(0x20);
 
     // Column Address Set
     sendCommand(0x2A);
