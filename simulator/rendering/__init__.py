@@ -31,6 +31,14 @@ from .vector_font import (
     get_string_width,
 )
 
+# Display is optional - only imported if pygame is available
+try:
+    from .display import Display
+    _HAS_PYGAME = True
+except ImportError:
+    Display = None  # type: ignore
+    _HAS_PYGAME = False
+
 __all__ = [
     "Framebuffer",
     "draw_line",
@@ -54,4 +62,5 @@ __all__ = [
     "render_numeral",
     "render_string",
     "get_string_width",
+    "Display",
 ]
