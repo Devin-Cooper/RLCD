@@ -8,6 +8,7 @@ idf_component_register(
         "src/vector_font.cpp"
         "src/animation.cpp"
         "src/shapes.cpp"
+        "src/clock_face.cpp"
     INCLUDE_DIRS "include"
     REQUIRES esp_psram
 )
