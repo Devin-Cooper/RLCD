@@ -87,9 +87,10 @@ void renderObservatoryClock(IFramebuffer& fb, const ClockData& data,
     renderStringCentered(fb, timeStr, 200, 85, 45, 70, 6, 3, BLACK);
 
     // =========================================
-    // Step 6: Satellite hexes with breathing animation
+    // Step 6: Satellite hexes with phase-offset breathing
     // =========================================
-    float breatheScale = breathingScale(anim.elapsed, 0.97f, 1.03f, 3.33f);  // 0.3 Hz
+    // Golden ratio phase offsets for organic staggered breathing
+    constexpr float SAT_PHASES[3] = {0.0f, 0.382f, 0.618f};
 
     // Satellite data strings
     char dateStr[12];
@@ -105,7 +106,9 @@ void renderObservatoryClock(IFramebuffer& fb, const ClockData& data,
     const char* satTexts[] = {dateStr, tempStr, humStr};
 
     for (int i = 0; i < 3; i++) {
-        // Generate satellite hex with breathing scale
+        // Generate satellite hex with per-satellite phase-offset breathing
+        float breatheScale = breathingScaleWithPhase(
+            anim.elapsed, 0.97f, 1.03f, 3.33f, SAT_PHASES[i]);
         float scaledRadius = SAT_HEX_RADIUS * breatheScale;
         PointF satHexPts[6];
         generateHex(satHexPts, 6, SAT_HEX_X[i], SAT_HEX_Y, scaledRadius,

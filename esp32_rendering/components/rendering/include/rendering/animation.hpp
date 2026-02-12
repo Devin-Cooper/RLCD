@@ -74,6 +74,20 @@ inline float breathingScale(float t, float minScale = 0.95f, float maxScale = 1.
     return minScale + normalized * (maxScale - minScale);
 }
 
+/// Breathing scale with phase offset - for staggered multi-element breathing
+/// @param t Time in seconds
+/// @param minScale Minimum scale factor
+/// @param maxScale Maximum scale factor
+/// @param period Period of one complete cycle in seconds
+/// @param phase Phase offset (0.0 to 1.0, wraps)
+inline float breathingScaleWithPhase(float t, float minScale, float maxScale,
+                                      float period, float phase) {
+    float shifted = (t / period) + phase;
+    float sinValue = std::sin(shifted * 2.0f * 3.14159265f);
+    float normalized = (sinValue + 1.0f) * 0.5f;
+    return minScale + normalized * (maxScale - minScale);
+}
+
 /// Breathing offset effect - oscillates position
 /// @param t Time in seconds
 /// @param amplitude Maximum offset in pixels

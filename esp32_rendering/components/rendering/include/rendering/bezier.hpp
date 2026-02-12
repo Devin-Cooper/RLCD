@@ -42,12 +42,24 @@ void strokeBezierTextureBall(IFramebuffer& fb, const PointF* points, size_t coun
 
 /// Brush texture selection for strokes
 enum class BrushId {
-    Heavy = 0,  ///< Default 8x8 organic brush
-    Fine = 1    ///< Smaller 6x6 brush for delicate lines
+    Heavy = 0,    ///< Default 8x8 organic brush
+    Fine = 1,     ///< Smaller 6x6 brush for delicate lines
+    Scratchy = 2, ///< 8x8 rough edges
+    Thin = 3,     ///< 4x4 hairline
+    Blobby = 4    ///< 10x10 chunky
 };
 
 /// Fine 6x6 brush texture for satellite hex outlines
 extern const bool FINE_BRUSH_6X6[6][6];
+
+/// Scratchy 8x8 brush texture - rough, uneven edges
+extern const bool SCRATCHY_BRUSH_8X8[8][8];
+
+/// Thin 4x4 brush texture - hairline strokes
+extern const bool THIN_BRUSH_4X4[4][4];
+
+/// Blobby 10x10 brush texture - chunky, blobby strokes
+extern const bool BLOBBY_BRUSH_10X10[10][10];
 
 /// Texture-ball stroke with brush selection
 void strokeBezierTextureBall(IFramebuffer& fb, const PointF* points, size_t count,

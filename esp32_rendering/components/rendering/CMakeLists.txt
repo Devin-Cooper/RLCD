@@ -9,6 +9,8 @@ idf_component_register(
         "src/animation.cpp"
         "src/shapes.cpp"
         "src/clock_face.cpp"
+        "src/brush_cache.cpp"
+        "src/dirty_tracker.cpp"
     INCLUDE_DIRS "include"
     REQUIRES esp_psram
 )

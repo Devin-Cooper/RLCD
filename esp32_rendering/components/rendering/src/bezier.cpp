@@ -27,6 +27,40 @@ const bool FINE_BRUSH_6X6[6][6] = {
     {false, true,  true,  true,  true,  false}
 };
 
+// Scratchy 8x8 brush texture - rough, uneven edges for hand-drawn look
+const bool SCRATCHY_BRUSH_8X8[8][8] = {
+    {false, false, false, true,  false, true,  false, false},
+    {false, true,  true,  false, true,  false, true,  false},
+    {false, false, true,  true,  true,  true,  false, false},
+    {true,  true,  true,  true,  true,  true,  true,  false},
+    {false, true,  true,  true,  true,  true,  false, true },
+    {false, false, true,  true,  true,  true,  false, false},
+    {false, true,  false, true,  false, false, true,  false},
+    {false, false, true,  false, false, false, false, false}
+};
+
+// Thin 4x4 brush texture - hairline for delicate details
+const bool THIN_BRUSH_4X4[4][4] = {
+    {false, true,  false, false},
+    {true,  true,  true,  false},
+    {true,  true,  true,  false},
+    {false, true,  false, false}
+};
+
+// Blobby 10x10 brush texture - chunky, organic blobs
+const bool BLOBBY_BRUSH_10X10[10][10] = {
+    {false, false, false, true,  true,  false, false, false, false, false},
+    {false, false, true,  true,  true,  true,  false, false, false, false},
+    {false, true,  true,  true,  true,  true,  true,  false, false, false},
+    {true,  true,  true,  true,  true,  true,  true,  true,  false, false},
+    {true,  true,  true,  true,  true,  true,  true,  true,  true,  false},
+    {false, true,  true,  true,  true,  true,  true,  true,  true,  false},
+    {true,  true,  true,  true,  true,  true,  true,  true,  false, false},
+    {false, true,  true,  true,  true,  true,  true,  false, false, false},
+    {false, false, true,  true,  true,  false, false, false, false, false},
+    {false, false, false, true,  false, false, false, false, false, false}
+};
+
 // Linear interpolation for floats
 static inline float lerp(float a, float b, float t) {
     return a + t * (b - a);
@@ -265,6 +299,21 @@ void strokeBezierTextureBall(IFramebuffer& fb, const PointF* points, size_t coun
             texture = &FINE_BRUSH_6X6[0][0];
             texWidth = 6;
             texHeight = 6;
+            break;
+        case BrushId::Scratchy:
+            texture = &SCRATCHY_BRUSH_8X8[0][0];
+            texWidth = 8;
+            texHeight = 8;
+            break;
+        case BrushId::Thin:
+            texture = &THIN_BRUSH_4X4[0][0];
+            texWidth = 4;
+            texHeight = 4;
+            break;
+        case BrushId::Blobby:
+            texture = &BLOBBY_BRUSH_10X10[0][0];
+            texWidth = 10;
+            texHeight = 10;
             break;
         case BrushId::Heavy:
         default:

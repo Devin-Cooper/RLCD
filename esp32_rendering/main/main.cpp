@@ -12,6 +12,9 @@
 #include "rendering/animation.hpp"
 #include "rendering/clock_face.hpp"
 #include "st7305.hpp"
+#include "i2c_bsp.hpp"
+#include "pcf85063.hpp"
+#include "shtc3.hpp"
 
 static const char* TAG = "main";
 
@@ -21,6 +24,10 @@ using namespace rendering;
 static float getTime() {
     return static_cast<float>(esp_timer_get_time()) / 1000000.0f;
 }
+
+// ============================================================================
+// Demo functions (kept for testing/development)
+// ============================================================================
 
 // Demo 1: Primitives
 static void demoPrimitives(IFramebuffer& fb) {
@@ -273,9 +280,9 @@ static void demoLowercase(IFramebuffer& fb) {
     renderString(fb, "fox jumps lazy", 10, 250, 16, 22, 2, 2, BLACK);
 }
 
-// Demo: Clock face
-static void demoClock(IFramebuffer& fb, st7305::Display& display) {
-    ESP_LOGI(TAG, "Demo: Observatory Clock");
+// Demo: Clock face (with mock data)
+static void demoClockMock(IFramebuffer& fb, st7305::Display& display) {
+    ESP_LOGI(TAG, "Demo: Observatory Clock (mock data)");
 
     AnimationState anim(getTime());
     constexpr uint32_t CLOCK_SEED = 42;
@@ -341,11 +348,104 @@ static void runDemos(IFramebuffer& fb, st7305::Display& display) {
     vTaskDelay(pdMS_TO_TICKS(2000));
 
     // Clock face
-    demoClock(fb, display);
+    demoClockMock(fb, display);
 }
 
+// ============================================================================
+// Read real sensor data into ClockData
+// ============================================================================
+static ClockData readSensors(sensors::Pcf85063& rtc, sensors::Shtc3& sensor) {
+    sensors::RtcTime t = rtc.getTime();
+
+    float tempC = 0.0f, humid = 0.0f;
+    sensor.read(&tempC, &humid);
+
+    return ClockData{
+        .hours = t.hour,
+        .minutes = t.minute,
+        .dayOfWeek = t.weekday,
+        .month = t.month,
+        .day = t.day,
+        .tempF = static_cast<int8_t>(tempC * 9.0f / 5.0f + 32.0f),
+        .humidity = static_cast<uint8_t>(humid)
+    };
+}
+
+// ============================================================================
+// Continuous clock mode with real hardware + dirty-region optimization
+// ============================================================================
+static void runClock(IFramebuffer& fb, st7305::Display& display,
+                     sensors::Pcf85063& rtc, sensors::Shtc3& sensor) {
+    ESP_LOGI(TAG, "Starting continuous clock mode");
+
+    constexpr uint32_t CLOCK_SEED = 42;
+    constexpr float FRAME_TIME = 0.1f;  // 10 FPS
+    constexpr int64_t SENSOR_INTERVAL_US = 5000000;  // 5 seconds
+
+    // Double buffer: previous frame for dirty comparison
+    Framebuffer400x300 previousFb;
+    if (!previousFb.buffer()) {
+        ESP_LOGE(TAG, "Failed to create previous framebuffer, falling back to no dirty tracking");
+    }
+
+    AnimationState anim(getTime());
+    int64_t lastSensorRead = 0;
+    ClockData clockData = {};
+
+    // Initial sensor read
+    clockData = readSensors(rtc, sensor);
+
+    // Initial render + full transfer
+    ClockAnimState clockAnim = {
+        .elapsed = 0.0f,
+        .showColon = true
+    };
+    renderObservatoryClock(fb, clockData, clockAnim, CLOCK_SEED);
+    display.show(fb);
+
+    // Seed the previous buffer
+    if (previousFb.buffer()) {
+        memcpy(previousFb.buffer(), fb.buffer(), fb.bufferSize());
+    }
+
+    while (true) {
+        int64_t frameStart = esp_timer_get_time();
+        anim.update(getTime());
+
+        // Read sensors periodically
+        if (frameStart - lastSensorRead > SENSOR_INTERVAL_US) {
+            clockData = readSensors(rtc, sensor);
+            lastSensorRead = frameStart;
+        }
+
+        clockAnim = {
+            .elapsed = anim.elapsed(),
+            .showColon = (static_cast<int>(anim.elapsed() * 2) % 2) == 0
+        };
+
+        renderObservatoryClock(fb, clockData, clockAnim, CLOCK_SEED);
+
+        // Use dirty tracking if double buffer is available
+        if (previousFb.buffer()) {
+            display.showIfDirty(fb, previousFb);
+        } else {
+            display.show(fb);
+        }
+
+        // Frame timing
+        int64_t frameUs = esp_timer_get_time() - frameStart;
+        int64_t sleepUs = static_cast<int64_t>(FRAME_TIME * 1000000) - frameUs;
+        if (sleepUs > 0) {
+            vTaskDelay(pdMS_TO_TICKS(sleepUs / 1000));
+        }
+    }
+}
+
+// ============================================================================
+// Main entry point
+// ============================================================================
 extern "C" void app_main() {
-    ESP_LOGI(TAG, "ESP32-S3 Rendering Toolkit Demo");
+    ESP_LOGI(TAG, "ESP32-S3 Observatory Clock");
 
     // Initialize framebuffer
     Framebuffer400x300 fb;
@@ -359,10 +459,23 @@ extern "C" void app_main() {
     st7305::Display display(displayConfig);
     display.init();
 
-    ESP_LOGI(TAG, "Running demos...");
+    // Initialize I2C bus + sensors
+    I2cMasterBus i2c(GPIO_NUM_14, GPIO_NUM_13);
+    sensors::Pcf85063 rtc(i2c);
+    sensors::Shtc3 sensor(i2c);
 
-    while (true) {
-        runDemos(fb, display);
-        vTaskDelay(pdMS_TO_TICKS(1000));
+    bool rtcOk = rtc.init();
+    bool sensorOk = sensor.init();
+
+    if (rtcOk && sensorOk) {
+        ESP_LOGI(TAG, "Hardware sensors ready, starting clock mode");
+        runClock(fb, display, rtc, sensor);
+    } else {
+        ESP_LOGW(TAG, "Sensor init failed (RTC=%d, SHTC3=%d), falling back to demos",
+                 rtcOk, sensorOk);
+        while (true) {
+            runDemos(fb, display);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
     }
 }

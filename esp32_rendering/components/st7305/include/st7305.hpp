@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rendering/framebuffer.hpp"
+#include "rendering/dirty_tracker.hpp"
 #include <esp_lcd_panel_io.h>
 #include <driver/gpio.h>
 #include <driver/spi_master.h>
@@ -37,6 +38,13 @@ public:
     /// Transfer framebuffer to display
     /// Handles conversion from row-major to ST7305 LUT format
     void show(const rendering::IFramebuffer& fb);
+
+    /// Transfer framebuffer only if dirty regions exist.
+    /// Compares current vs previous framebuffer; skips SPI transfer if clean.
+    /// Copies current to previous after transfer.
+    /// @return true if display was updated, false if skipped (clean)
+    bool showIfDirty(const rendering::IFramebuffer& current,
+                     rendering::IFramebuffer& previous);
 
     /// Direct clear (bypasses framebuffer)
     void clear(bool color = false);

@@ -375,4 +375,29 @@ void Display::show(const rendering::IFramebuffer& fb) {
     sendBuffer(displayBuffer_, bufferSize);
 }
 
+bool Display::showIfDirty(const rendering::IFramebuffer& current,
+                          rendering::IFramebuffer& previous) {
+    if (!initialized_) {
+        ESP_LOGW(TAG, "Display not initialized");
+        return false;
+    }
+
+    // Quick whole-buffer comparison on the framebuffer level
+    rendering::DirtyTracker tracker(config_.width, config_.height);
+    if (tracker.isClean(current.buffer(), previous.buffer())) {
+        return false;  // Nothing changed, skip transfer
+    }
+
+    // Something changed — do full transfer.
+    // Note: true partial row-range transfers are not used because the ST7305's
+    // LUT-based block format (2x4 pixel blocks, column-major) doesn't map
+    // cleanly to framebuffer rows. DirtyTracker::computeDirtyRegions() exists
+    // for future refinement if partial block-level transfers are implemented.
+    show(current);
+
+    // Copy current to previous for next comparison
+    memcpy(previous.buffer(), current.buffer(), current.bufferSize());
+    return true;
+}
+
 } // namespace st7305
