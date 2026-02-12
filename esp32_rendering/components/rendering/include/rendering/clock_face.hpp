@@ -15,6 +15,7 @@ struct ClockData {
     uint8_t day;        // 1-31
     int8_t tempF;       // Temperature in Fahrenheit
     uint8_t humidity;   // 0-100%
+    uint8_t battery;    // 0-100% battery level
 };
 
 /// Clock animation state

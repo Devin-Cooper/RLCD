@@ -15,6 +15,7 @@
 #include "i2c_bsp.hpp"
 #include "pcf85063.hpp"
 #include "shtc3.hpp"
+#include "battery.hpp"
 
 static const char* TAG = "main";
 
@@ -295,7 +296,8 @@ static void demoClockMock(IFramebuffer& fb, st7305::Display& display) {
         .month = 2,
         .day = 11,
         .tempF = 68,
-        .humidity = 45
+        .humidity = 45,
+        .battery = 75      // 75% battery
     };
 
     for (int frame = 0; frame < 300; frame++) {  // 30 seconds at 10 FPS
@@ -354,7 +356,8 @@ static void runDemos(IFramebuffer& fb, st7305::Display& display) {
 // ============================================================================
 // Read real sensor data into ClockData
 // ============================================================================
-static ClockData readSensors(sensors::Pcf85063& rtc, sensors::Shtc3& sensor) {
+static ClockData readSensors(sensors::Pcf85063& rtc, sensors::Shtc3& sensor,
+                              sensors::Battery& battery) {
     sensors::RtcTime t = rtc.getTime();
 
     float tempC = 0.0f, humid = 0.0f;
@@ -367,7 +370,8 @@ static ClockData readSensors(sensors::Pcf85063& rtc, sensors::Shtc3& sensor) {
         .month = t.month,
         .day = t.day,
         .tempF = static_cast<int8_t>(tempC * 9.0f / 5.0f + 32.0f),
-        .humidity = static_cast<uint8_t>(humid)
+        .humidity = static_cast<uint8_t>(humid),
+        .battery = battery.readPercentSmoothed()
     };
 }
 
@@ -375,7 +379,8 @@ static ClockData readSensors(sensors::Pcf85063& rtc, sensors::Shtc3& sensor) {
 // Continuous clock mode with real hardware + dirty-region optimization
 // ============================================================================
 static void runClock(IFramebuffer& fb, st7305::Display& display,
-                     sensors::Pcf85063& rtc, sensors::Shtc3& sensor) {
+                     sensors::Pcf85063& rtc, sensors::Shtc3& sensor,
+                     sensors::Battery& battery) {
     ESP_LOGI(TAG, "Starting continuous clock mode");
 
     constexpr uint32_t CLOCK_SEED = 42;
@@ -393,7 +398,7 @@ static void runClock(IFramebuffer& fb, st7305::Display& display,
     ClockData clockData = {};
 
     // Initial sensor read
-    clockData = readSensors(rtc, sensor);
+    clockData = readSensors(rtc, sensor, battery);
 
     // Initial render + full transfer
     ClockAnimState clockAnim = {
@@ -414,7 +419,7 @@ static void runClock(IFramebuffer& fb, st7305::Display& display,
 
         // Read sensors periodically
         if (frameStart - lastSensorRead > SENSOR_INTERVAL_US) {
-            clockData = readSensors(rtc, sensor);
+            clockData = readSensors(rtc, sensor, battery);
             lastSensorRead = frameStart;
         }
 
@@ -463,13 +468,19 @@ extern "C" void app_main() {
     I2cMasterBus i2c(GPIO_NUM_14, GPIO_NUM_13);
     sensors::Pcf85063 rtc(i2c);
     sensors::Shtc3 sensor(i2c);
+    sensors::Battery battery;
 
     bool rtcOk = rtc.init();
     bool sensorOk = sensor.init();
+    bool batteryOk = battery.init();
+
+    if (!batteryOk) {
+        ESP_LOGW(TAG, "Battery monitor init failed, will show 0%%");
+    }
 
     if (rtcOk && sensorOk) {
         ESP_LOGI(TAG, "Hardware sensors ready, starting clock mode");
-        runClock(fb, display, rtc, sensor);
+        runClock(fb, display, rtc, sensor, battery);
     } else {
         ESP_LOGW(TAG, "Sensor init failed (RTC=%d, SHTC3=%d), falling back to demos",
                  rtcOk, sensorOk);

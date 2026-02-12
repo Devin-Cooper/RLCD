@@ -162,6 +162,83 @@ void renderObservatoryClock(IFramebuffer& fb, const ClockData& data,
                                           12, 16, 2, 1, WHITE, BLACK);
         }
     }
+
+    // =========================================
+    // Step 7: Abstract battery meter - organic pebbles along left edge
+    // =========================================
+    // A vertical trail of small organic shapes that fill based on battery level
+    // Positioned in the upper-left, flowing down like drops
+    constexpr int PEBBLE_COUNT = 5;
+    constexpr float PEBBLE_BASE_X = 25.0f;
+    constexpr float PEBBLE_START_Y = 30.0f;
+    constexpr float PEBBLE_SPACING = 28.0f;
+    constexpr float PEBBLE_RADIUS = 8.0f;
+
+    // Calculate how many pebbles are "filled" based on battery
+    // 0% = 0 filled, 100% = all filled
+    float fillLevel = data.battery / 100.0f;
+    float filledPebbles = fillLevel * PEBBLE_COUNT;
+
+    for (int p = 0; p < PEBBLE_COUNT; p++) {
+        // Pebbles fill from bottom to top (p=0 is top, fills last)
+        int pebbleFromBottom = PEBBLE_COUNT - 1 - p;
+        float pebbleFill = filledPebbles - pebbleFromBottom;
+        if (pebbleFill < 0.0f) pebbleFill = 0.0f;
+        if (pebbleFill > 1.0f) pebbleFill = 1.0f;
+
+        // Position with slight organic offset
+        float px = PEBBLE_BASE_X + 3.0f * sinf(p * 1.7f + seed * 0.001f);
+        float py = PEBBLE_START_Y + p * PEBBLE_SPACING;
+
+        // Add gentle breathing to each pebble
+        float breathe = breathingScaleWithPhase(anim.elapsed, 0.92f, 1.08f, 4.0f, p * 0.2f);
+        float r = PEBBLE_RADIUS * breathe;
+
+        // Generate organic pebble shape (small lumpy hex)
+        PointF pebblePts[6];
+        generateHex(pebblePts, 6, px, py, r, 0.15f, seed + 5000 + p);
+
+        // Apply subtle wiggle
+        PointF wiggledPebble[6];
+        wigglePoints(pebblePts, 6, wiggledPebble, 0.5f, 0.8f, anim.elapsed, seed + 6000 + p);
+
+        Point pebbleInt[6];
+        for (int j = 0; j < 6; j++) {
+            pebbleInt[j] = wiggledPebble[j].toPoint();
+        }
+
+        // Visual state based on fill level:
+        // Full (pebbleFill >= 1): solid black
+        // Partial: outlined only (hollow)
+        // Empty (pebbleFill <= 0): very faint/dotted outline
+        if (pebbleFill >= 0.99f) {
+            // Fully charged pebble - solid black fill
+            fillPolygon(fb, pebbleInt, 6, BLACK);
+        } else if (pebbleFill > 0.01f) {
+            // Partially filled - draw outline only (hollow)
+            // Thick outline to make it visible
+            for (int j = 0; j < 6; j++) {
+                int next = (j + 1) % 6;
+                drawThickLine(fb, pebbleInt[j].x, pebbleInt[j].y,
+                              pebbleInt[next].x, pebbleInt[next].y, 2, BLACK);
+            }
+        } else {
+            // Empty pebble - thin dotted outline
+            for (int j = 0; j < 6; j++) {
+                int next = (j + 1) % 6;
+                // Draw dotted line (every other pixel)
+                int dx = pebbleInt[next].x - pebbleInt[j].x;
+                int dy = pebbleInt[next].y - pebbleInt[j].y;
+                int steps = (abs(dx) > abs(dy)) ? abs(dx) : abs(dy);
+                if (steps == 0) continue;
+                for (int s = 0; s < steps; s += 3) {
+                    int x = pebbleInt[j].x + (dx * s) / steps;
+                    int y = pebbleInt[j].y + (dy * s) / steps;
+                    fb.setPixel(x, y, BLACK);
+                }
+            }
+        }
+    }
 }
 
 } // namespace rendering
