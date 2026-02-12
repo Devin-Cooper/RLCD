@@ -16,6 +16,7 @@
 #include "pcf85063.hpp"
 #include "shtc3.hpp"
 #include "battery.hpp"
+#include "buttons.hpp"
 
 static const char* TAG = "main";
 
@@ -387,6 +388,15 @@ static void runClock(IFramebuffer& fb, st7305::Display& display,
     constexpr float FRAME_TIME = 0.1f;  // 10 FPS
     constexpr int64_t SENSOR_INTERVAL_US = 5000000;  // 5 seconds
 
+    // Initialize buttons: [A/Left] [PWR] [B/Right]
+    buttons::ButtonHandler btns;
+    if (!btns.init()) {
+        ESP_LOGW(TAG, "Button init failed");
+    } else {
+        // Start 5ms timer for proper button timing
+        btns.startAutoUpdate();
+    }
+
     // Double buffer: previous frame for dirty comparison
     Framebuffer400x300 previousFb;
     if (!previousFb.buffer()) {
@@ -416,6 +426,26 @@ static void runClock(IFramebuffer& fb, st7305::Display& display,
     while (true) {
         int64_t frameStart = esp_timer_get_time();
         anim.update(getTime());
+
+        // Check button events (auto-updated by timer)
+        if (btns.wasClicked(buttons::Button::A)) {
+            ESP_LOGI(TAG, "Button A (left) clicked");
+        }
+        if (btns.wasDoubleClicked(buttons::Button::A)) {
+            ESP_LOGI(TAG, "Button A (left) double-clicked");
+        }
+        if (btns.wasLongPressed(buttons::Button::A)) {
+            ESP_LOGI(TAG, "Button A (left) long-pressed");
+        }
+        if (btns.wasClicked(buttons::Button::B)) {
+            ESP_LOGI(TAG, "Button B (right) clicked");
+        }
+        if (btns.wasDoubleClicked(buttons::Button::B)) {
+            ESP_LOGI(TAG, "Button B (right) double-clicked");
+        }
+        if (btns.wasLongPressed(buttons::Button::B)) {
+            ESP_LOGI(TAG, "Button B (right) long-pressed");
+        }
 
         // Read sensors periodically
         if (frameStart - lastSensorRead > SENSOR_INTERVAL_US) {
