@@ -5,7 +5,7 @@
 namespace sensors {
 
 /// Battery voltage monitor using ADC
-/// Waveshare ESP32-S3-RLCD-4.2 uses GPIO1 with 3:1 voltage divider
+/// Waveshare ESP32-S3-RLCD-4.2 uses GPIO4 with 3:1 voltage divider
 class Battery {
 public:
     Battery();
@@ -29,7 +29,7 @@ private:
     // Smoothing state
     uint32_t smoothedMv_;
 
-    static constexpr int BATTERY_GPIO = 1;           // GPIO1 = ADC1_CH0
+    static constexpr int BATTERY_GPIO = 4;           // GPIO4 = ADC1_CH3
     static constexpr float DIVIDER_RATIO = 3.0f;     // 200K + 100K divider
     static constexpr uint16_t VBAT_MIN_MV = 3000;    // Empty
     static constexpr uint16_t VBAT_MAX_MV = 4200;    // Full

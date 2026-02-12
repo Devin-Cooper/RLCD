@@ -31,12 +31,12 @@ bool Battery::init() {
         return false;
     }
 
-    // Configure channel (GPIO1 = ADC1_CH0)
+    // Configure channel (GPIO4 = ADC1_CH3)
     adc_oneshot_chan_cfg_t chan_cfg = {};
     chan_cfg.atten = ADC_ATTEN_DB_12;  // 0-3.3V range (actually ~0-3.1V usable)
     chan_cfg.bitwidth = ADC_BITWIDTH_12;
 
-    err = adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_0, &chan_cfg);
+    err = adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_3, &chan_cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to config ADC channel: %s", esp_err_to_name(err));
         return false;
@@ -45,7 +45,7 @@ bool Battery::init() {
     // Set up calibration for accurate voltage reading
     adc_cali_curve_fitting_config_t cali_cfg = {};
     cali_cfg.unit_id = ADC_UNIT_1;
-    cali_cfg.chan = ADC_CHANNEL_0;
+    cali_cfg.chan = ADC_CHANNEL_3;
     cali_cfg.atten = ADC_ATTEN_DB_12;
     cali_cfg.bitwidth = ADC_BITWIDTH_12;
 
@@ -64,7 +64,7 @@ uint16_t Battery::readMillivolts() {
     if (!initialized_ || !adc1_handle) return 0;
 
     int raw = 0;
-    esp_err_t err = adc_oneshot_read(adc1_handle, ADC_CHANNEL_0, &raw);
+    esp_err_t err = adc_oneshot_read(adc1_handle, ADC_CHANNEL_3, &raw);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "ADC read failed: %s", esp_err_to_name(err));
         return 0;

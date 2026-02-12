@@ -168,11 +168,15 @@ void renderObservatoryClock(IFramebuffer& fb, const ClockData& data,
     // =========================================
     // A vertical trail of small organic shapes that fill based on battery level
     // Positioned in the upper-left, flowing down like drops
+    // Uses same bezier texture-ball strokes as satellite hexes for visual consistency
     constexpr int PEBBLE_COUNT = 5;
     constexpr float PEBBLE_BASE_X = 25.0f;
     constexpr float PEBBLE_START_Y = 30.0f;
     constexpr float PEBBLE_SPACING = 28.0f;
     constexpr float PEBBLE_RADIUS = 8.0f;
+
+    // Golden-ratio phase offsets for staggered breathing (like satellite hexes)
+    constexpr float PEBBLE_PHASES[5] = {0.0f, 0.236f, 0.472f, 0.708f, 0.944f};
 
     // Calculate how many pebbles are "filled" based on battery
     // 0% = 0 filled, 100% = all filled
@@ -190,8 +194,8 @@ void renderObservatoryClock(IFramebuffer& fb, const ClockData& data,
         float px = PEBBLE_BASE_X + 3.0f * sinf(p * 1.7f + seed * 0.001f);
         float py = PEBBLE_START_Y + p * PEBBLE_SPACING;
 
-        // Add gentle breathing to each pebble
-        float breathe = breathingScaleWithPhase(anim.elapsed, 0.92f, 1.08f, 4.0f, p * 0.2f);
+        // Add gentle breathing with golden-ratio phase offsets
+        float breathe = breathingScaleWithPhase(anim.elapsed, 0.92f, 1.08f, 4.0f, PEBBLE_PHASES[p]);
         float r = PEBBLE_RADIUS * breathe;
 
         // Generate organic pebble shape (small lumpy hex)
@@ -207,37 +211,26 @@ void renderObservatoryClock(IFramebuffer& fb, const ClockData& data,
             pebbleInt[j] = wiggledPebble[j].toPoint();
         }
 
-        // Visual state based on fill level:
-        // Full (pebbleFill >= 1): solid black
-        // Partial: outlined only (hollow)
-        // Empty (pebbleFill <= 0): very faint/dotted outline
+        // Always punch through background first (white fill)
+        fillPolygon(fb, pebbleInt, 6, WHITE);
+
+        // Visual states based on fill level:
+        // Full: white punch-through + black fill + fine bezier stroke
+        // Partial: white punch-through + fine bezier stroke (hollow)
+        // Empty: white punch-through + thin bezier stroke (ghostly)
         if (pebbleFill >= 0.99f) {
-            // Fully charged pebble - solid black fill
+            // Fully charged pebble - black fill
             fillPolygon(fb, pebbleInt, 6, BLACK);
-        } else if (pebbleFill > 0.01f) {
-            // Partially filled - draw outline only (hollow)
-            // Thick outline to make it visible
-            for (int j = 0; j < 6; j++) {
-                int next = (j + 1) % 6;
-                drawThickLine(fb, pebbleInt[j].x, pebbleInt[j].y,
-                              pebbleInt[next].x, pebbleInt[next].y, 2, BLACK);
-            }
-        } else {
-            // Empty pebble - thin dotted outline
-            for (int j = 0; j < 6; j++) {
-                int next = (j + 1) % 6;
-                // Draw dotted line (every other pixel)
-                int dx = pebbleInt[next].x - pebbleInt[j].x;
-                int dy = pebbleInt[next].y - pebbleInt[j].y;
-                int steps = (abs(dx) > abs(dy)) ? abs(dx) : abs(dy);
-                if (steps == 0) continue;
-                for (int s = 0; s < steps; s += 3) {
-                    int x = pebbleInt[j].x + (dx * s) / steps;
-                    int y = pebbleInt[j].y + (dy * s) / steps;
-                    fb.setPixel(x, y, BLACK);
-                }
-            }
         }
+
+        // Organic bezier outline (matching satellite hexes visual vocabulary)
+        PointF pebbleBezierPts[7];  // 6 + 1 to close loop
+        polygonToBezierLoop(wiggledPebble, 6, pebbleBezierPts);
+
+        // Choose brush and spacing based on fill state
+        BrushId brush = (pebbleFill < 0.01f) ? BrushId::Thin : BrushId::Fine;
+        float spacing = (pebbleFill < 0.01f) ? 3.0f : 2.0f;
+        strokeBezierTextureBall(fb, pebbleBezierPts, 7, brush, 0.4f, spacing);
     }
 }
 

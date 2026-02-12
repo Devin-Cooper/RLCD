@@ -41,17 +41,42 @@ esp32_rendering/
 
 ### Prerequisites
 
-- ESP-IDF v5.0+
+- **ESP-IDF v5.5.x** (required for new I2C master driver API)
 - Waveshare ESP32-S3-RLCD-4.2 board
+
+### Installing ESP-IDF
+
+**Option 1: ESP-IDF Extension Manager (Recommended)**
+- Install the [VS Code ESP-IDF extension](https://github.com/espressif/vscode-esp-idf-extension)
+- Or download from: https://github.com/espressif/idf-installer
+
+**Option 2: Manual Installation**
+```bash
+mkdir -p ~/esp && cd ~/esp
+git clone -b v5.5 --recursive https://github.com/espressif/esp-idf.git esp-idf-v5.5
+cd esp-idf-v5.5
+./install.sh esp32s3
+```
 
 ### Build and Flash
 
+Use the included wrapper script (auto-detects ESP-IDF installation):
+
 ```bash
 cd esp32_rendering
-source ~/esp/esp-idf/export.sh
+./idf.sh build              # Build
+./idf.sh flash              # Flash to device
+./idf.sh monitor            # Serial monitor
+./idf.sh flash monitor      # Flash and monitor
+./idf.sh menuconfig         # Configure options
+```
+
+Or manually with ESP-IDF:
+```bash
+source ~/.espressif/v5.5.2/esp-idf/export.sh  # Path may vary
 idf.py set-target esp32s3
 idf.py build
-idf.py -p /dev/cu.usbmodem* flash monitor
+idf.py flash monitor
 ```
 
 ## API Overview
@@ -177,13 +202,16 @@ See `docs/ST7305_FLICKER_INVESTIGATION.md` for detailed analysis of the flicker 
 
 ## Pin Configuration (Default)
 
-| Signal | GPIO |
-|--------|------|
-| SPI MOSI | 12 |
-| SPI SCK | 11 |
-| LCD DC | 5 |
-| LCD CS | 40 |
-| LCD RST | 41 |
+| Signal | GPIO | Notes |
+|--------|------|-------|
+| SPI MOSI | 12 | LCD data |
+| SPI SCK | 11 | LCD clock |
+| LCD DC | 5 | Data/Command |
+| LCD CS | 40 | Chip select |
+| LCD RST | 41 | Reset |
+| I2C SDA | 6 | RTC, Temp sensor |
+| I2C SCL | 7 | RTC, Temp sensor |
+| BAT_ADC | 4 | ADC1_CH3, 3:1 divider |
 
 ## License
 
