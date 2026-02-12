@@ -118,7 +118,7 @@ void Display::initSPI() {
     io_config.trans_queue_depth = 10;
 
     ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(
-        reinterpret_cast<esp_lcd_spi_bus_handle_t>(config_.spiHost),
+        static_cast<esp_lcd_spi_bus_handle_t>(config_.spiHost),
         &io_config, &ioHandle_));
 
     // Configure reset GPIO

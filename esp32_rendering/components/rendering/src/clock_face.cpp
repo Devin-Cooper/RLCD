@@ -5,6 +5,7 @@
 #include "rendering/vector_font.hpp"
 #include "rendering/shapes.hpp"
 #include "rendering/animation.hpp"
+#include <cmath>
 #include <cstdio>
 
 namespace rendering {
@@ -83,19 +84,27 @@ void renderObservatoryClock(IFramebuffer& fb, const ClockData& data,
         snprintf(timeStr, sizeof(timeStr), "%2d %02d", displayHour, data.minutes);
     }
 
-    // Large time display
-    renderStringCentered(fb, timeStr, 200, 85, 45, 70, 6, 3, BLACK);
+    // Large time display (slightly smaller to fit)
+    renderStringCentered(fb, timeStr, 200, 85, 38, 58, 5, 3, BLACK);
 
     // =========================================
-    // Step 6: Satellite hexes with phase-offset breathing
+    // Step 6: Satellite hexes with phase-offset breathing and drift
     // =========================================
     // Golden ratio phase offsets for organic staggered breathing
     constexpr float SAT_PHASES[3] = {0.0f, 0.382f, 0.618f};
+    // Drift parameters - each hex drifts on its own slow path
+    constexpr float DRIFT_RADIUS = 15.0f;  // Max drift distance
+    constexpr float DRIFT_PERIOD_X[3] = {23.0f, 31.0f, 19.0f};  // Slow X periods (seconds)
+    constexpr float DRIFT_PERIOD_Y[3] = {29.0f, 17.0f, 37.0f};  // Slow Y periods (seconds)
+    constexpr float DRIFT_PHASE_X[3] = {0.0f, 2.1f, 4.2f};      // Phase offsets
+    constexpr float DRIFT_PHASE_Y[3] = {1.5f, 3.7f, 0.8f};
 
-    // Satellite data strings
-    char dateStr[12];
-    snprintf(dateStr, sizeof(dateStr), "%s %d/%d", getDayAbbrev(data.dayOfWeek),
-             data.month, data.day);
+    // Satellite data strings - date split into two lines
+    char dayStr[8];
+    snprintf(dayStr, sizeof(dayStr), "%s", getDayAbbrev(data.dayOfWeek));
+
+    char dateNumStr[8];
+    snprintf(dateNumStr, sizeof(dateNumStr), "%d/%d", data.month, data.day);
 
     char tempStr[8];
     snprintf(tempStr, sizeof(tempStr), "%d", data.tempF);  // Just number, degree symbol separate
@@ -103,15 +112,20 @@ void renderObservatoryClock(IFramebuffer& fb, const ClockData& data,
     char humStr[8];
     snprintf(humStr, sizeof(humStr), "%d%%", data.humidity);
 
-    const char* satTexts[] = {dateStr, tempStr, humStr};
-
     for (int i = 0; i < 3; i++) {
+        // Calculate drift offset for this hex
+        float driftX = DRIFT_RADIUS * sinf((anim.elapsed + DRIFT_PHASE_X[i]) * 2.0f * 3.14159f / DRIFT_PERIOD_X[i]);
+        float driftY = DRIFT_RADIUS * sinf((anim.elapsed + DRIFT_PHASE_Y[i]) * 2.0f * 3.14159f / DRIFT_PERIOD_Y[i]);
+
+        float hexCX = SAT_HEX_X[i] + driftX;
+        float hexCY = SAT_HEX_Y + driftY;
+
         // Generate satellite hex with per-satellite phase-offset breathing
         float breatheScale = breathingScaleWithPhase(
             anim.elapsed, 0.97f, 1.03f, 3.33f, SAT_PHASES[i]);
         float scaledRadius = SAT_HEX_RADIUS * breatheScale;
         PointF satHexPts[6];
-        generateHex(satHexPts, 6, SAT_HEX_X[i], SAT_HEX_Y, scaledRadius,
+        generateHex(satHexPts, 6, hexCX, hexCY, scaledRadius,
                     SAT_HEX_LUMPINESS, seed + 1000 + i);
 
         // Convert to int points
@@ -128,11 +142,25 @@ void renderObservatoryClock(IFramebuffer& fb, const ClockData& data,
         polygonToBezierLoop(satHexPts, 6, satBezierPts);
         strokeBezierTextureBall(fb, satBezierPts, 7, BrushId::Fine, 0.4f, 2.0f);
 
-        // White text with halo
-        int16_t textY = static_cast<int16_t>(SAT_HEX_Y) - 8;
-        renderStringCenteredWithHalo(fb, satTexts[i],
-                                      static_cast<int16_t>(SAT_HEX_X[i]), textY,
-                                      12, 16, 2, 1, WHITE, BLACK);
+        // White text with halo - date hex has two lines
+        int16_t textCX = static_cast<int16_t>(hexCX);
+        int16_t textCY = static_cast<int16_t>(hexCY);
+
+        if (i == 0) {
+            // Date hex: two lines - day name on top, date on bottom
+            renderStringCenteredWithHalo(fb, dayStr, textCX, textCY - 10,
+                                          12, 16, 2, 1, WHITE, BLACK);
+            renderStringCenteredWithHalo(fb, dateNumStr, textCX, textCY + 10,
+                                          12, 16, 2, 1, WHITE, BLACK);
+        } else if (i == 1) {
+            // Temperature hex
+            renderStringCenteredWithHalo(fb, tempStr, textCX, textCY,
+                                          12, 16, 2, 1, WHITE, BLACK);
+        } else {
+            // Humidity hex
+            renderStringCenteredWithHalo(fb, humStr, textCX, textCY,
+                                          12, 16, 2, 1, WHITE, BLACK);
+        }
     }
 }
 
