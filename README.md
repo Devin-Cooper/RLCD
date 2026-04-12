@@ -20,6 +20,93 @@ The ESP32-S3-RLCD-4.2 is a development board featuring a 4.2" reflective LCD tha
 
 ## Projects
 
+### esp32_terminal (SSH Terminal & Dashboard)
+
+ESP-IDF firmware that turns the board into a self-contained SSH terminal and server dashboard. Connect a Bluetooth keyboard, point it at a Linux server, and get a full interactive shell on the 400x300 reflective display.
+
+#### Features
+
+- **Terminal mode** -- full VT100/xterm emulator rendering htop, vim, and other TUI apps on the 1-bit display
+- **Dashboard mode** -- curated server stats (CPU, memory, disk, network, GPU, Docker, screen sessions) refreshed on a configurable interval
+- **SSH client** -- libssh2 with hardware-accelerated AES-128-CTR (7.5 MB/s), Ed25519 auth (26ms), TOFU host key verification
+- **BLE keyboard** -- NimBLE HID host with auto-reconnect to bonded devices, full keycode-to-terminal translation (arrows, function keys, Ctrl combos)
+- **WiFi** -- auto-connect to known networks by signal strength, scan-and-select fallback with on-screen password entry
+- **3 font sizes** -- 80x37 (5x7), 66x30 (6x9), 50x23 (8x12) -- cycle with button or F-key
+- **Menu system** -- overlay navigable via keyboard or physical buttons
+- **Power management** -- modem sleep during active SSH (~20mA), auto light sleep in dashboard idle (~1.3mA)
+- **OTA updates** -- dual 3MB app partitions with automatic rollback
+- **Encrypted credentials** -- NVS encryption for stored WiFi/SSH passwords
+
+#### Hardware-Informed Optimizations
+
+The firmware is tuned for the ESP32-S3's specific hardware profile:
+
+| Decision | Why |
+|----------|-----|
+| AES-128-CTR over AES-GCM | Hardware AES-CTR: 7.5 MB/s. AES-GCM GHASH in software: 1.35 MB/s (5.5x slower) |
+| Ed25519 over RSA-2048 | 26ms sign vs 118ms. Curve25519 software math is faster than RSA hardware bignum |
+| Framebuffer in DMA SRAM | SPI DMA requires internal SRAM. PSRAM would need cache coherence workaround |
+| Scrollback in PSRAM | Large, sequential access pattern benefits from 64-byte cache line prefetch |
+| 64KB data cache | Trades 32KB SRAM for substantially better PSRAM throughput |
+| NimBLE over Bluedroid | Saves ~170KB flash and ~30KB RAM. ESP32-S3 is BLE-only anyway |
+| SSH on Core 1 | Isolates crypto from WiFi/BLE protocol stacks on Core 0 |
+
+#### Architecture
+
+```
+Core 0 (Protocol)           Core 1 (Application)
+WiFi Driver (P:23)          Display/SPI DMA (P:12)
+BLE Controller (P:23)       SSH/libssh2 (P:10)
+lwIP TCP/IP (P:18)          ANSI Parser (P:8)
+BLE HID Input (P:9)         Dashboard Poll (P:5)
+```
+
+#### Flash Partition Layout (16MB)
+
+| Partition | Size | Purpose |
+|-----------|------|---------|
+| NVS + Keys | 28 KB | Encrypted WiFi/SSH credentials |
+| OTA_0 / OTA_1 | 3 MB each | Dual application slots with rollback |
+| LittleFS | 2 MB | SSH keys, known_hosts, dashboard config |
+| Core Dump | 1 MB | Crash diagnostics |
+
+#### Building
+
+Requires ESP-IDF v5.5+ and the [onebit](https://github.com/YOUR_USERNAME/1bit-display) library:
+
+```bash
+cd esp32_rendering
+
+# Set the path to the 1bit-display library (default: ../1bit-display)
+export ONEBIT_LIB_DIR=/path/to/1bit-display
+
+idf.py set-target esp32s3
+idf.py build
+idf.py -p /dev/ttyUSB0 flash monitor
+```
+
+#### First-Time Setup
+
+1. **Flash firmware** and power on
+2. **Pair a BLE keyboard** -- long-press Button A to enter pairing mode (30s timeout)
+3. **Connect WiFi** -- select your network from the scan list, type password via keyboard
+4. **Configure SSH** -- open Settings menu, enter server host/port/username
+5. **Authenticate** -- password on first connect; upload Ed25519 keys to `/littlefs/ssh_ed25519` for key auth
+
+#### Dashboard Configuration
+
+Create `/littlefs/dashboard.cfg` with one command per line (label|command format):
+
+```
+CPU|cat /proc/loadavg
+Memory|free -m
+Disk|df -h
+GPU|cat /sys/class/drm/card0/device/gpu_busy_percent
+Screens|screen -ls
+```
+
+Falls back to built-in defaults if no config file exists.
+
 ### Simulator
 
 A Python/Pygame simulator for prototyping 1-bit display designs before deploying to hardware. Includes a rendering toolkit inspired by Lucas Pope's Mars After Midnight visual techniques.
@@ -83,24 +170,25 @@ idf.py -p /dev/ttyUSB0 flash monitor
 
 ```
 RLCD/
-├── simulator/              # Python display simulator
-│   ├── rendering/          # Portable rendering toolkit
-│   │   ├── framebuffer.py  # 1-bit packed pixel buffer
-│   │   ├── primitives.py   # Lines, polygons, circles
-│   │   ├── patterns.py     # Bayer dither patterns
-│   │   ├── bezier.py       # Curves and texture-ball strokes
-│   │   ├── vector_font.py  # A-Z letters, numerals, punctuation
-│   │   ├── animation.py    # Breathing, wiggle, transitions
-│   │   └── display.py      # Pygame visualization
-│   ├── demo.py             # 5-mode interactive showcase
-│   └── main.py             # Entry point
-├── hello_vu/               # ESP-IDF VU meter project
-│   ├── main/
-│   │   └── main.cpp        # Application code
-│   └── components/bsp/     # Board support package
+├── esp32_rendering/            # SSH Terminal & Dashboard (main project)
+│   ├── main/                   # Application entry point and boot sequence
+│   ├── components/
+│   │   ├── st7305/             # ST7305 reflective LCD driver (SPI + DMA)
+│   │   ├── rendering/          # Graphics primitives (clock face, shapes)
+│   │   ├── wifi_manager/       # WiFi lifecycle, NVS credentials, auto-connect
+│   │   ├── ssh_client/         # libssh2_esp SSH with optimized cipher suites
+│   │   ├── ble_hid/            # NimBLE BLE keyboard HID host
+│   │   ├── input_queue/        # Unified FreeRTOS event queue
+│   │   ├── app/                # Menu, dashboard, terminal mode, settings
+│   │   ├── buttons/            # Debounced button handler
+│   │   ├── sensors/            # RTC, temperature/humidity, battery
+│   │   └── i2c_bsp/            # I2C bus abstraction
+│   ├── sdkconfig.defaults      # ESP32-S3 optimized config
+│   └── partitions.csv          # 16MB flash layout with OTA + LittleFS
+├── simulator/                  # Python/Pygame display simulator
+├── hello_vu/                   # ESP-IDF VU meter project
 ├── docs/
-│   └── plans/              # Design documents
-├── REFERENCES/             # Component datasheets
+├── REFERENCES/                 # Component datasheets
 └── README.md
 ```
 
