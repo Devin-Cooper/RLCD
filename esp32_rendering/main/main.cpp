@@ -1,11 +1,16 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <freertos/stream_buffer.h>
 #include <esp_log.h>
 #include <esp_timer.h>
 #include <esp_sleep.h>
+#include <esp_heap_caps.h>
 #include <nvs_flash.h>
 #include <esp_sntp.h>
 #include <esp_vfs_fat.h>
+#include <esp_littlefs.h>
+#include <sys/stat.h>
+#include <atomic>
 
 // Display and sensors
 #include "st7305.hpp"
@@ -28,6 +33,7 @@
 #include "terminal_mode.hpp"
 
 // onebit library (via EXTRA_COMPONENT_DIRS)
+#include <1bit/core/allocator.hpp>
 #include <1bit/core/framebuffer.hpp>
 #include <1bit/render/primitives.hpp>
 #include <1bit/render/bitmap_font.hpp>
@@ -41,6 +47,12 @@
 #include "rendering/animation.hpp"
 
 static const char* TAG = "main";
+
+// ============================================================================
+// SSH data stream buffer — SSH task writes, main loop reads
+// ============================================================================
+static StreamBufferHandle_t sshDataStream = nullptr;
+static constexpr size_t SSH_STREAM_SIZE = 8192;
 
 // ============================================================================
 // Framebuffer adapter: onebit::IFramebuffer <-> rendering::IFramebuffer
@@ -154,12 +166,18 @@ static void showStatus(onebit::IFramebuffer& fb, st7305::Display& display,
 // ============================================================================
 
 static bool initNvs() {
-    esp_err_t err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES ||
-        err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_LOGW(TAG, "NVS partition truncated, erasing...");
-        ESP_ERROR_CHECK(nvs_flash_erase());
+    // Try NVS with encryption first (requires eFuse-provisioned key partition)
+    esp_err_t err = nvs_flash_secure_init_partition("nvs", nullptr);
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND ||
+        err == ESP_ERR_NOT_FOUND) {
+        // Secure init failed — fall back to regular init (encryption not provisioned yet)
+        ESP_LOGW(TAG, "NVS encryption not available, using unencrypted NVS");
         err = nvs_flash_init();
+        if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+            ESP_LOGW(TAG, "NVS partition truncated, erasing...");
+            nvs_flash_erase();
+            err = nvs_flash_init();
+        }
     }
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "NVS init failed: %s", esp_err_to_name(err));
@@ -173,13 +191,20 @@ static bool initNvs() {
 // ============================================================================
 
 static bool initLittleFs() {
-    // Mount LittleFS on /littlefs using esp_vfs_fat as a lightweight stand-in.
-    // On actual hardware this would use the LittleFS component; for now we
-    // attempt the mount and log if it's unavailable.
-    ESP_LOGI(TAG, "LittleFS: mount attempted on /littlefs");
-    // TODO: Call esp_vfs_littlefs_register() when the LittleFS component
-    // is added to the project. For now, config and keys in /littlefs will
-    // gracefully fall back to defaults.
+    esp_vfs_littlefs_conf_t conf = {
+        .base_path = "/littlefs",
+        .partition_label = "littlefs",
+        .format_if_mount_failed = true,
+        .dont_mount = false,
+    };
+    esp_err_t ret = esp_vfs_littlefs_register(&conf);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to mount LittleFS: %s", esp_err_to_name(ret));
+        return false;
+    }
+    // Create directories for SSH keys and config
+    mkdir("/littlefs/known_hosts", 0755);
+    ESP_LOGI(TAG, "LittleFS mounted");
     return true;
 }
 
@@ -200,6 +225,21 @@ static void startNtpSync() {
 
 extern "C" void app_main() {
     ESP_LOGI(TAG, "RLCD Terminal — boot sequence start");
+
+    // ------------------------------------------------------------------
+    // Step 0: Set up DMA-capable allocator for onebit framebuffers
+    // ------------------------------------------------------------------
+    // Framebuffers must be in DMA-capable internal SRAM for SPI display
+    // transfers. TerminalBuffer (allocated via std::calloc) will still
+    // route to PSRAM for large allocs, which is correct.
+    static onebit::Allocator dma_allocator = {
+        .alloc = [](size_t size, void*) -> void* {
+            return heap_caps_malloc(size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+        },
+        .free = [](void* ptr, void*) { heap_caps_free(ptr); },
+        .ctx = nullptr,
+    };
+    onebit::init(dma_allocator);
 
     // ------------------------------------------------------------------
     // Step 1: Display init + splash
@@ -261,11 +301,11 @@ extern "C" void app_main() {
     wifi::WifiManager wifiMgr;
     wifiMgr.init();
 
-    volatile bool wifiConnected = false;
+    std::atomic<bool> wifiConnected{false};
     wifiMgr.onStateChange([](wifi::State state, void* ctx) {
-        auto* flag = static_cast<volatile bool*>(ctx);
-        *flag = (state == wifi::State::Connected);
-    }, const_cast<bool*>(&wifiConnected));
+        auto* flag = static_cast<std::atomic<bool>*>(ctx);
+        flag->store(state == wifi::State::Connected);
+    }, &wifiConnected);
 
     wifiMgr.autoConnect();
 
@@ -280,7 +320,10 @@ extern "C" void app_main() {
     // ------------------------------------------------------------------
     AppMode currentMode = AppMode::Dashboard;
     ssh::SshClient sshClient;
-    volatile bool sshConnected = false;
+    std::atomic<bool> sshConnected{false};
+
+    // Create SSH data stream buffer for SSH task -> main loop data flow
+    sshDataStream = xStreamBufferCreate(SSH_STREAM_SIZE, 1);
 
     if (wifiConnected) {
         ESP_LOGI(TAG, "WiFi connected");
@@ -296,14 +339,14 @@ extern "C" void app_main() {
         sshCfg.use_key_auth = (settings.auth_method == 1);
 
         sshClient.onStateChange([](ssh::State state, const char* msg, void* ctx) {
-            auto* flag = static_cast<volatile bool*>(ctx);
+            auto* flag = static_cast<std::atomic<bool>*>(ctx);
             if (state == ssh::State::Connected) {
-                *flag = true;
+                flag->store(true);
                 ESP_LOGI("ssh", "Connected");
             } else if (state == ssh::State::Error) {
                 ESP_LOGE("ssh", "Error: %s", msg);
             }
-        }, const_cast<bool*>(&sshConnected));
+        }, &sshConnected);
 
         // Only attempt SSH if host is configured
         if (settings.ssh_host[0] != '\0') {
@@ -344,17 +387,13 @@ extern "C" void app_main() {
     app::TerminalMode terminalMode(fb, activeFont);
     uint8_t currentFontSize = settings.font_size;
 
-    // Wire SSH data into dashboard and terminal
+    // Wire SSH data into stream buffer — SSH task pushes, main loop drains
     sshClient.onData([](const uint8_t* data, size_t len, void* ctx) {
-        // In dashboard mode the dashboard parses; in terminal mode
-        // the terminal mode parses. The active mode pointer decides.
-        auto* mode = static_cast<AppMode*>(ctx);
-        (void)mode;
-        (void)data;
-        (void)len;
-        // Data routing is handled in the main loop via a shared buffer.
-        // The SSH task pushes to a ring buffer; the main loop drains it.
-    }, &currentMode);
+        (void)ctx;
+        if (sshDataStream && len > 0) {
+            xStreamBufferSend(sshDataStream, data, len, pdMS_TO_TICKS(10));
+        }
+    }, nullptr);
 
     // Terminal output callback → SSH send
     terminalMode.setOutputCallback(
@@ -564,6 +603,35 @@ extern "C" void app_main() {
                     sshClient.send(evt.data, evt.data_length);
                 }
             }
+        }
+
+        // ----------------------------------------------------------
+        // Drain SSH data stream buffer and route to active mode
+        // ----------------------------------------------------------
+        if (sshDataStream) {
+            uint8_t sshBuf[1024];
+            size_t received = xStreamBufferReceive(sshDataStream, sshBuf,
+                                                    sizeof(sshBuf), 0);
+            if (received > 0) {
+                if (currentMode == AppMode::Terminal) {
+                    terminalMode.feedData(sshBuf, received);
+                } else if (currentMode == AppMode::Dashboard) {
+                    dashboard.feedData(sshBuf, received);
+                }
+            }
+        }
+
+        // ----------------------------------------------------------
+        // SSH disconnect detection — show error and offer reconnect
+        // ----------------------------------------------------------
+        if (sshConnected.load() &&
+            sshClient.state() != ssh::State::Connected &&
+            sshClient.state() != ssh::State::Connecting &&
+            sshClient.state() != ssh::State::Authenticating) {
+            sshConnected.store(false);
+            showStatus(fb, display, "SSH disconnected",
+                       "Press B to reconnect");
+            currentMode = AppMode::Error;
         }
 
         // ----------------------------------------------------------

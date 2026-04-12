@@ -15,13 +15,18 @@ namespace wifi {
 
 WifiManager::WifiManager()
     : state_(State::Disconnected), state_cb_(nullptr), state_ctx_(nullptr),
-      retry_count_(0), max_retries_(10), known_count_(0) {
+      retry_count_(0), max_retries_(10), known_count_(0),
+      reconnect_timer_(nullptr) {
     std::memset(current_ssid_, 0, sizeof(current_ssid_));
     std::memset(current_ip_, 0, sizeof(current_ip_));
     std::memset(known_networks_, 0, sizeof(known_networks_));
 }
 
 WifiManager::~WifiManager() {
+    if (reconnect_timer_) {
+        esp_timer_stop(reconnect_timer_);
+        esp_timer_delete(reconnect_timer_);
+    }
     esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &eventHandler);
     esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, &eventHandler);
 }
@@ -46,6 +51,13 @@ void WifiManager::init() {
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_start());
+
+    // Create reconnect timer for non-blocking backoff retries
+    esp_timer_create_args_t timer_args = {};
+    timer_args.callback = reconnectTimerCb;
+    timer_args.arg = this;
+    timer_args.name = "wifi_reconnect";
+    ESP_ERROR_CHECK(esp_timer_create(&timer_args, &reconnect_timer_));
 
     loadKnownNetworks();
     ESP_LOGI(TAG, "WiFi initialized, %d known networks", known_count_);
@@ -281,11 +293,12 @@ void WifiManager::handleWifiEvent(int32_t id, void* data) {
         ESP_LOGW(TAG, "Disconnected from WiFi");
         if (state_ == State::Connecting && retry_count_ < max_retries_) {
             // Reconnect with backoff: 1s, 2s, 4s, 8s, 16s, 30s (capped)
+            // Uses a one-shot timer to avoid blocking the event handler
             int delay_ms = std::min(1000 << retry_count_, 30000);
             ESP_LOGI(TAG, "Retry %d/%d in %dms", retry_count_ + 1, max_retries_, delay_ms);
-            vTaskDelay(pdMS_TO_TICKS(delay_ms));
             retry_count_++;
-            esp_wifi_connect();
+            esp_timer_start_once(reconnect_timer_,
+                                  static_cast<uint64_t>(delay_ms) * 1000ULL);
         } else {
             setState(State::Disconnected);
         }
@@ -297,6 +310,11 @@ void WifiManager::handleWifiEvent(int32_t id, void* data) {
     default:
         break;
     }
+}
+
+void WifiManager::reconnectTimerCb(void* arg) {
+    (void)arg;
+    esp_wifi_connect();
 }
 
 void WifiManager::handleIpEvent(int32_t id, void* data) {

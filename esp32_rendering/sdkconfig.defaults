@@ -48,6 +48,9 @@ CONFIG_ESP_WIFI_MODE_STA=y
 # Power save: modem sleep with DTIM delivery
 CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE=y
 
+# --- LWIP (TCP/IP stack) ---
+CONFIG_LWIP_TCP_NODELAY=y
+
 # --- Bluetooth (NimBLE) ---
 # NimBLE saves ~170KB flash and ~30KB RAM over Bluedroid
 CONFIG_BT_ENABLED=y
@@ -81,7 +84,8 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
 # FreeRTOS tick rate (1ms resolution for responsive input)
 CONFIG_FREERTOS_HZ=1000
 
-# Task watchdog: 10s (SSH crypto handshakes can take several seconds)
+# Task watchdog: enabled, 10s (SSH crypto handshakes can take several seconds)
+CONFIG_ESP_TASK_WDT_EN=y
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
 
 # --- OTA ---

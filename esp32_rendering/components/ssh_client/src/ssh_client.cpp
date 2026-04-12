@@ -1,6 +1,7 @@
 #include "ssh_client.hpp"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_task_wdt.h"
 #include "nvs_flash.h"
 
 #include "libssh2.h"
@@ -11,6 +12,8 @@
 #include "freertos/queue.h"
 
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <netinet/tcp.h>
 #include <netdb.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -28,7 +31,7 @@ static constexpr int SSH_TASK_CORE = 1;
 static constexpr int SEND_QUEUE_SIZE = 256;
 
 struct SendItem {
-    uint8_t data[64];
+    uint8_t data[16];
     size_t len;
 };
 
@@ -40,7 +43,8 @@ SshClient::SshClient()
       state_cb_(nullptr), state_ctx_(nullptr),
       session_(nullptr), channel_(nullptr),
       socket_fd_(-1), task_handle_(nullptr),
-      send_queue_(nullptr) {
+      send_queue_(nullptr),
+      shutdown_requested_(false) {
     std::memset(&config_, 0, sizeof(config_));
 }
 
@@ -54,6 +58,7 @@ void SshClient::connect(const Config& config) {
     }
 
     config_ = config;
+    shutdown_requested_ = false;
 
     // Create send queue
     if (!send_queue_) {
@@ -91,6 +96,23 @@ void SshClient::resizeTerminal(int cols, int rows) {
 }
 
 void SshClient::disconnect() {
+    // Signal the SSH task to shut down gracefully
+    shutdown_requested_ = true;
+
+    // Wait up to 5 seconds for the task to self-terminate
+    if (task_handle_) {
+        for (int i = 0; i < 50 && task_handle_ != nullptr; ++i) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+        // If the task did not self-terminate, force-kill as a last resort
+        if (task_handle_) {
+            ESP_LOGW(TAG, "SSH task did not exit gracefully, force-killing");
+            vTaskDelete(static_cast<TaskHandle_t>(task_handle_));
+            task_handle_ = nullptr;
+        }
+    }
+
+    // Clean up session resources (may already be cleaned by sshTask)
     if (channel_) {
         auto* ch = static_cast<LIBSSH2_CHANNEL*>(channel_);
         libssh2_channel_close(ch);
@@ -106,10 +128,6 @@ void SshClient::disconnect() {
     if (socket_fd_ >= 0) {
         close(socket_fd_);
         socket_fd_ = -1;
-    }
-    if (task_handle_) {
-        vTaskDelete(static_cast<TaskHandle_t>(task_handle_));
-        task_handle_ = nullptr;
     }
     if (send_queue_) {
         vQueueDelete(static_cast<QueueHandle_t>(send_queue_));
@@ -201,41 +219,58 @@ void SshClient::sshTask(void* param) {
     // Initialize libssh2
     libssh2_init(0);
 
+    // Register this task with the watchdog timer
+    esp_task_wdt_add(nullptr);
+
     if (!self->doConnect()) {
         self->setState(State::Error, "Connection failed");
-        libssh2_exit();
-        vTaskDelete(nullptr);
-        return;
+        goto cleanup;
     }
 
     if (!self->verifyHostKey()) {
-        self->disconnect();
-        libssh2_exit();
-        vTaskDelete(nullptr);
-        return;
+        self->setState(State::Error, "Host key verification failed");
+        goto cleanup;
     }
 
     if (!self->doAuthenticate()) {
         self->setState(State::Error, "Authentication failed");
-        self->disconnect();
-        libssh2_exit();
-        vTaskDelete(nullptr);
-        return;
+        goto cleanup;
     }
 
-    // Default terminal: 80×24, will be resized once renderer calculates actual size
+    // Default terminal: 80x24, will be resized once renderer calculates actual size
     if (!self->openShell(80, 24)) {
         self->setState(State::Error, "Failed to open shell");
-        self->disconnect();
-        libssh2_exit();
-        vTaskDelete(nullptr);
-        return;
+        goto cleanup;
     }
 
     self->setState(State::Connected);
     self->ioLoop();
 
+cleanup:
+    // Clean up session resources from within the task
+    if (self->channel_) {
+        auto* ch = static_cast<LIBSSH2_CHANNEL*>(self->channel_);
+        libssh2_channel_close(ch);
+        libssh2_channel_free(ch);
+        self->channel_ = nullptr;
+    }
+    if (self->session_) {
+        auto* sess = static_cast<LIBSSH2_SESSION*>(self->session_);
+        libssh2_session_disconnect(sess, "Session ended");
+        libssh2_session_free(sess);
+        self->session_ = nullptr;
+    }
+    if (self->socket_fd_ >= 0) {
+        close(self->socket_fd_);
+        self->socket_fd_ = -1;
+    }
+
     libssh2_exit();
+
+    // Unregister from watchdog before self-deleting
+    esp_task_wdt_delete(nullptr);
+
+    // Mark task handle as null so disconnect() knows we exited
     self->task_handle_ = nullptr;
     vTaskDelete(nullptr);
 }
@@ -268,6 +303,13 @@ bool SshClient::doConnect() {
     // Set TCP_NODELAY for interactive SSH (disable Nagle's algorithm)
     int flag = 1;
     setsockopt(socket_fd_, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+
+    // Enable TCP keepalive to detect dead connections
+    int keepalive = 1, idle = 30, interval = 5, count = 3;
+    setsockopt(socket_fd_, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+    setsockopt(socket_fd_, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+    setsockopt(socket_fd_, IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(interval));
+    setsockopt(socket_fd_, IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count));
 
     // Connect
     if (::connect(socket_fd_, result->ai_addr, result->ai_addrlen) < 0) {
@@ -355,6 +397,8 @@ bool SshClient::doAuthenticate() {
         );
         if (rc == 0) {
             ESP_LOGI(TAG, "Ed25519 key auth successful for %s", config_.username);
+            // Zero out password from memory after successful auth
+            std::memset(config_.password, 0, sizeof(config_.password));
             libssh2_session_set_blocking(sess, 0);
             return true;
         }
@@ -364,6 +408,8 @@ bool SshClient::doAuthenticate() {
     // Password auth
     if (config_.password[0]) {
         int rc = libssh2_userauth_password(sess, config_.username, config_.password);
+        // Zero out password from memory regardless of success
+        std::memset(config_.password, 0, sizeof(config_.password));
         if (rc == 0) {
             ESP_LOGI(TAG, "Password auth successful for %s", config_.username);
             libssh2_session_set_blocking(sess, 0);
@@ -413,7 +459,7 @@ void SshClient::ioLoop() {
     uint8_t recv_buf[4096];
     auto send_q = static_cast<QueueHandle_t>(send_queue_);
 
-    while (state_ == State::Connected) {
+    while (!shutdown_requested_) {
         bool activity = false;
 
         // Read from SSH channel → data callback

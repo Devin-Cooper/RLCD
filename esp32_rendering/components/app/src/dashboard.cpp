@@ -26,6 +26,7 @@ Dashboard::Dashboard()
     , command_count_(0)
     , current_command_(0)
     , collecting_(false)
+    , need_send_next_(false)
     , interval_ms_(5000)
     , last_update_ms_(0)
 {}
@@ -116,7 +117,21 @@ void Dashboard::update(ssh::SshClient& ssh, int64_t now_ms) {
     if (ssh.state() != ssh::State::Connected) return;
     if (command_count_ == 0) return;
 
+    // Send next command in the sequence if one is pending
+    if (need_send_next_) {
+        need_send_next_ = false;
+        if (current_command_ < command_count_) {
+            sendNextCommand(ssh);
+        } else {
+            // All commands complete — reset for next cycle
+            current_command_ = 0;
+            collecting_ = false;
+        }
+        return;
+    }
+
     // Check if it's time to refresh
+    if (collecting_) return;  // Don't start a new cycle while collecting
     if (now_ms - last_update_ms_ < interval_ms_) return;
     last_update_ms_ = now_ms;
 
@@ -176,15 +191,10 @@ void Dashboard::feedData(const uint8_t* data, size_t len) {
                 }
                 cmd.output[cmd.output_len] = '\0';
 
-                // Move to next command — sendNextCommand will be called
-                // on the next update() tick by the caller checking collecting_
+                // Move to next command — update() will send it on the next tick
                 ++current_command_;
+                need_send_next_ = true;
 
-                // If there are more commands, we'll need to trigger them.
-                // For simplicity, the main loop should call feedData in a tight
-                // loop with the SSH receive callback, and the sentinel detection
-                // advances the command index. We don't send here to avoid
-                // re-entrant SSH sends from inside a callback.
                 if (current_command_ >= command_count_) {
                     collecting_ = false;
                 }

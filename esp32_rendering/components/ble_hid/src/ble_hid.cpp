@@ -7,6 +7,7 @@
 #include "host/ble_hs.h"
 #include "host/ble_gap.h"
 #include "host/ble_gatt.h"
+#include "store/config/ble_store_config.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 
@@ -164,9 +165,24 @@ void BleHidHost::disconnect() {
 }
 
 void BleHidHost::autoReconnect() {
-    // NimBLE stores bonding info and can auto-reconnect
-    // For now, start a scan and connect to any known bonded device
-    ESP_LOGI(TAG, "Attempting auto-reconnect to bonded keyboard");
+    // Try direct connection to bonded peers first (faster than scanning)
+    int num_peers = ble_store_util_count(BLE_STORE_OBJ_TYPE_PEER_SEC);
+    if (num_peers > 0) {
+        ble_addr_t peer_addrs[4];
+        int count = 0;
+        ble_store_util_bonded_peers(peer_addrs, &count, 4);
+        if (count > 0) {
+            ESP_LOGI(TAG, "Attempting direct connect to bonded peer "
+                     "%02x:%02x:%02x:%02x:%02x:%02x",
+                     peer_addrs[0].val[0], peer_addrs[0].val[1],
+                     peer_addrs[0].val[2], peer_addrs[0].val[3],
+                     peer_addrs[0].val[4], peer_addrs[0].val[5]);
+            connect(peer_addrs[0].val);
+            return;
+        }
+    }
+    // Fall back to scanning if no bonded peers
+    ESP_LOGI(TAG, "No bonded peers, starting scan");
     startScan();
 }
 

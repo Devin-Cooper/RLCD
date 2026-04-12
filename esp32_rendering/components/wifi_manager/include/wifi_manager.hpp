@@ -4,6 +4,7 @@
 #include <cstring>
 #include "esp_wifi.h"
 #include "esp_event.h"
+#include "esp_timer.h"
 
 namespace wifi {
 
@@ -97,6 +98,10 @@ private:
     void loadKnownNetworks();
     void setState(State s);
     int findKnownNetwork(const char* ssid) const;
+
+    // Reconnect timer for non-blocking backoff (avoids blocking event handler)
+    esp_timer_handle_t reconnect_timer_;
+    static void reconnectTimerCb(void* arg);
 
     // ESP event handlers
     static void eventHandler(void* arg, esp_event_base_t base,

@@ -54,6 +54,7 @@ private:
     int command_count_;
     int current_command_;       // Index of command currently being collected
     bool collecting_;           // True while receiving output for a command
+    bool need_send_next_;       // True when sentinel detected, next command needs sending
 
     uint16_t interval_ms_;
     int64_t last_update_ms_;

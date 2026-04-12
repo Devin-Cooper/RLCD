@@ -7,7 +7,7 @@
 idf_component_register(
     SRCS "src/ssh_client.cpp"
     INCLUDE_DIRS "include"
-    REQUIRES mbedtls esp_log nvs_flash lwip esp_timer
+    REQUIRES mbedtls esp_log nvs_flash lwip esp_timer esp_system
     PRIV_REQUIRES libssh2_esp
 )
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)

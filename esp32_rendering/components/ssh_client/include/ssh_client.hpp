@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <atomic>
 
 namespace ssh {
 
@@ -98,6 +99,9 @@ private:
 
     // Send queue for thread-safe keyboard input
     void* send_queue_;
+
+    // Graceful shutdown flag — set by disconnect(), checked by ioLoop()
+    std::atomic<bool> shutdown_requested_;
 
     Config config_;
 
