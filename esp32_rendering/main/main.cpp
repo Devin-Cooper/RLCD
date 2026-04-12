@@ -6,6 +6,7 @@
 #include <esp_sleep.h>
 #include <esp_heap_caps.h>
 #include <nvs_flash.h>
+#include <nvs.h>
 #include <esp_sntp.h>
 #include <esp_littlefs.h>
 #include <sys/stat.h>
@@ -30,6 +31,10 @@
 #include "menu.hpp"
 #include "dashboard.hpp"
 #include "terminal_mode.hpp"
+
+// SD card config
+#include "sdcard_manager.hpp"
+#include "config_manager.hpp"
 
 // onebit library (via EXTRA_COMPONENT_DIRS)
 #include <1bit/core/allocator.hpp>
@@ -269,9 +274,25 @@ extern "C" void app_main() {
     initLittleFs();
 
     // ------------------------------------------------------------------
-    // Load application settings
+    // Step 3b: SD Card mount (config import deferred until after WiFi init)
+    // ------------------------------------------------------------------
+    sdcard::SDCardManager sdcard;
+    sdcard::ConfigManager configMgr;
+    bool hasServers = false;
+
+    bool sdMounted = sdcard.mount();
+
+    // ------------------------------------------------------------------
+    // Load application settings (apply SD card overrides if present)
     // ------------------------------------------------------------------
     app::Settings settings = app::loadSettings();
+    if (sdMounted) {
+        const auto& ps = configMgr.parsedSettings();
+        if (ps.has_font_size) settings.font_size = ps.font_size;
+        if (ps.has_scrollback) settings.scrollback_depth = ps.scrollback;
+        if (ps.has_dashboard_interval_ms) settings.dashboard_interval_ms = ps.dashboard_interval_ms;
+        app::saveSettings(settings);
+    }
     const onebit::BitmapFont& activeFont = fontForSize(settings.font_size);
 
     // ------------------------------------------------------------------
@@ -299,6 +320,15 @@ extern "C" void app_main() {
     // ------------------------------------------------------------------
     wifi::WifiManager wifiMgr;
     wifiMgr.init();
+
+    // SD card config import (after WiFi init so saveNetwork works)
+    if (sdMounted) {
+        int count = configMgr.init(wifiMgr);
+        hasServers = (count > 0);
+        ESP_LOGI(TAG, "SD card: %d server(s) loaded", count);
+    } else {
+        ESP_LOGI(TAG, "No SD card — using stored config");
+    }
 
     std::atomic<bool> wifiConnected{false};
     wifiMgr.onStateChange([](wifi::State state, void* ctx) {
@@ -330,12 +360,32 @@ extern "C" void app_main() {
         // NTP sync
         startNtpSync();
 
-        // SSH connect
+        // SSH connect — use SD card server config if available, else NVS settings
         ssh::Config sshCfg{};
-        strncpy(sshCfg.host, settings.ssh_host, sizeof(sshCfg.host) - 1);
-        sshCfg.port = settings.ssh_port;
-        strncpy(sshCfg.username, settings.ssh_user, sizeof(sshCfg.username) - 1);
-        sshCfg.use_key_auth = (settings.auth_method == 1);
+        if (hasServers) {
+            const auto& srv = configMgr.activeServer();
+            strncpy(sshCfg.host, srv.host, sizeof(sshCfg.host) - 1);
+            sshCfg.port = srv.port;
+            strncpy(sshCfg.username, srv.username, sizeof(sshCfg.username) - 1);
+            sshCfg.use_key_auth = srv.use_key_auth;
+            // Load password from NVS if using password auth
+            if (!sshCfg.use_key_auth) {
+                nvs_handle_t handle;
+                if (nvs_open("ssh_creds", NVS_READONLY, &handle) == ESP_OK) {
+                    char nvs_key[24];
+                    snprintf(nvs_key, sizeof(nvs_key), "srv_p_%d",
+                             configMgr.activeServerIndex());
+                    size_t len = sizeof(sshCfg.password);
+                    nvs_get_str(handle, nvs_key, sshCfg.password, &len);
+                    nvs_close(handle);
+                }
+            }
+        } else {
+            strncpy(sshCfg.host, settings.ssh_host, sizeof(sshCfg.host) - 1);
+            sshCfg.port = settings.ssh_port;
+            strncpy(sshCfg.username, settings.ssh_user, sizeof(sshCfg.username) - 1);
+            sshCfg.use_key_auth = (settings.auth_method == 1);
+        }
 
         sshClient.onStateChange([](ssh::State state, const char* msg, void* ctx) {
             auto* flag = static_cast<std::atomic<bool>*>(ctx);
@@ -348,8 +398,8 @@ extern "C" void app_main() {
         }, &sshConnected);
 
         // Only attempt SSH if host is configured
-        if (settings.ssh_host[0] != '\0') {
-            showStatus(fb, display, "Connecting to SSH...", settings.ssh_host);
+        if (sshCfg.host[0] != '\0') {
+            showStatus(fb, display, "Connecting to SSH...", sshCfg.host);
             sshClient.connect(sshCfg);
 
             // Wait up to 15 seconds for SSH
@@ -382,6 +432,12 @@ extern "C" void app_main() {
     app::Menu menu;
     app::Dashboard dashboard;
     dashboard.init(settings);
+
+    // Load dashboard commands from active server config
+    if (hasServers && configMgr.activeServer().dashboard_count > 0) {
+        dashboard.updateCommands(configMgr.activeServer().dashboard,
+                                  configMgr.activeServer().dashboard_count);
+    }
 
     app::TerminalMode terminalMode(fb, activeFont);
     uint8_t currentFontSize = settings.font_size;
@@ -506,6 +562,35 @@ extern "C" void app_main() {
                         case app::Menu::Item::Terminal:
                             currentMode = AppMode::Terminal;
                             break;
+                        case app::Menu::Item::Servers: {
+                            if (configMgr.serverCount() > 1) {
+                                int next = (configMgr.activeServerIndex() + 1) % configMgr.serverCount();
+                                configMgr.setActiveServer(next);
+                                const auto& srv = configMgr.activeServer();
+                                sshClient.disconnect();
+                                ssh::Config cfg = {};
+                                strncpy(cfg.host, srv.host, sizeof(cfg.host) - 1);
+                                cfg.port = srv.port;
+                                strncpy(cfg.username, srv.username, sizeof(cfg.username) - 1);
+                                cfg.use_key_auth = srv.use_key_auth;
+                                if (!cfg.use_key_auth) {
+                                    nvs_handle_t handle;
+                                    if (nvs_open("ssh_creds", NVS_READONLY, &handle) == ESP_OK) {
+                                        char nvs_key[24];
+                                        snprintf(nvs_key, sizeof(nvs_key), "srv_p_%d", next);
+                                        size_t len = sizeof(cfg.password);
+                                        nvs_get_str(handle, nvs_key, cfg.password, &len);
+                                        nvs_close(handle);
+                                    }
+                                }
+                                sshClient.connect(cfg);
+                                if (srv.dashboard_count > 0) {
+                                    dashboard.updateCommands(srv.dashboard, srv.dashboard_count);
+                                }
+                                ESP_LOGI(TAG, "Switched to server: %s", srv.name);
+                            }
+                            break;
+                        }
                         case app::Menu::Item::Settings:
                             // TODO: settings editor screen
                             break;
@@ -588,6 +673,46 @@ extern "C" void app_main() {
                                 break;
                             case app::Menu::Item::Terminal:
                                 currentMode = AppMode::Terminal;
+                                break;
+                            case app::Menu::Item::Servers: {
+                                if (configMgr.serverCount() > 1) {
+                                    int next = (configMgr.activeServerIndex() + 1) % configMgr.serverCount();
+                                    configMgr.setActiveServer(next);
+                                    const auto& srv = configMgr.activeServer();
+                                    sshClient.disconnect();
+                                    ssh::Config cfg = {};
+                                    strncpy(cfg.host, srv.host, sizeof(cfg.host) - 1);
+                                    cfg.port = srv.port;
+                                    strncpy(cfg.username, srv.username, sizeof(cfg.username) - 1);
+                                    cfg.use_key_auth = srv.use_key_auth;
+                                    if (!cfg.use_key_auth) {
+                                        nvs_handle_t handle;
+                                        if (nvs_open("ssh_creds", NVS_READONLY, &handle) == ESP_OK) {
+                                            char nvs_key[24];
+                                            snprintf(nvs_key, sizeof(nvs_key), "srv_p_%d", next);
+                                            size_t len = sizeof(cfg.password);
+                                            nvs_get_str(handle, nvs_key, cfg.password, &len);
+                                            nvs_close(handle);
+                                        }
+                                    }
+                                    sshClient.connect(cfg);
+                                    if (srv.dashboard_count > 0) {
+                                        dashboard.updateCommands(srv.dashboard, srv.dashboard_count);
+                                    }
+                                    ESP_LOGI(TAG, "Switched to server: %s", srv.name);
+                                }
+                                break;
+                            }
+                            case app::Menu::Item::Settings:
+                                // TODO: settings editor screen
+                                break;
+                            case app::Menu::Item::WiFi:
+                                currentMode = AppMode::NetworkSelect;
+                                break;
+                            case app::Menu::Item::About:
+                                showStatus(fb, display, "RLCD Terminal v1.0",
+                                           "github.com/Devin-Cooper/RLCD");
+                                vTaskDelay(pdMS_TO_TICKS(2000));
                                 break;
                             default:
                                 break;
