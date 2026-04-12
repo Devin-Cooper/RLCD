@@ -72,7 +72,8 @@ CONFIG_MBEDTLS_HARDWARE_SHA=y
 CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC=y
 
 # --- NVS Encryption ---
-CONFIG_NVS_ENCRYPTION=y
+# Disabled until eFuse keys are provisioned on the device
+# CONFIG_NVS_ENCRYPTION=y
 
 # --- Logging ---
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y

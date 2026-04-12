@@ -1,2 +1,2 @@
 dependencies:
-  skuodi/libssh2_esp: ">=1.11.1"
+  skuodi/libssh2_esp: ">=1.1.0"

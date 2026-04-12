@@ -6,5 +6,6 @@ otadata,     data,  ota,     0x10000,  0x2000,
 phy_init,    data,  phy,     0x12000,  0x1000,
 ota_0,       app,   ota_0,   0x20000,  0x300000,
 ota_1,       app,   ota_1,   0x320000, 0x300000,
-littlefs,    data,  spiffs,  0x620000, 0x200000, # LittleFS uses spiffs subtype (no dedicated LittleFS subtype in ESP-IDF)
+# LittleFS uses spiffs subtype (no dedicated LittleFS subtype in ESP-IDF)
+littlefs,    data,  spiffs,  0x620000, 0x200000,
 coredump,    data,  coredump,0x820000, 0x100000,
