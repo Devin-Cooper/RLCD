@@ -90,10 +90,26 @@ BleHidHost::~BleHidHost() {
 }
 
 void BleHidHost::init() {
-    // NimBLE initialization is typically done in the main app
-    // This just sets up our state
+    // Initialize NimBLE host stack
+    ESP_ERROR_CHECK(nimble_port_init());
+
+    // Configure NimBLE host
+    ble_hs_cfg.sm_bonding = 1;
+    ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+    ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+    ble_hs_cfg.sm_sc = 1;
+
+    // Start NimBLE host task
+    nimble_port_freertos_init([](void*) {
+        nimble_port_run();
+        nimble_port_freertos_deinit();
+    });
+
+    // Give the host stack a moment to start
+    vTaskDelay(pdMS_TO_TICKS(200));
+
     setState(State::Disconnected);
-    ESP_LOGI(TAG, "BLE HID Host initialized");
+    ESP_LOGI(TAG, "BLE HID Host initialized (NimBLE started)");
 }
 
 void BleHidHost::startScan() {
