@@ -1,6 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
+
+// Forward declare NimBLE type to avoid pulling full headers into every includer
+struct ble_gap_event;
 
 namespace ble_hid {
 
@@ -95,7 +99,7 @@ private:
     static void pairingTimeoutCb(void* arg);
 
     // NimBLE callbacks (static, registered with the stack)
-    static int bleGapEvent(void* event, void* arg);
+    static int bleGapEvent(struct ble_gap_event* event, void* arg);
 };
 
 } // namespace ble_hid

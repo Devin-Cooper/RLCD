@@ -6,6 +6,6 @@ idf_component_register(
         "src/settings.cpp"
     INCLUDE_DIRS "include"
     REQUIRES st7305 wifi_manager ssh_client ble_hid input_queue
-             buttons sensors nvs_flash esp_timer esp_log
+             buttons sensors nvs_flash esp_timer onebit
 )
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)

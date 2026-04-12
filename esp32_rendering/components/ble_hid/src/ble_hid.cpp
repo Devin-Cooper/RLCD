@@ -166,7 +166,8 @@ void BleHidHost::disconnect() {
 
 void BleHidHost::autoReconnect() {
     // Try direct connection to bonded peers first (faster than scanning)
-    int num_peers = ble_store_util_count(BLE_STORE_OBJ_TYPE_PEER_SEC);
+    int num_peers = 0;
+    ble_store_util_count(BLE_STORE_OBJ_TYPE_PEER_SEC, &num_peers);
     if (num_peers > 0) {
         ble_addr_t peer_addrs[4];
         int count = 0;
@@ -369,9 +370,8 @@ void BleHidHost::pairingTimeoutCb(void* arg) {
 
 // --- NimBLE GAP Event Handler ---
 
-int BleHidHost::bleGapEvent(void* event_ptr, void* arg) {
+int BleHidHost::bleGapEvent(struct ble_gap_event* event, void* arg) {
     auto* self = static_cast<BleHidHost*>(arg);
-    auto* event = static_cast<struct ble_gap_event*>(event_ptr);
 
     switch (event->type) {
     case BLE_GAP_EVENT_DISC: {

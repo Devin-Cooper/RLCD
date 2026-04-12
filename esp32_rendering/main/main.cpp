@@ -7,7 +7,6 @@
 #include <esp_heap_caps.h>
 #include <nvs_flash.h>
 #include <esp_sntp.h>
-#include <esp_vfs_fat.h>
 #include <esp_littlefs.h>
 #include <sys/stat.h>
 #include <atomic>
