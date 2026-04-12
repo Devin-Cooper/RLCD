@@ -1,0 +1,2 @@
+dependencies:
+  skuodi/libssh2_esp: ">=1.11.1"
