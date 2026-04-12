@@ -1,4 +1,4 @@
-# ESP32-S3 Rendering Toolkit Configuration
+# ESP32-S3 SSH Terminal Configuration
 # Optimized for Waveshare ESP32-S3-RLCD-4.2
 
 # Target ESP32-S3
@@ -10,13 +10,28 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 # Performance optimization
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 
-# PSRAM Configuration (8MB Octal)
+# --- PSRAM Configuration (8MB Octal) ---
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_USE_MALLOC=y
+# Only use PSRAM for allocations > 4KB (keeps small allocs in fast internal SRAM)
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+# Reserve 65KB internal SRAM for DMA buffers and critical allocations
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=65536
+# Move WiFi/BT BSS segments to PSRAM to free internal SRAM (~20-50KB savings)
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
+# Execute code from PSRAM (faster than quad-SPI flash, prevents PSRAM access
+# crashes during NVS/OTA flash operations)
+CONFIG_SPIRAM_XIP_FROM_PSRAM=y
 
-# Flash Configuration (16MB)
+# --- Cache Configuration ---
+# 64KB data cache with 64-byte lines for optimal PSRAM throughput
+# (trades 32KB internal SRAM for substantially better PSRAM performance)
+CONFIG_ESP32S3_DATA_CACHE_64KB=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+
+# --- Flash Configuration (16MB) ---
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
@@ -28,11 +43,50 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 # SPI DMA
 CONFIG_SPI_MASTER_ISR_IN_IRAM=y
 
-# Logging (reduce for production)
+# --- WiFi ---
+CONFIG_ESP_WIFI_MODE_STA=y
+# Power save: modem sleep with DTIM delivery
+CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE=y
+
+# --- Bluetooth (NimBLE) ---
+# NimBLE saves ~170KB flash and ~30KB RAM over Bluedroid
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=y
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=n
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+
+# --- WiFi/BLE Coexistence ---
+CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
+
+# --- mbedTLS (for SSH) ---
+# Hardware AES (CTR mode: 7.5 MB/s — use AES-CTR, avoid AES-GCM at 1.35 MB/s)
+CONFIG_MBEDTLS_HARDWARE_AES=y
+# Hardware SHA (SHA-256: 26 MB/s, SHA-512: 28.6 MB/s)
+CONFIG_MBEDTLS_HARDWARE_SHA=y
+# Force mbedTLS allocations to internal SRAM (required for DMA with hw crypto)
+CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC=y
+
+# --- NVS Encryption ---
+CONFIG_NVS_ENCRYPTION=y
+
+# --- Logging ---
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
-# Stack sizes
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+# --- Stack and Task Configuration ---
+# Larger main task stack for SSH + terminal + crypto
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
 
-# FreeRTOS tick rate
+# FreeRTOS tick rate (1ms resolution for responsive input)
 CONFIG_FREERTOS_HZ=1000
+
+# Task watchdog: 10s (SSH crypto handshakes can take several seconds)
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
+
+# --- OTA ---
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# --- Power Management ---
+CONFIG_PM_ENABLE=y
+CONFIG_PM_DFS_INIT_AUTO=y
