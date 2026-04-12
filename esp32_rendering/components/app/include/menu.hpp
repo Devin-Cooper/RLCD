@@ -14,6 +14,7 @@ public:
     enum class Item : uint8_t {
         Dashboard = 0,
         Terminal,
+        Servers,
         Settings,
         WiFi,
         About,

@@ -13,6 +13,7 @@ const char* Menu::itemLabel(int index) {
     switch (static_cast<Item>(index)) {
         case Item::Dashboard: return "Dashboard";
         case Item::Terminal:  return "Terminal";
+        case Item::Servers:   return "Servers";
         case Item::Settings:  return "Settings";
         case Item::WiFi:      return "WiFi";
         case Item::About:     return "About";

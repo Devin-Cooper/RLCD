@@ -1,4 +1,5 @@
 #include "dashboard.hpp"
+#include "config_manager.hpp"
 #include <1bit/render/primitives.hpp>
 #include <1bit/render/bitmap_font.hpp>
 #include <esp_log.h>
@@ -110,6 +111,30 @@ void Dashboard::loadDefaults() {
 }
 
 // ============================================================================
+// Update commands from server config
+// ============================================================================
+
+void Dashboard::updateCommands(const sdcard::DashboardCommand* cmds, int count) {
+    command_count_ = 0;
+    for (int i = 0; i < count && i < MAX_COMMANDS; i++) {
+        strncpy(commands_[i].label, cmds[i].label, sizeof(commands_[i].label) - 1);
+        commands_[i].label[sizeof(commands_[i].label) - 1] = '\0';
+        strncpy(commands_[i].command, cmds[i].command, sizeof(commands_[i].command) - 1);
+        commands_[i].command[sizeof(commands_[i].command) - 1] = '\0';
+        commands_[i].output[0] = '\0';
+        commands_[i].output_len = 0;
+        commands_[i].valid = true;
+        command_count_++;
+    }
+    // Reset collection state for new command set
+    current_command_ = 0;
+    collecting_ = false;
+    need_send_next_ = false;
+    last_update_ms_ = 0;
+    ESP_LOGI(TAG, "Updated dashboard with %d commands", command_count_);
+}
+
+// ============================================================================
 // Update / data collection
 // ============================================================================
 
@@ -155,7 +180,7 @@ void Dashboard::sendNextCommand(ssh::SshClient& ssh) {
     }
 
     // Send: command ; echo __DASH_END__\n
-    char buf[128];
+    char buf[192];
     int n = snprintf(buf, sizeof(buf), "%s ; echo %s\n",
                      commands_[current_command_].command, SENTINEL);
     if (n > 0 && n < static_cast<int>(sizeof(buf))) {

@@ -4,6 +4,7 @@
 #include <1bit/render/bitmap_font.hpp>
 #include "ssh_client.hpp"
 #include "settings.hpp"
+#include "config_manager.hpp"
 #include <cstdint>
 
 namespace app {
@@ -34,6 +35,10 @@ public:
     /// Update the refresh interval.
     void setInterval(uint16_t interval_ms) { interval_ms_ = interval_ms; }
 
+    /// Update dashboard commands from a server config.
+    /// Replaces current commands with the provided ones.
+    void updateCommands(const sdcard::DashboardCommand* cmds, int count);
+
 private:
     /// Maximum number of dashboard commands
     static constexpr int MAX_COMMANDS = 8;
@@ -44,7 +49,7 @@ private:
 
     struct DashboardCommand {
         char label[MAX_LABEL_LEN];
-        char command[64];
+        char command[128];
         char output[MAX_OUTPUT_LEN];
         int output_len;
         bool valid;
