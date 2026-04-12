@@ -3,10 +3,14 @@
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
 #include "driver/sdmmc_host.h"
+#include "driver/gpio.h"
 #include <cstring>
 
 static const char* TAG = "sdcard";
 static const char* MOUNT_POINT = "/sdcard";
+
+// Card detect pin — active low (low = card inserted)
+static constexpr gpio_num_t CD_PIN = GPIO_NUM_17;
 
 namespace sdcard {
 
@@ -19,9 +23,26 @@ SDCardManager::~SDCardManager() {
 bool SDCardManager::mount() {
     if (mounted_) return true;
 
+    // Check card detect pin before attempting mount
+    // This avoids the expensive SDMMC init + DMA allocation when no card is present
+    gpio_config_t cd_conf = {};
+    cd_conf.pin_bit_mask = (1ULL << CD_PIN);
+    cd_conf.mode = GPIO_MODE_INPUT;
+    cd_conf.pull_up_en = GPIO_PULLUP_ENABLE;
+    cd_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    gpio_config(&cd_conf);
+
+    // Give the pull-up a moment to settle
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    if (gpio_get_level(CD_PIN) != 0) {
+        ESP_LOGI(TAG, "No SD card detected (CD pin high)");
+        return false;
+    }
+
     esp_vfs_fat_mount_config_t mount_config = {};
     mount_config.format_if_mount_failed = false;
-    mount_config.max_files = 5;
+    mount_config.max_files = 3;
 
     // SDMMC host config — 1-bit bus mode
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
@@ -34,15 +55,15 @@ bool SDCardManager::mount() {
     slot.clk = GPIO_NUM_38;
     slot.cmd = GPIO_NUM_21;
     slot.d0  = GPIO_NUM_39;
-    slot.cd  = GPIO_NUM_17;
+    slot.cd  = CD_PIN;
     slot.width = 1;
 
-    ESP_LOGI(TAG, "Mounting SD card...");
+    ESP_LOGI(TAG, "SD card detected, mounting...");
     esp_err_t ret = esp_vfs_fat_sdmmc_mount(MOUNT_POINT, &host, &slot,
                                              &mount_config, &card_);
     if (ret != ESP_OK) {
         if (ret == ESP_FAIL) {
-            ESP_LOGW(TAG, "No SD card inserted or failed to mount FAT filesystem");
+            ESP_LOGW(TAG, "Failed to mount FAT filesystem on SD card");
         } else {
             ESP_LOGW(TAG, "SD card mount failed: %s", esp_err_to_name(ret));
         }
