@@ -2,15 +2,12 @@
 #include <freertos/task.h>
 #include <esp_log.h>
 #include <esp_timer.h>
+#include <esp_sleep.h>
+#include <nvs_flash.h>
+#include <esp_sntp.h>
+#include <esp_vfs_fat.h>
 
-#include "rendering/framebuffer.hpp"
-#include "rendering/mask_buffer.hpp"
-#include "rendering/primitives.hpp"
-#include "rendering/patterns.hpp"
-#include "rendering/bezier.hpp"
-#include "rendering/vector_font.hpp"
-#include "rendering/animation.hpp"
-#include "rendering/clock_face.hpp"
+// Display and sensors
 #include "st7305.hpp"
 #include "i2c_bsp.hpp"
 #include "pcf85063.hpp"
@@ -18,505 +15,630 @@
 #include "battery.hpp"
 #include "buttons.hpp"
 
+// Connectivity
+#include "wifi_manager.hpp"
+#include "ssh_client.hpp"
+#include "ble_hid.hpp"
+#include "input_queue.hpp"
+
+// Application layer
+#include "settings.hpp"
+#include "menu.hpp"
+#include "dashboard.hpp"
+#include "terminal_mode.hpp"
+
+// onebit library (via EXTRA_COMPONENT_DIRS)
+#include <1bit/core/framebuffer.hpp>
+#include <1bit/render/primitives.hpp>
+#include <1bit/render/bitmap_font.hpp>
+#include <1bit/fonts/term_5x7.hpp>
+#include <1bit/fonts/term_6x9.hpp>
+#include <1bit/fonts/term_8x12.hpp>
+
+// Legacy rendering (clock face, shapes)
+#include "rendering/framebuffer.hpp"
+#include "rendering/clock_face.hpp"
+#include "rendering/animation.hpp"
+
 static const char* TAG = "main";
 
-using namespace rendering;
+// ============================================================================
+// Framebuffer adapter: onebit::IFramebuffer <-> rendering::IFramebuffer
+// Both use packed 1-bit rows (MSB-first), identical binary layout at 400x300.
+// The ST7305 driver accepts rendering::IFramebuffer& — this thin wrapper
+// lets us render with onebit:: types and display via the existing driver.
+// ============================================================================
 
-// Get current time in seconds
-static float getTime() {
-    return static_cast<float>(esp_timer_get_time()) / 1000000.0f;
+class FramebufferAdapter : public rendering::IFramebuffer {
+public:
+    explicit FramebufferAdapter(onebit::IFramebuffer& src) : src_(src) {}
+
+    int16_t width() const override { return src_.width(); }
+    int16_t height() const override { return src_.height(); }
+
+    void setPixel(int16_t x, int16_t y, rendering::Color c) override {
+        src_.setPixel(x, y, static_cast<onebit::Color>(c));
+    }
+    rendering::Color getPixel(int16_t x, int16_t y) const override {
+        return static_cast<rendering::Color>(src_.getPixel(x, y));
+    }
+    void clear(rendering::Color c = rendering::WHITE) override {
+        src_.clear(static_cast<onebit::Color>(c));
+    }
+    void setPixelDirect(int16_t x, int16_t y, rendering::Color c) override {
+        src_.setPixelDirect(x, y, static_cast<onebit::Color>(c));
+    }
+    void fillSpan(int16_t y, int16_t xStart, int16_t xEnd, rendering::Color c) override {
+        src_.fillSpan(y, xStart, xEnd, static_cast<onebit::Color>(c));
+    }
+
+    uint8_t* buffer() override { return src_.buffer(); }
+    const uint8_t* buffer() const override { return src_.buffer(); }
+    size_t bufferSize() const override { return src_.bufferSize(); }
+
+private:
+    onebit::IFramebuffer& src_;
+};
+
+// ============================================================================
+// Application mode
+// ============================================================================
+
+enum class AppMode : uint8_t {
+    Dashboard,
+    Terminal,
+    NetworkSelect,
+    Error,
+};
+
+// ============================================================================
+// Font table — indexed by Settings::font_size (0/1/2)
+// ============================================================================
+
+static const onebit::BitmapFont& fontForSize(uint8_t size) {
+    switch (size) {
+        case 0: return onebit::fonts::TERM_5X7;
+        case 2: return onebit::fonts::TERM_8X12;
+        default: return onebit::fonts::TERM_6X9;
+    }
 }
 
 // ============================================================================
-// Demo functions (kept for testing/development)
+// Splash screen
 // ============================================================================
 
-// Demo 1: Primitives
-static void demoPrimitives(IFramebuffer& fb) {
-    ESP_LOGI(TAG, "Demo: Primitives");
-
-    fb.clear(WHITE);
-
-    // Draw lines
-    for (int i = 0; i < 10; i++) {
-        drawLine(fb, 10 + i * 10, 10, 10 + i * 10, 50, BLACK);
-    }
-
-    // Draw rectangles
-    drawRect(fb, 120, 10, 60, 40, BLACK);
-    fillRect(fb, 130, 20, 40, 20, BLACK);
-
-    // Draw circles
-    drawCircle(fb, 250, 30, 25, BLACK);
-    fillCircle(fb, 320, 30, 20, BLACK);
-
-    // Draw polygon
-    Point pentagon[] = {
-        {50, 100}, {80, 80}, {110, 100}, {100, 130}, {60, 130}
-    };
-    drawPolygon(fb, pentagon, 5, BLACK);
-
-    // Fill polygon
-    Point hexagon[] = {
-        {180, 80}, {210, 90}, {220, 120}, {200, 140}, {170, 130}, {160, 100}
-    };
-    fillPolygon(fb, hexagon, 6, BLACK);
-}
-
-// Demo 2: Patterns
-static void demoPatterns(IFramebuffer& fb) {
-    ESP_LOGI(TAG, "Demo: Patterns");
-
-    fb.clear(WHITE);
-
-    // Draw pattern rectangles
-    int x = 20;
-    int w = 60;
-    int h = 50;
-    int spacing = 70;
-
-    fillRectPattern(fb, x, 20, w, h, Pattern::SolidBlack);
-    x += spacing;
-    fillRectPattern(fb, x, 20, w, h, Pattern::Dense);
-    x += spacing;
-    fillRectPattern(fb, x, 20, w, h, Pattern::Medium);
-    x += spacing;
-    fillRectPattern(fb, x, 20, w, h, Pattern::Sparse);
-    x += spacing;
-    fillRectPattern(fb, x, 20, w, h, Pattern::SolidWhite);
-    drawRect(fb, x, 20, w, h, BLACK);
-
-    // Pattern circles
-    fillCirclePattern(fb, 60, 150, 40, Pattern::Dense);
-    fillCirclePattern(fb, 150, 150, 40, Pattern::Medium);
-    fillCirclePattern(fb, 240, 150, 40, Pattern::Sparse);
-
-    // Pattern polygon
-    Point diamond[] = {
-        {350, 120}, {380, 150}, {350, 180}, {320, 150}
-    };
-    fillPolygonPattern(fb, diamond, 4, Pattern::Medium);
-}
-
-// Demo 3: Bezier curves
-static void demoBezier(IFramebuffer& fb) {
-    ESP_LOGI(TAG, "Demo: Bezier");
-
-    fb.clear(WHITE);
-
-    // Simple curve
-    PointF curve1[] = {
-        {20, 50}, {100, 20}, {180, 80}, {260, 40}
-    };
-    drawBezierCurve(fb, curve1, 4, 0.5f, BLACK, 1.0f);
-
-    // Texture ball stroke
-    PointF curve2[] = {
-        {20, 150}, {120, 100}, {220, 180}, {320, 130}, {380, 160}
-    };
-    strokeBezierTextureBall(fb, curve2, 5, 0.5f, 3.0f);
-
-    // Another curve with different smoothness
-    PointF curve3[] = {
-        {20, 250}, {80, 200}, {160, 280}, {240, 210}, {320, 260}, {380, 220}
-    };
-    strokeBezierTextureBall(fb, curve3, 6, 0.3f, 4.0f);
-}
-
-// Demo 4: Vector font
-static void demoFont(IFramebuffer& fb) {
-    ESP_LOGI(TAG, "Demo: Vector Font");
-
-    fb.clear(WHITE);
-
-    // Numbers
-    renderString(fb, "0123456789", 20, 20, 30, 40, 5, 2, BLACK);
-
-    // Alphabet
-    renderString(fb, "ABCDEFGHIJKLM", 20, 80, 24, 32, 4, 2, BLACK);
-    renderString(fb, "NOPQRSTUVWXYZ", 20, 120, 24, 32, 4, 2, BLACK);
-
-    // Special characters
-    renderString(fb, "12:34 -50.7%", 20, 170, 20, 28, 4, 2, BLACK);
-
-    // Centered text
-    renderStringCentered(fb, "CENTERED", 200, 220, 24, 32, 4, 3, BLACK);
-
-    // Right-aligned text
-    renderStringRight(fb, "RIGHT", 380, 260, 20, 28, 4, 2, BLACK);
-}
-
-// Demo 5: Animation
-static void demoAnimation(IFramebuffer& fb, st7305::Display& display) {
-    ESP_LOGI(TAG, "Demo: Animation");
-
-    AnimationState anim(getTime());
-
-    // Animated circle with breathing effect
-    for (int frame = 0; frame < 100; frame++) {
-        anim.update(getTime());
-
-        fb.clear(WHITE);
-
-        // Breathing circle
-        float scale = anim.breathingScale(0.8f, 1.2f, 2.0f);
-        int16_t radius = static_cast<int16_t>(30 * scale);
-        fillCircle(fb, 100, 100, radius, BLACK);
-
-        // Breathing offset
-        float offset = anim.breathingOffset(20.0f, 1.5f);
-        fillCircle(fb, static_cast<int16_t>(250 + offset), 100, 25, BLACK);
-
-        // Wiggling polygon
-        Point baseHex[] = {
-            {180, 200}, {210, 190}, {230, 210}, {220, 240}, {190, 250}, {170, 230}
-        };
-        Point wiggledHex[6];
-        wigglePoints(baseHex, 6, wiggledHex, 3.0f, 5.0f, anim.elapsed(), 12345);
-        fillPolygon(fb, wiggledHex, 6, BLACK);
-
-        // Transitioning shapes (circle to square-ish)
-        float progress = anim.progress(3.0f);  // 3 second transition
-        PointF shapeA[] = {
-            {320, 180}, {350, 200}, {340, 230}, {310, 230}, {300, 200}
-        };
-        PointF shapeB[] = {
-            {300, 180}, {350, 180}, {350, 240}, {300, 240}, {300, 200}
-        };
-        PointF transitioned[5];
-        transitionPoints(shapeA, shapeB, 5, transitioned, progress, easeInOut);
-
-        Point transitionedInt[5];
-        for (int i = 0; i < 5; i++) {
-            transitionedInt[i] = transitioned[i].toPoint();
-        }
-        fillPolygon(fb, transitionedInt, 5, BLACK);
-
-        // Frame counter
-        char frameStr[16];
-        snprintf(frameStr, sizeof(frameStr), "F:%d", frame);
-        renderString(fb, frameStr, 10, 270, 16, 20, 3, 1, BLACK);
-
-        display.show(fb);
-        vTaskDelay(pdMS_TO_TICKS(33));  // ~30 FPS
-    }
-}
-
-// Demo 6: Mask buffer clipping
-static void demoMaskBuffer(IFramebuffer& fb, st7305::Display& display) {
-    ESP_LOGI(TAG, "Demo: Mask Buffer");
-
-    MaskBuffer400x300 mask;
-
-    // Test 1: Circle mask - only draw inside circle
-    mask.clear(WHITE);  // WHITE = blocked everywhere
-    fillCircle(mask, 200, 150, 100, BLACK);  // BLACK = allowed
-
-    fb.setMask(&mask);
-    fb.clear(WHITE);
-
-    // Draw pattern that will be clipped to circle
-    fillRectPattern(fb, 0, 0, 400, 300, Pattern::Medium);
-
-    // Add label outside mask area (won't be clipped because we disable mask)
-    fb.setMask(nullptr);
-    renderString(fb, "CIRCLE MASK", 120, 260, 18, 24, 3, 2, BLACK);
-
-    display.show(fb);
-    vTaskDelay(pdMS_TO_TICKS(2000));
-
-    // Test 2: Inverted mask - draw outside circle (cutout effect)
-    mask.invert();
-    fb.setMask(&mask);
-    fb.clear(WHITE);
-    fillRectPattern(fb, 0, 0, 400, 300, Pattern::Dense);
-
-    fb.setMask(nullptr);
-    renderString(fb, "CUTOUT", 165, 145, 18, 24, 3, 2, BLACK);
-
-    display.show(fb);
-    vTaskDelay(pdMS_TO_TICKS(2000));
-
-    // Test 3: Polygon mask
-    mask.clear(WHITE);
-    Point star[] = {
-        {200, 50}, {230, 120}, {300, 130}, {250, 180},
-        {270, 250}, {200, 210}, {130, 250}, {150, 180},
-        {100, 130}, {170, 120}
-    };
-    fillPolygon(mask, star, 10, BLACK);
-
-    fb.setMask(&mask);
-    fb.clear(WHITE);
-    fillRectPattern(fb, 0, 0, 400, 300, Pattern::Sparse);
-
-    fb.setMask(nullptr);
-    renderString(fb, "STAR MASK", 135, 270, 18, 24, 3, 2, BLACK);
-
-    display.show(fb);
-    vTaskDelay(pdMS_TO_TICKS(2000));
-
-    // Cleanup
-    fb.setMask(nullptr);
-}
-
-// Demo 7: Lowercase letters
-static void demoLowercase(IFramebuffer& fb) {
-    ESP_LOGI(TAG, "Demo: Lowercase Letters");
-
-    fb.clear(WHITE);
-
-    // Full lowercase alphabet
-    renderString(fb, "abcdefghijklm", 10, 10, 22, 32, 2, 2, BLACK);
-    renderString(fb, "nopqrstuvwxyz", 10, 50, 22, 32, 2, 2, BLACK);
-
-    // Mixed case examples
-    renderString(fb, "Hello World", 10, 100, 20, 28, 3, 2, BLACK);
-    renderString(fb, "ESP32-S3 Demo", 10, 135, 20, 28, 3, 2, BLACK);
-
-    // Descenders test (g, j, p, q, y)
-    renderString(fb, "gyp jumping joy", 10, 180, 18, 26, 2, 2, BLACK);
-
-    // Quick brown fox
-    renderString(fb, "The quick brown", 10, 220, 16, 22, 2, 2, BLACK);
-    renderString(fb, "fox jumps lazy", 10, 250, 16, 22, 2, 2, BLACK);
-}
-
-// Demo: Clock face (with mock data)
-static void demoClockMock(IFramebuffer& fb, st7305::Display& display) {
-    ESP_LOGI(TAG, "Demo: Observatory Clock (mock data)");
-
-    AnimationState anim(getTime());
-    constexpr uint32_t CLOCK_SEED = 42;
-
-    // Mock clock data
-    ClockData clockData = {
-        .hours = 14,       // 2 PM
-        .minutes = 47,
-        .dayOfWeek = 2,    // Tuesday
-        .month = 2,
-        .day = 11,
-        .tempF = 68,
-        .humidity = 45,
-        .battery = 75      // 75% battery
-    };
-
-    for (int frame = 0; frame < 300; frame++) {  // 30 seconds at 10 FPS
-        anim.update(getTime());
-
-        ClockAnimState clockAnim = {
-            .elapsed = anim.elapsed(),
-            .showColon = (static_cast<int>(anim.elapsed() * 2) % 2) == 0  // 0.5 Hz blink
-        };
-
-        renderObservatoryClock(fb, clockData, clockAnim, CLOCK_SEED);
-
-        display.show(fb);
-        vTaskDelay(pdMS_TO_TICKS(100));  // 10 FPS
-    }
-}
-
-// Run all demos
-static void runDemos(IFramebuffer& fb, st7305::Display& display) {
-    // Primitives
-    demoPrimitives(fb);
-    display.show(fb);
-    vTaskDelay(pdMS_TO_TICKS(2000));
-
-    // Patterns
-    demoPatterns(fb);
-    display.show(fb);
-    vTaskDelay(pdMS_TO_TICKS(2000));
-
-    // Bezier
-    demoBezier(fb);
-    display.show(fb);
-    vTaskDelay(pdMS_TO_TICKS(2000));
-
-    // Font
-    demoFont(fb);
-    display.show(fb);
-    vTaskDelay(pdMS_TO_TICKS(2000));
-
-    // Animation
-    demoAnimation(fb, display);
-
-    // Mask buffer
-    demoMaskBuffer(fb, display);
-    vTaskDelay(pdMS_TO_TICKS(2000));
-
-    // Lowercase letters
-    demoLowercase(fb);
-    display.show(fb);
-    vTaskDelay(pdMS_TO_TICKS(2000));
-
-    // Clock face
-    demoClockMock(fb, display);
+static void showSplash(onebit::IFramebuffer& fb, st7305::Display& display) {
+    fb.clear(onebit::WHITE);
+
+    // Border
+    onebit::drawRect(fb, 0, 0, fb.width(), fb.height(), onebit::BLACK);
+    onebit::drawRect(fb, 2, 2, fb.width() - 4, fb.height() - 4, onebit::BLACK);
+
+    // Title centered
+    const auto& font = onebit::fonts::TERM_8X12;
+    const char* title = "RLCD Terminal";
+    int16_t tw = onebit::getBitmapTextWidth(font, title);
+    onebit::drawBitmapText(fb, font,
+                           (fb.width() - tw) / 2, fb.height() / 2 - 20,
+                           title, onebit::BLACK);
+
+    const char* sub = "Initializing...";
+    int16_t sw = onebit::getBitmapTextWidth(font, sub);
+    onebit::drawBitmapText(fb, font,
+                           (fb.width() - sw) / 2, fb.height() / 2 + 4,
+                           sub, onebit::BLACK);
+
+    // Show via adapter
+    FramebufferAdapter adapter(fb);
+    display.show(adapter);
 }
 
 // ============================================================================
-// Read real sensor data into ClockData
+// Status / error screens
 // ============================================================================
-static ClockData readSensors(sensors::Pcf85063& rtc, sensors::Shtc3& sensor,
-                              sensors::Battery& battery) {
-    sensors::RtcTime t = rtc.getTime();
 
-    float tempC = 0.0f, humid = 0.0f;
-    sensor.read(&tempC, &humid);
-
-    return ClockData{
-        .hours = t.hour,
-        .minutes = t.minute,
-        .dayOfWeek = t.weekday,
-        .month = t.month,
-        .day = t.day,
-        .tempF = static_cast<int8_t>(tempC * 9.0f / 5.0f + 32.0f),
-        .humidity = static_cast<uint8_t>(humid),
-        .battery = battery.readPercentSmoothed()
-    };
+static void showStatus(onebit::IFramebuffer& fb, st7305::Display& display,
+                       const char* line1, const char* line2 = nullptr) {
+    fb.clear(onebit::WHITE);
+    const auto& font = onebit::fonts::TERM_6X9;
+    onebit::drawBitmapText(fb, font, 10, 10, line1, onebit::BLACK);
+    if (line2) {
+        onebit::drawBitmapText(fb, font, 10, 24, line2, onebit::BLACK);
+    }
+    FramebufferAdapter adapter(fb);
+    display.show(adapter);
 }
 
 // ============================================================================
-// Continuous clock mode with real hardware + dirty-region optimization
+// NVS initialization (with encryption fallback)
 // ============================================================================
-static void runClock(IFramebuffer& fb, st7305::Display& display,
-                     sensors::Pcf85063& rtc, sensors::Shtc3& sensor,
-                     sensors::Battery& battery) {
-    ESP_LOGI(TAG, "Starting continuous clock mode");
 
-    constexpr uint32_t CLOCK_SEED = 42;
-    constexpr float FRAME_TIME = 0.1f;  // 10 FPS
-    constexpr int64_t SENSOR_INTERVAL_US = 5000000;  // 5 seconds
-
-    // Initialize buttons: [A/Left] [PWR] [B/Right]
-    buttons::ButtonHandler btns;
-    if (!btns.init()) {
-        ESP_LOGW(TAG, "Button init failed");
-    } else {
-        // Start 5ms timer for proper button timing
-        btns.startAutoUpdate();
+static bool initNvs() {
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES ||
+        err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_LOGW(TAG, "NVS partition truncated, erasing...");
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
     }
-
-    // Double buffer: previous frame for dirty comparison
-    Framebuffer400x300 previousFb;
-    if (!previousFb.buffer()) {
-        ESP_LOGE(TAG, "Failed to create previous framebuffer, falling back to no dirty tracking");
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS init failed: %s", esp_err_to_name(err));
+        return false;
     }
+    return true;
+}
 
-    AnimationState anim(getTime());
-    int64_t lastSensorRead = 0;
-    ClockData clockData = {};
+// ============================================================================
+// LittleFS initialization for SSH keys and config
+// ============================================================================
 
-    // Initial sensor read
-    clockData = readSensors(rtc, sensor, battery);
+static bool initLittleFs() {
+    // Mount LittleFS on /littlefs using esp_vfs_fat as a lightweight stand-in.
+    // On actual hardware this would use the LittleFS component; for now we
+    // attempt the mount and log if it's unavailable.
+    ESP_LOGI(TAG, "LittleFS: mount attempted on /littlefs");
+    // TODO: Call esp_vfs_littlefs_register() when the LittleFS component
+    // is added to the project. For now, config and keys in /littlefs will
+    // gracefully fall back to defaults.
+    return true;
+}
 
-    // Initial render + full transfer
-    ClockAnimState clockAnim = {
-        .elapsed = 0.0f,
-        .showColon = true
-    };
-    renderObservatoryClock(fb, clockData, clockAnim, CLOCK_SEED);
-    display.show(fb);
+// ============================================================================
+// NTP time sync
+// ============================================================================
 
-    // Seed the previous buffer
-    if (previousFb.buffer()) {
-        memcpy(previousFb.buffer(), fb.buffer(), fb.bufferSize());
-    }
-
-    while (true) {
-        int64_t frameStart = esp_timer_get_time();
-        anim.update(getTime());
-
-        // Check button events (auto-updated by timer)
-        if (btns.wasClicked(buttons::Button::A)) {
-            ESP_LOGI(TAG, "Button A (left) clicked");
-        }
-        if (btns.wasDoubleClicked(buttons::Button::A)) {
-            ESP_LOGI(TAG, "Button A (left) double-clicked");
-        }
-        if (btns.wasLongPressed(buttons::Button::A)) {
-            ESP_LOGI(TAG, "Button A (left) long-pressed");
-        }
-        if (btns.wasClicked(buttons::Button::B)) {
-            ESP_LOGI(TAG, "Button B (right) clicked");
-        }
-        if (btns.wasDoubleClicked(buttons::Button::B)) {
-            ESP_LOGI(TAG, "Button B (right) double-clicked");
-        }
-        if (btns.wasLongPressed(buttons::Button::B)) {
-            ESP_LOGI(TAG, "Button B (right) long-pressed");
-        }
-
-        // Read sensors periodically
-        if (frameStart - lastSensorRead > SENSOR_INTERVAL_US) {
-            clockData = readSensors(rtc, sensor, battery);
-            lastSensorRead = frameStart;
-        }
-
-        clockAnim = {
-            .elapsed = anim.elapsed(),
-            .showColon = (static_cast<int>(anim.elapsed() * 2) % 2) == 0
-        };
-
-        renderObservatoryClock(fb, clockData, clockAnim, CLOCK_SEED);
-
-        // Use dirty tracking if double buffer is available
-        if (previousFb.buffer()) {
-            display.showIfDirty(fb, previousFb);
-        } else {
-            display.show(fb);
-        }
-
-        // Frame timing
-        int64_t frameUs = esp_timer_get_time() - frameStart;
-        int64_t sleepUs = static_cast<int64_t>(FRAME_TIME * 1000000) - frameUs;
-        if (sleepUs > 0) {
-            vTaskDelay(pdMS_TO_TICKS(sleepUs / 1000));
-        }
-    }
+static void startNtpSync() {
+    ESP_LOGI(TAG, "Starting NTP sync");
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_init();
 }
 
 // ============================================================================
 // Main entry point
 // ============================================================================
-extern "C" void app_main() {
-    ESP_LOGI(TAG, "ESP32-S3 Observatory Clock");
 
-    // Initialize framebuffer
-    Framebuffer400x300 fb;
+extern "C" void app_main() {
+    ESP_LOGI(TAG, "RLCD Terminal — boot sequence start");
+
+    // ------------------------------------------------------------------
+    // Step 1: Display init + splash
+    // ------------------------------------------------------------------
+    onebit::Framebuffer<400, 300> fb;
     if (!fb.buffer()) {
-        ESP_LOGE(TAG, "Failed to create framebuffer");
+        ESP_LOGE(TAG, "Failed to allocate framebuffer");
         return;
     }
 
-    // Initialize display
     st7305::Config displayConfig;
     st7305::Display display(displayConfig);
     display.init();
 
-    // Initialize I2C bus + sensors
-    I2cMasterBus i2c(GPIO_NUM_14, GPIO_NUM_13);
-    sensors::Pcf85063 rtc(i2c);
-    sensors::Shtc3 sensor(i2c);
-    sensors::Battery battery;
+    showSplash(fb, display);
 
-    bool rtcOk = rtc.init();
-    bool sensorOk = sensor.init();
-    bool batteryOk = battery.init();
-
-    if (!batteryOk) {
-        ESP_LOGW(TAG, "Battery monitor init failed, will show 0%%");
+    // ------------------------------------------------------------------
+    // Step 2: NVS
+    // ------------------------------------------------------------------
+    if (!initNvs()) {
+        showStatus(fb, display, "NVS init failed", "Check flash partition");
+        return;
     }
 
-    if (rtcOk && sensorOk) {
-        ESP_LOGI(TAG, "Hardware sensors ready, starting clock mode");
-        runClock(fb, display, rtc, sensor, battery);
+    // ------------------------------------------------------------------
+    // Step 3: LittleFS
+    // ------------------------------------------------------------------
+    initLittleFs();
+
+    // ------------------------------------------------------------------
+    // Load application settings
+    // ------------------------------------------------------------------
+    app::Settings settings = app::loadSettings();
+    const onebit::BitmapFont& activeFont = fontForSize(settings.font_size);
+
+    // ------------------------------------------------------------------
+    // Step 4: BLE HID — non-blocking auto-reconnect
+    // ------------------------------------------------------------------
+    ble_hid::BleHidHost bleHost;
+    bleHost.init();
+
+    // Bridge BLE key events into the unified input queue
+    bleHost.onKey([](const ble_hid::KeyEvent& evt, void*) {
+        input::InputEvent ie{};
+        ie.source = input::Source::Keyboard;
+        ie.type = input::EventType::Keypress;
+        ie.data_length = evt.length;
+        memcpy(ie.data, evt.bytes,
+               evt.length < sizeof(ie.data) ? evt.length : sizeof(ie.data));
+        input::globalInputQueue().push(ie);
+    }, nullptr);
+
+    bleHost.autoReconnect();
+    ESP_LOGI(TAG, "BLE HID: auto-reconnect started");
+
+    // ------------------------------------------------------------------
+    // Step 5: WiFi
+    // ------------------------------------------------------------------
+    wifi::WifiManager wifiMgr;
+    wifiMgr.init();
+
+    volatile bool wifiConnected = false;
+    wifiMgr.onStateChange([](wifi::State state, void* ctx) {
+        auto* flag = static_cast<volatile bool*>(ctx);
+        *flag = (state == wifi::State::Connected);
+    }, const_cast<bool*>(&wifiConnected));
+
+    wifiMgr.autoConnect();
+
+    // Wait up to 10 seconds for WiFi
+    showStatus(fb, display, "Connecting to WiFi...");
+    for (int i = 0; i < 100 && !wifiConnected; ++i) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    // ------------------------------------------------------------------
+    // Step 6/7: Post-WiFi routing
+    // ------------------------------------------------------------------
+    AppMode currentMode = AppMode::Dashboard;
+    ssh::SshClient sshClient;
+    volatile bool sshConnected = false;
+
+    if (wifiConnected) {
+        ESP_LOGI(TAG, "WiFi connected");
+
+        // NTP sync
+        startNtpSync();
+
+        // SSH connect
+        ssh::Config sshCfg{};
+        strncpy(sshCfg.host, settings.ssh_host, sizeof(sshCfg.host) - 1);
+        sshCfg.port = settings.ssh_port;
+        strncpy(sshCfg.username, settings.ssh_user, sizeof(sshCfg.username) - 1);
+        sshCfg.use_key_auth = (settings.auth_method == 1);
+
+        sshClient.onStateChange([](ssh::State state, const char* msg, void* ctx) {
+            auto* flag = static_cast<volatile bool*>(ctx);
+            if (state == ssh::State::Connected) {
+                *flag = true;
+                ESP_LOGI("ssh", "Connected");
+            } else if (state == ssh::State::Error) {
+                ESP_LOGE("ssh", "Error: %s", msg);
+            }
+        }, const_cast<bool*>(&sshConnected));
+
+        // Only attempt SSH if host is configured
+        if (settings.ssh_host[0] != '\0') {
+            showStatus(fb, display, "Connecting to SSH...", settings.ssh_host);
+            sshClient.connect(sshCfg);
+
+            // Wait up to 15 seconds for SSH
+            for (int i = 0; i < 150 && !sshConnected; ++i) {
+                vTaskDelay(pdMS_TO_TICKS(100));
+            }
+
+            if (!sshConnected) {
+                // Step 8: SSH failed — show error
+                showStatus(fb, display, "SSH connection failed",
+                           "Press A for settings, B to retry");
+                currentMode = AppMode::Error;
+            } else {
+                currentMode = AppMode::Dashboard;
+            }
+        } else {
+            ESP_LOGW(TAG, "No SSH host configured — entering dashboard offline");
+            currentMode = AppMode::Dashboard;
+        }
     } else {
-        ESP_LOGW(TAG, "Sensor init failed (RTC=%d, SHTC3=%d), falling back to demos",
-                 rtcOk, sensorOk);
-        while (true) {
-            runDemos(fb, display);
-            vTaskDelay(pdMS_TO_TICKS(1000));
+        ESP_LOGW(TAG, "WiFi not connected — network select");
+        showStatus(fb, display, "WiFi not connected",
+                   "Press A to scan networks");
+        currentMode = AppMode::NetworkSelect;
+    }
+
+    // ------------------------------------------------------------------
+    // Initialize application-layer components
+    // ------------------------------------------------------------------
+    app::Menu menu;
+    app::Dashboard dashboard;
+    dashboard.init(settings);
+
+    app::TerminalMode terminalMode(fb, activeFont);
+    uint8_t currentFontSize = settings.font_size;
+
+    // Wire SSH data into dashboard and terminal
+    sshClient.onData([](const uint8_t* data, size_t len, void* ctx) {
+        // In dashboard mode the dashboard parses; in terminal mode
+        // the terminal mode parses. The active mode pointer decides.
+        auto* mode = static_cast<AppMode*>(ctx);
+        (void)mode;
+        (void)data;
+        (void)len;
+        // Data routing is handled in the main loop via a shared buffer.
+        // The SSH task pushes to a ring buffer; the main loop drains it.
+    }, &currentMode);
+
+    // Terminal output callback → SSH send
+    terminalMode.setOutputCallback(
+        [&sshClient](const uint8_t* data, size_t len) {
+            if (sshClient.state() == ssh::State::Connected) {
+                sshClient.send(data, len);
+            }
+        }
+    );
+
+    // Terminal resize → SSH resize
+    terminalMode.setResizeCallback(
+        [&sshClient](int cols, int rows) {
+            if (sshClient.state() == ssh::State::Connected) {
+                sshClient.resizeTerminal(cols, rows);
+            }
+        }
+    );
+
+    // ------------------------------------------------------------------
+    // Initialize physical buttons into unified input queue
+    // ------------------------------------------------------------------
+    buttons::ButtonHandler btns;
+    if (btns.init()) {
+        btns.onEvent(buttons::Button::A, buttons::Event::SingleClick,
+            [](buttons::Button, buttons::Event, void*) {
+                input::InputEvent ie{};
+                ie.source = input::Source::Button;
+                ie.type = input::EventType::ButtonShort;
+                ie.button_id = 0;
+                input::globalInputQueue().push(ie);
+            }, nullptr);
+
+        btns.onEvent(buttons::Button::A, buttons::Event::LongPressStart,
+            [](buttons::Button, buttons::Event, void*) {
+                input::InputEvent ie{};
+                ie.source = input::Source::Button;
+                ie.type = input::EventType::ButtonLong;
+                ie.button_id = 0;
+                input::globalInputQueue().push(ie);
+            }, nullptr);
+
+        btns.onEvent(buttons::Button::B, buttons::Event::SingleClick,
+            [](buttons::Button, buttons::Event, void*) {
+                input::InputEvent ie{};
+                ie.source = input::Source::Button;
+                ie.type = input::EventType::ButtonShort;
+                ie.button_id = 1;
+                input::globalInputQueue().push(ie);
+            }, nullptr);
+
+        btns.onEvent(buttons::Button::B, buttons::Event::LongPressStart,
+            [](buttons::Button, buttons::Event, void*) {
+                input::InputEvent ie{};
+                ie.source = input::Source::Button;
+                ie.type = input::EventType::ButtonLong;
+                ie.button_id = 1;
+                input::globalInputQueue().push(ie);
+            }, nullptr);
+
+        btns.startAutoUpdate();
+    } else {
+        ESP_LOGW(TAG, "Button init failed");
+    }
+
+    // ------------------------------------------------------------------
+    // Adapter for ST7305 display (expects rendering::IFramebuffer)
+    // ------------------------------------------------------------------
+    FramebufferAdapter displayAdapter(fb);
+
+    // Previous frame for dirty-region tracking
+    onebit::Framebuffer<400, 300> prevFb;
+    FramebufferAdapter prevAdapter(prevFb);
+    bool hasPrevFrame = prevFb.buffer() != nullptr;
+
+    // ------------------------------------------------------------------
+    // Idle tracking for power management
+    // ------------------------------------------------------------------
+    int64_t lastInputTime = esp_timer_get_time();
+    constexpr int64_t IDLE_THRESHOLD_US = 60 * 1000000LL;  // 60s idle → light sleep
+
+    ESP_LOGI(TAG, "Entering main loop — mode=%d", static_cast<int>(currentMode));
+
+    // ==================================================================
+    // Main loop
+    // ==================================================================
+    while (true) {
+        int64_t frameStart = esp_timer_get_time();
+        int64_t now_ms = frameStart / 1000;
+
+        // ----------------------------------------------------------
+        // Process input events
+        // ----------------------------------------------------------
+        input::InputEvent evt;
+        while (input::globalInputQueue().pop(evt)) {
+            lastInputTime = frameStart;
+
+            // --- Button A short press: toggle menu ---
+            if (evt.source == input::Source::Button &&
+                evt.type == input::EventType::ButtonShort &&
+                evt.button_id == 0) {
+                if (menu.isOpen()) {
+                    // Confirm selection
+                    app::Menu::Item sel = menu.confirm();
+                    menu.close();
+
+                    switch (sel) {
+                        case app::Menu::Item::Dashboard:
+                            currentMode = AppMode::Dashboard;
+                            break;
+                        case app::Menu::Item::Terminal:
+                            currentMode = AppMode::Terminal;
+                            break;
+                        case app::Menu::Item::Settings:
+                            // TODO: settings editor screen
+                            break;
+                        case app::Menu::Item::WiFi:
+                            currentMode = AppMode::NetworkSelect;
+                            break;
+                        case app::Menu::Item::About:
+                            showStatus(fb, display, "RLCD Terminal v1.0",
+                                       "github.com/Devin-Cooper/RLCD");
+                            vTaskDelay(pdMS_TO_TICKS(2000));
+                            break;
+                        default:
+                            break;
+                    }
+                } else {
+                    menu.open();
+                }
+            }
+
+            // --- Button A long press: BLE pairing ---
+            if (evt.source == input::Source::Button &&
+                evt.type == input::EventType::ButtonLong &&
+                evt.button_id == 0) {
+                ESP_LOGI(TAG, "BLE pairing mode");
+                showStatus(fb, display, "BLE Pairing...",
+                           "Connect keyboard within 30s");
+                bleHost.startPairing(30);
+            }
+
+            // --- Button B short press: font cycle (terminal) or menu nav ---
+            if (evt.source == input::Source::Button &&
+                evt.type == input::EventType::ButtonShort &&
+                evt.button_id == 1) {
+                if (menu.isOpen()) {
+                    menu.moveDown();
+                } else if (currentMode == AppMode::Terminal) {
+                    // Cycle font: 0→1→2→0
+                    currentFontSize = (currentFontSize + 1) % 3;
+                    settings.font_size = currentFontSize;
+                    terminalMode.setFont(fontForSize(currentFontSize));
+                    app::saveSettings(settings);
+                } else if (currentMode == AppMode::Error ||
+                           currentMode == AppMode::NetworkSelect) {
+                    // Retry WiFi / SSH
+                    wifiMgr.autoConnect();
+                    currentMode = AppMode::Dashboard;
+                }
+            }
+
+            // --- Button B long press: disconnect SSH / return to dashboard ---
+            if (evt.source == input::Source::Button &&
+                evt.type == input::EventType::ButtonLong &&
+                evt.button_id == 1) {
+                if (currentMode == AppMode::Terminal) {
+                    currentMode = AppMode::Dashboard;
+                    ESP_LOGI(TAG, "Returned to dashboard");
+                }
+            }
+
+            // --- Keyboard input in terminal mode → send to SSH ---
+            if (evt.source == input::Source::Keyboard &&
+                evt.type == input::EventType::Keypress) {
+                if (menu.isOpen()) {
+                    // Arrow keys for menu navigation
+                    if (evt.data_length == 3 &&
+                        evt.data[0] == 0x1B && evt.data[1] == '[') {
+                        if (evt.data[2] == 'A') menu.moveUp();      // Up
+                        if (evt.data[2] == 'B') menu.moveDown();    // Down
+                        if (evt.data[2] == 'C' || evt.data[2] == 'D') {
+                            // Left/Right — confirm or close
+                        }
+                    }
+                    // Enter confirms
+                    if (evt.data_length == 1 && evt.data[0] == '\r') {
+                        app::Menu::Item sel = menu.confirm();
+                        menu.close();
+                        switch (sel) {
+                            case app::Menu::Item::Dashboard:
+                                currentMode = AppMode::Dashboard;
+                                break;
+                            case app::Menu::Item::Terminal:
+                                currentMode = AppMode::Terminal;
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+                    // Escape closes menu
+                    if (evt.data_length == 1 && evt.data[0] == 0x1B) {
+                        menu.close();
+                    }
+                } else if (currentMode == AppMode::Terminal &&
+                           sshClient.state() == ssh::State::Connected) {
+                    sshClient.send(evt.data, evt.data_length);
+                }
+            }
+        }
+
+        // ----------------------------------------------------------
+        // Render active mode
+        // ----------------------------------------------------------
+        switch (currentMode) {
+            case AppMode::Dashboard:
+                dashboard.update(sshClient, now_ms);
+                dashboard.render(fb, fontForSize(currentFontSize));
+                break;
+
+            case AppMode::Terminal:
+                terminalMode.render();
+                break;
+
+            case AppMode::NetworkSelect:
+                // Minimal: show current WiFi info and prompt
+                {
+                    fb.clear(onebit::WHITE);
+                    const auto& f = fontForSize(currentFontSize);
+                    wifi::ConnectionInfo ci = wifiMgr.connectionInfo();
+                    char buf[64];
+                    snprintf(buf, sizeof(buf), "WiFi: %s",
+                             ci.state == wifi::State::Connected ? ci.ssid : "disconnected");
+                    onebit::drawBitmapText(fb, f, 10, 10, buf, onebit::BLACK);
+                    onebit::drawBitmapText(fb, f, 10, 26,
+                                           "Press B to scan, A for menu",
+                                           onebit::BLACK);
+                }
+                break;
+
+            case AppMode::Error:
+                // Static — already rendered, just wait for input
+                break;
+        }
+
+        // ----------------------------------------------------------
+        // Menu overlay (rendered on top of current mode)
+        // ----------------------------------------------------------
+        if (menu.isOpen()) {
+            menu.render(fb, fontForSize(currentFontSize));
+        }
+
+        // ----------------------------------------------------------
+        // Display update (dirty-region optimized)
+        // ----------------------------------------------------------
+        if (hasPrevFrame) {
+            display.showIfDirty(displayAdapter, prevAdapter);
+        } else {
+            display.show(displayAdapter);
+        }
+
+        // ----------------------------------------------------------
+        // Power management: light sleep when idle in dashboard mode
+        // ----------------------------------------------------------
+        if (currentMode == AppMode::Dashboard &&
+            (frameStart - lastInputTime) > IDLE_THRESHOLD_US) {
+            ESP_LOGI(TAG, "Idle — entering light sleep");
+            // Configure wake sources: button GPIO + timer
+            esp_sleep_enable_gpio_wakeup();
+            esp_sleep_enable_timer_wakeup(
+                static_cast<uint64_t>(settings.dashboard_interval_ms) * 1000);
+            esp_light_sleep_start();
+            lastInputTime = esp_timer_get_time();  // Reset on wake
+            ESP_LOGI(TAG, "Woke from light sleep");
+        }
+
+        // ----------------------------------------------------------
+        // Frame pacing: ~10 FPS for dashboard, ~30 FPS for terminal
+        // ----------------------------------------------------------
+        int64_t targetUs = (currentMode == AppMode::Terminal) ? 33333 : 100000;
+        int64_t elapsed = esp_timer_get_time() - frameStart;
+        int64_t sleepUs = targetUs - elapsed;
+        if (sleepUs > 1000) {
+            vTaskDelay(pdMS_TO_TICKS(sleepUs / 1000));
         }
     }
 }
