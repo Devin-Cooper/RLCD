@@ -10,6 +10,7 @@
 #include <esp_sntp.h>
 #include <esp_littlefs.h>
 #include <sys/stat.h>
+#include <dirent.h>
 #include <atomic>
 
 // Display and sensors
@@ -259,10 +260,12 @@ extern "C" void app_main() {
     display.init();
 
     showSplash(fb, display);
+    vTaskDelay(pdMS_TO_TICKS(500));
 
     // ------------------------------------------------------------------
     // Step 2: NVS
     // ------------------------------------------------------------------
+    showStatus(fb, display, "Initializing NVS...");
     if (!initNvs()) {
         showStatus(fb, display, "NVS init failed", "Check flash partition");
         return;
@@ -271,35 +274,52 @@ extern "C" void app_main() {
     // ------------------------------------------------------------------
     // Step 3: LittleFS
     // ------------------------------------------------------------------
+    showStatus(fb, display, "Mounting LittleFS...");
     initLittleFs();
 
     // ------------------------------------------------------------------
-    // Step 3b: SD Card mount (config import deferred until after WiFi init)
+    // Step 3b: SD Card
     // ------------------------------------------------------------------
+    showStatus(fb, display, "Checking SD card...");
     sdcard::SDCardManager sdcard;
-    sdcard::ConfigManager configMgr;
+    // ConfigManager has ~14KB of ServerConfig arrays — heap allocate to avoid stack overflow
+    auto* configMgr = new sdcard::ConfigManager();
     bool hasServers = false;
 
     bool sdMounted = sdcard.mount();
+    if (sdMounted) {
+        showStatus(fb, display, "SD card found");
+    } else {
+        showStatus(fb, display, "No SD card", "Using stored config");
+    }
+    vTaskDelay(pdMS_TO_TICKS(300));
 
     // ------------------------------------------------------------------
-    // Load application settings (apply SD card overrides if present)
+    // Load application settings
     // ------------------------------------------------------------------
+    showStatus(fb, display, "Loading settings...");
+    ESP_LOGI(TAG, "Loading settings from NVS");
     app::Settings settings = app::loadSettings();
+    ESP_LOGI(TAG, "Settings loaded OK");
     if (sdMounted) {
-        const auto& ps = configMgr.parsedSettings();
+        const auto& ps = configMgr->parsedSettings();
         if (ps.has_font_size) settings.font_size = ps.font_size;
         if (ps.has_scrollback) settings.scrollback_depth = ps.scrollback;
         if (ps.has_dashboard_interval_ms) settings.dashboard_interval_ms = ps.dashboard_interval_ms;
         app::saveSettings(settings);
     }
     const onebit::BitmapFont& activeFont = fontForSize(settings.font_size);
+    ESP_LOGI(TAG, "Font selected OK");
 
     // ------------------------------------------------------------------
-    // Step 4: BLE HID — non-blocking auto-reconnect
+    // Step 4: BLE HID
     // ------------------------------------------------------------------
+    showStatus(fb, display, "Starting Bluetooth...");
+    ESP_LOGI(TAG, "About to init BLE HID");
     ble_hid::BleHidHost bleHost;
+    ESP_LOGI(TAG, "BleHidHost constructed");
     bleHost.init();
+    ESP_LOGI(TAG, "BLE init returned");
 
     // Bridge BLE key events into the unified input queue
     bleHost.onKey([](const ble_hid::KeyEvent& evt, void*) {
@@ -321,11 +341,43 @@ extern "C" void app_main() {
     wifi::WifiManager wifiMgr;
     wifiMgr.init();
 
+    // Debug: list files on SD card
+    if (sdMounted) {
+        ESP_LOGI(TAG, "=== SD card file listing ===");
+        DIR* d = opendir("/sdcard");
+        if (d) {
+            struct dirent* e;
+            while ((e = readdir(d)) != nullptr) {
+                ESP_LOGI(TAG, "  /sdcard/%s (type=%d)", e->d_name, e->d_type);
+            }
+            closedir(d);
+        } else {
+            ESP_LOGE(TAG, "Failed to open /sdcard directory");
+        }
+        DIR* d2 = opendir("/sdcard/servers");
+        if (d2) {
+            struct dirent* e;
+            while ((e = readdir(d2)) != nullptr) {
+                ESP_LOGI(TAG, "  /sdcard/servers/%s", e->d_name);
+            }
+            closedir(d2);
+        } else {
+            ESP_LOGW(TAG, "No /sdcard/servers/ directory");
+        }
+        ESP_LOGI(TAG, "=== end file listing ===");
+    }
+
     // SD card config import (after WiFi init so saveNetwork works)
     if (sdMounted) {
-        int count = configMgr.init(wifiMgr);
+        showStatus(fb, display, "Importing SD config...");
+        int count = configMgr->init(wifiMgr);
         hasServers = (count > 0);
         ESP_LOGI(TAG, "SD card: %d server(s) loaded", count);
+
+        char msg[64];
+        snprintf(msg, sizeof(msg), "%d server(s) loaded", count);
+        showStatus(fb, display, "SD import done", msg);
+        vTaskDelay(pdMS_TO_TICKS(1000));
     } else {
         ESP_LOGI(TAG, "No SD card — using stored config");
     }
@@ -335,6 +387,35 @@ extern "C" void app_main() {
         auto* flag = static_cast<std::atomic<bool>*>(ctx);
         flag->store(state == wifi::State::Connected);
     }, &wifiConnected);
+
+    // Debug: dump stored WiFi credentials
+    {
+        nvs_handle_t h;
+        if (nvs_open("wifi_creds", NVS_READONLY, &h) == ESP_OK) {
+            for (int i = 0; i < 8; i++) {
+                char ks[16], kp[16];
+                char ssid[33] = {}, pass[65] = {};
+                snprintf(ks, sizeof(ks), "ssid_%d", i);
+                snprintf(kp, sizeof(kp), "pass_%d", i);
+                size_t sl = sizeof(ssid), pl = sizeof(pass);
+                if (nvs_get_str(h, ks, ssid, &sl) == ESP_OK) {
+                    nvs_get_str(h, kp, pass, &pl);
+                    ESP_LOGI(TAG, "NVS WiFi[%d]: SSID='%s' pass_len=%d", i, ssid, (int)strlen(pass));
+                    if (i == 0) {
+                        char dbg[80];
+                        snprintf(dbg, sizeof(dbg), "SSID: %s (%d)", ssid, (int)strlen(pass));
+                        showStatus(fb, display, "WiFi from NVS:", dbg);
+                        vTaskDelay(pdMS_TO_TICKS(2000));
+                    }
+                }
+            }
+            nvs_close(h);
+        } else {
+            ESP_LOGW(TAG, "No wifi_creds NVS namespace found");
+            showStatus(fb, display, "No WiFi credentials", "Check SD card config");
+            vTaskDelay(pdMS_TO_TICKS(2000));
+        }
+    }
 
     wifiMgr.autoConnect();
 
@@ -363,7 +444,7 @@ extern "C" void app_main() {
         // SSH connect — use SD card server config if available, else NVS settings
         ssh::Config sshCfg{};
         if (hasServers) {
-            const auto& srv = configMgr.activeServer();
+            const auto& srv = configMgr->activeServer();
             strncpy(sshCfg.host, srv.host, sizeof(sshCfg.host) - 1);
             sshCfg.port = srv.port;
             strncpy(sshCfg.username, srv.username, sizeof(sshCfg.username) - 1);
@@ -374,7 +455,7 @@ extern "C" void app_main() {
                 if (nvs_open("ssh_creds", NVS_READONLY, &handle) == ESP_OK) {
                     char nvs_key[24];
                     snprintf(nvs_key, sizeof(nvs_key), "srv_p_%d",
-                             configMgr.activeServerIndex());
+                             configMgr->activeServerIndex());
                     size_t len = sizeof(sshCfg.password);
                     nvs_get_str(handle, nvs_key, sshCfg.password, &len);
                     nvs_close(handle);
@@ -434,9 +515,9 @@ extern "C" void app_main() {
     dashboard.init(settings);
 
     // Load dashboard commands from active server config
-    if (hasServers && configMgr.activeServer().dashboard_count > 0) {
-        dashboard.updateCommands(configMgr.activeServer().dashboard,
-                                  configMgr.activeServer().dashboard_count);
+    if (hasServers && configMgr->activeServer().dashboard_count > 0) {
+        dashboard.updateCommands(configMgr->activeServer().dashboard,
+                                  configMgr->activeServer().dashboard_count);
     }
 
     app::TerminalMode terminalMode(fb, activeFont);
@@ -563,10 +644,10 @@ extern "C" void app_main() {
                             currentMode = AppMode::Terminal;
                             break;
                         case app::Menu::Item::Servers: {
-                            if (configMgr.serverCount() > 1) {
-                                int next = (configMgr.activeServerIndex() + 1) % configMgr.serverCount();
-                                configMgr.setActiveServer(next);
-                                const auto& srv = configMgr.activeServer();
+                            if (configMgr->serverCount() > 1) {
+                                int next = (configMgr->activeServerIndex() + 1) % configMgr->serverCount();
+                                configMgr->setActiveServer(next);
+                                const auto& srv = configMgr->activeServer();
                                 sshClient.disconnect();
                                 ssh::Config cfg = {};
                                 strncpy(cfg.host, srv.host, sizeof(cfg.host) - 1);
@@ -675,10 +756,10 @@ extern "C" void app_main() {
                                 currentMode = AppMode::Terminal;
                                 break;
                             case app::Menu::Item::Servers: {
-                                if (configMgr.serverCount() > 1) {
-                                    int next = (configMgr.activeServerIndex() + 1) % configMgr.serverCount();
-                                    configMgr.setActiveServer(next);
-                                    const auto& srv = configMgr.activeServer();
+                                if (configMgr->serverCount() > 1) {
+                                    int next = (configMgr->activeServerIndex() + 1) % configMgr->serverCount();
+                                    configMgr->setActiveServer(next);
+                                    const auto& srv = configMgr->activeServer();
                                     sshClient.disconnect();
                                     ssh::Config cfg = {};
                                     strncpy(cfg.host, srv.host, sizeof(cfg.host) - 1);

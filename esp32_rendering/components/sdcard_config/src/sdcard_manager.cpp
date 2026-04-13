@@ -23,50 +23,30 @@ SDCardManager::~SDCardManager() {
 bool SDCardManager::mount() {
     if (mounted_) return true;
 
-    // Check card detect pin before attempting mount
-    // This avoids the expensive SDMMC init + DMA allocation when no card is present
-    gpio_config_t cd_conf = {};
-    cd_conf.pin_bit_mask = (1ULL << CD_PIN);
-    cd_conf.mode = GPIO_MODE_INPUT;
-    cd_conf.pull_up_en = GPIO_PULLUP_ENABLE;
-    cd_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    gpio_config(&cd_conf);
-
-    // Give the pull-up a moment to settle
-    vTaskDelay(pdMS_TO_TICKS(10));
-
-    if (gpio_get_level(CD_PIN) != 0) {
-        ESP_LOGI(TAG, "No SD card detected (CD pin high)");
-        return false;
-    }
+    // Skip CD pin check — just try to mount. If no card, mount fails gracefully.
+    // The Waveshare board's CD pin behavior is unclear (GPIO17 reads high with card inserted).
+    ESP_LOGI(TAG, "Attempting SD card mount...");
 
     esp_vfs_fat_mount_config_t mount_config = {};
     mount_config.format_if_mount_failed = false;
     mount_config.max_files = 3;
 
-    // SDMMC host config — 1-bit bus mode
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
     host.max_freq_khz = SDMMC_FREQ_DEFAULT;
     host.flags = SDMMC_HOST_FLAG_1BIT;
 
-    // Slot config — Waveshare ESP32-S3-RLCD-4.2 pins
-    // CMD=GPIO21, CLK=GPIO38, D0=GPIO39, CD=GPIO17
+    // Waveshare ESP32-S3-RLCD-4.2 pins: CMD=GPIO21, CLK=GPIO38, D0=GPIO39
     sdmmc_slot_config_t slot = SDMMC_SLOT_CONFIG_DEFAULT();
     slot.clk = GPIO_NUM_38;
     slot.cmd = GPIO_NUM_21;
     slot.d0  = GPIO_NUM_39;
-    slot.cd  = CD_PIN;
     slot.width = 1;
 
-    ESP_LOGI(TAG, "SD card detected, mounting...");
+    ESP_LOGI(TAG, "Mounting SD card...");
     esp_err_t ret = esp_vfs_fat_sdmmc_mount(MOUNT_POINT, &host, &slot,
                                              &mount_config, &card_);
     if (ret != ESP_OK) {
-        if (ret == ESP_FAIL) {
-            ESP_LOGW(TAG, "Failed to mount FAT filesystem on SD card");
-        } else {
-            ESP_LOGW(TAG, "SD card mount failed: %s", esp_err_to_name(ret));
-        }
+        ESP_LOGW(TAG, "SD card mount failed: %s", esp_err_to_name(ret));
         card_ = nullptr;
         return false;
     }

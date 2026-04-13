@@ -38,6 +38,7 @@ int ConfigManager::init(wifi::WifiManager& wifi_mgr) {
 // --- Global Config ---
 
 bool ConfigManager::loadGlobalConfig(wifi::WifiManager& wifi_mgr) {
+    ESP_LOGI(TAG, "Opening %s", SD_CONFIG_PATH);
     FILE* f = fopen(SD_CONFIG_PATH, "r");
     if (!f) {
         ESP_LOGW(TAG, "No %s found", SD_CONFIG_PATH);
@@ -47,6 +48,7 @@ bool ConfigManager::loadGlobalConfig(wifi::WifiManager& wifi_mgr) {
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
+    ESP_LOGI(TAG, "config.json size: %ld bytes", size);
 
     if (size <= 0 || size > 8192) {
         ESP_LOGW(TAG, "config.json invalid size: %ld", size);
@@ -55,31 +57,40 @@ bool ConfigManager::loadGlobalConfig(wifi::WifiManager& wifi_mgr) {
     }
 
     char* buf = static_cast<char*>(malloc(size + 1));
-    fread(buf, 1, size, f);
-    buf[size] = '\0';
+    size_t bytes_read = fread(buf, 1, size, f);
+    buf[bytes_read] = '\0';
     fclose(f);
+    ESP_LOGI(TAG, "Read %d bytes from config.json", (int)bytes_read);
 
     cJSON* root = cJSON_Parse(buf);
     free(buf);
     if (!root) {
-        ESP_LOGW(TAG, "config.json parse failed");
+        ESP_LOGW(TAG, "config.json JSON parse failed");
         return false;
     }
+    ESP_LOGI(TAG, "config.json parsed OK");
 
     // Import WiFi networks via WifiManager
     cJSON* wifi = cJSON_GetObjectItem(root, "wifi");
     if (cJSON_IsArray(wifi)) {
         int n = cJSON_GetArraySize(wifi);
+        ESP_LOGI(TAG, "Found %d WiFi network(s) in config", n);
         for (int i = 0; i < n; i++) {
             cJSON* net = cJSON_GetArrayItem(wifi, i);
             cJSON* ssid = cJSON_GetObjectItem(net, "ssid");
             cJSON* pass = cJSON_GetObjectItem(net, "password");
             if (cJSON_IsString(ssid) && cJSON_IsString(pass) &&
                 strlen(pass->valuestring) > 0) {
+                ESP_LOGI(TAG, "Saving WiFi[%d]: SSID='%s' pass_len=%d",
+                         i, ssid->valuestring, (int)strlen(pass->valuestring));
                 wifi_mgr.saveNetwork(ssid->valuestring, pass->valuestring);
-                ESP_LOGI(TAG, "Imported WiFi: %s", ssid->valuestring);
+                ESP_LOGI(TAG, "saveNetwork returned for '%s'", ssid->valuestring);
+            } else {
+                ESP_LOGW(TAG, "WiFi[%d]: missing ssid/pass or empty password", i);
             }
         }
+    } else {
+        ESP_LOGW(TAG, "No 'wifi' array in config.json");
     }
 
     // Parse device settings (caller applies via app::Settings)
