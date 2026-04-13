@@ -705,13 +705,6 @@ void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font)
         onebit::drawBitmapText(fb, f, ix, iy + line_h * 2, buf, onebit::BLACK, 1);
     }
 
-    // ================================================================
-    // Invert the entire display (white-on-black)
-    // ================================================================
-    uint8_t* buf_ptr = fb.buffer();
-    for (size_t i = 0; i < fb.bufferSize(); i++) {
-        buf_ptr[i] = ~buf_ptr[i];
-    }
 }
 
 } // namespace app
