@@ -106,6 +106,7 @@ enum class AppMode : uint8_t {
     Terminal,
     NetworkSelect,
     Error,
+    Pairing,
 };
 
 // ============================================================================
@@ -320,6 +321,14 @@ extern "C" void app_main() {
     ESP_LOGI(TAG, "BleHidHost constructed");
     bleHost.init();
     ESP_LOGI(TAG, "BLE init returned");
+
+    // BLE state change callback — log and detect pairing success
+    bleHost.onStateChange([](ble_hid::State state, void*) {
+        const char* names[] = {"Disabled", "Scanning", "Connecting", "Connected", "Disconnected"};
+        int idx = static_cast<int>(state);
+        ESP_LOGI("ble_hid", "State changed: %s (%d)",
+                 (idx >= 0 && idx <= 4) ? names[idx] : "unknown", idx);
+    }, nullptr);
 
     // Bridge BLE key events into the unified input queue
     bleHost.onKey([](const ble_hid::KeyEvent& evt, void*) {
@@ -700,9 +709,8 @@ extern "C" void app_main() {
             if (evt.source == input::Source::Button &&
                 evt.type == input::EventType::ButtonLong &&
                 evt.button_id == 0) {
-                ESP_LOGI(TAG, "BLE pairing mode");
-                showStatus(fb, display, "BLE Pairing...",
-                           "Connect keyboard within 30s");
+                ESP_LOGI(TAG, "BLE pairing mode triggered");
+                currentMode = AppMode::Pairing;
                 bleHost.startPairing(30);
             }
 
@@ -876,6 +884,39 @@ extern "C" void app_main() {
 
             case AppMode::Error:
                 // Static — already rendered, just wait for input
+                break;
+
+            case AppMode::Pairing:
+                {
+                    fb.clear(onebit::WHITE);
+                    const auto& f = fontForSize(currentFontSize);
+                    onebit::drawBitmapText(fb, f, 10, 10, "BLE Pairing Mode",
+                                           onebit::BLACK);
+                    onebit::drawBitmapText(fb, f, 10, 30,
+                                           "Put keyboard in pairing mode",
+                                           onebit::BLACK);
+
+                    const char* state_str = "Scanning...";
+                    auto ble_state = bleHost.state();
+                    if (ble_state == ble_hid::State::Connecting)
+                        state_str = "Connecting...";
+                    else if (ble_state == ble_hid::State::Connected) {
+                        state_str = "Connected!";
+                        // Auto-return to dashboard after connection
+                        currentMode = AppMode::Dashboard;
+                        ESP_LOGI(TAG, "BLE keyboard connected — returning to dashboard");
+                    } else if (ble_state == ble_hid::State::Disconnected) {
+                        state_str = "Timeout — no keyboard found";
+                        // Return to dashboard after timeout
+                        currentMode = AppMode::Dashboard;
+                    }
+                    onebit::drawBitmapText(fb, f, 10, 50, state_str,
+                                           onebit::BLACK);
+
+                    char dbg[48];
+                    snprintf(dbg, sizeof(dbg), "State: %d", static_cast<int>(ble_state));
+                    onebit::drawBitmapText(fb, f, 10, 70, dbg, onebit::BLACK);
+                }
                 break;
         }
 
