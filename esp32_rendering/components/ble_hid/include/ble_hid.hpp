@@ -3,8 +3,9 @@
 #include <cstdint>
 #include <cstddef>
 
-// Forward declare NimBLE type to avoid pulling full headers into every includer
-struct ble_gap_event;
+// NimBLE headers needed for callback signatures
+#include "host/ble_gap.h"
+#include "host/ble_gatt.h"
 
 namespace ble_hid {
 
@@ -106,6 +107,12 @@ private:
 
     // NimBLE callbacks (static, registered with the stack)
     static int bleGapEvent(struct ble_gap_event* event, void* arg);
+    static int gattSvcDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+                              const struct ble_gatt_svc* service, void* arg);
+    static int gattChrDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+                              const struct ble_gatt_chr* chr, void* arg);
+    static int gattDscDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+                              uint16_t chr_val_handle, const struct ble_gatt_dsc* dsc, void* arg);
 };
 
 } // namespace ble_hid

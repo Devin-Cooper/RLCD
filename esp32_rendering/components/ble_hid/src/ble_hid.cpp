@@ -390,6 +390,114 @@ void BleHidHost::pairingTimeoutCb(void* arg) {
     }
 }
 
+// --- GATT Discovery Callbacks ---
+
+// Step 1: Discover all services — look for HID (0x1812)
+int BleHidHost::gattSvcDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+                               const struct ble_gatt_svc* service, void* arg) {
+    auto* self = static_cast<BleHidHost*>(arg);
+
+    if (error->status == BLE_HS_EDONE) {
+        ESP_LOGI(TAG, "Service discovery complete");
+        return 0;
+    }
+    if (error->status != 0) {
+        ESP_LOGE(TAG, "Service discovery error: %d", error->status);
+        return 0;
+    }
+
+    // Check if this is the HID service
+    if (ble_uuid_cmp(&service->uuid.u, &HID_SVC_UUID.u) == 0) {
+        ESP_LOGI(TAG, "Found HID service (handle %d-%d)",
+                 service->start_handle, service->end_handle);
+        // Discover characteristics within HID service
+        int rc = ble_gattc_disc_all_chrs(conn_handle,
+                                          service->start_handle,
+                                          service->end_handle,
+                                          gattChrDiscCb, self);
+        if (rc != 0) {
+            ESP_LOGE(TAG, "Failed to discover characteristics: %d", rc);
+        }
+    }
+    return 0;
+}
+
+// Step 2: Discover characteristics — look for Report (0x2A4D)
+int BleHidHost::gattChrDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+                               const struct ble_gatt_chr* chr, void* arg) {
+    auto* self = static_cast<BleHidHost*>(arg);
+
+    if (error->status == BLE_HS_EDONE) {
+        ESP_LOGI(TAG, "Characteristic discovery complete");
+        // Now subscribe to notifications on the report handle we found
+        if (self->hid_report_handle_ != 0) {
+            ESP_LOGI(TAG, "Subscribing to HID report notifications (handle=%d)",
+                     self->hid_report_handle_);
+            // Write 0x0001 to the CCCD (Client Characteristic Configuration Descriptor)
+            // The CCCD is at handle + 1
+            uint8_t notify_enable[] = {0x01, 0x00};  // Enable notifications
+            int rc = ble_gattc_write_flat(conn_handle,
+                                           self->hid_report_handle_ + 1,
+                                           notify_enable, sizeof(notify_enable),
+                                           nullptr, nullptr);
+            if (rc != 0) {
+                ESP_LOGE(TAG, "Failed to enable notifications: %d", rc);
+                // Try descriptor discovery instead
+                ESP_LOGI(TAG, "Trying descriptor discovery...");
+                ble_gattc_disc_all_dscs(conn_handle,
+                                         self->hid_report_handle_,
+                                         self->hid_report_handle_ + 5,
+                                         gattDscDiscCb, self);
+            } else {
+                ESP_LOGI(TAG, "Notifications enabled — keyboard ready");
+            }
+        }
+        return 0;
+    }
+    if (error->status != 0) {
+        ESP_LOGE(TAG, "Characteristic discovery error: %d", error->status);
+        return 0;
+    }
+
+    // Check if this is a Report characteristic (0x2A4D)
+    if (ble_uuid_cmp(&chr->uuid.u, &HID_REPORT_UUID.u) == 0) {
+        ESP_LOGI(TAG, "Found HID Report characteristic (val_handle=%d, props=0x%02x)",
+                 chr->val_handle, chr->properties);
+        // We want the one with Notify property (input report)
+        if (chr->properties & BLE_GATT_CHR_PROP_NOTIFY) {
+            self->hid_report_handle_ = chr->val_handle;
+            ESP_LOGI(TAG, "Selected input report handle: %d", chr->val_handle);
+        }
+    }
+    return 0;
+}
+
+// Step 3 (fallback): Discover descriptors to find CCCD
+int BleHidHost::gattDscDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+                               uint16_t chr_val_handle, const struct ble_gatt_dsc* dsc,
+                               void* arg) {
+    auto* self = static_cast<BleHidHost*>(arg);
+
+    if (error->status == BLE_HS_EDONE) {
+        return 0;
+    }
+    if (error->status != 0) {
+        ESP_LOGE(TAG, "Descriptor discovery error: %d", error->status);
+        return 0;
+    }
+
+    // Look for CCCD (UUID 0x2902)
+    ble_uuid16_t cccd_uuid = BLE_UUID16_INIT(0x2902);
+    if (ble_uuid_cmp(&dsc->uuid.u, &cccd_uuid.u) == 0) {
+        ESP_LOGI(TAG, "Found CCCD at handle %d — enabling notifications", dsc->handle);
+        uint8_t notify_enable[] = {0x01, 0x00};
+        ble_gattc_write_flat(conn_handle, dsc->handle,
+                              notify_enable, sizeof(notify_enable),
+                              nullptr, nullptr);
+    }
+    return 0;
+}
+
 // --- NimBLE GAP Event Handler ---
 
 int BleHidHost::bleGapEvent(struct ble_gap_event* event, void* arg) {
@@ -447,12 +555,12 @@ int BleHidHost::bleGapEvent(struct ble_gap_event* event, void* arg) {
             self->setState(State::Connected);
             ESP_LOGI(TAG, "Connected (handle=%d)", self->conn_handle_);
 
-            // Discover HID service and subscribe to reports
-            // In a full implementation, this would:
-            // 1. ble_gattc_disc_all_svcs() to find HID service
-            // 2. ble_gattc_disc_all_chrs() to find Report characteristic
-            // 3. ble_gattc_subscribe() to enable notifications
-            // The notification callback would call processHidReport()
+            // Start GATT service discovery to find HID Report characteristic
+            ESP_LOGI(TAG, "Starting GATT service discovery...");
+            int rc2 = ble_gattc_disc_all_svcs(self->conn_handle_, gattSvcDiscCb, self);
+            if (rc2 != 0) {
+                ESP_LOGE(TAG, "Failed to start service discovery: %d", rc2);
+            }
         } else {
             ESP_LOGW(TAG, "Connection failed: %d", event->connect.status);
             self->setState(State::Disconnected);
@@ -469,10 +577,20 @@ int BleHidHost::bleGapEvent(struct ble_gap_event* event, void* arg) {
 
     case BLE_GAP_EVENT_NOTIFY_RX: {
         // HID report received via notification
-        if (event->notify_rx.attr_handle == self->hid_report_handle_) {
-            self->processHidReport(
-                OS_MBUF_DATA(event->notify_rx.om, uint8_t*),
-                OS_MBUF_PKTLEN(event->notify_rx.om));
+        uint16_t attr = event->notify_rx.attr_handle;
+        uint16_t pkt_len = OS_MBUF_PKTLEN(event->notify_rx.om);
+        uint8_t* report_data = OS_MBUF_DATA(event->notify_rx.om, uint8_t*);
+
+        ESP_LOGI(TAG, "Notify RX: handle=%d len=%d", attr, pkt_len);
+        if (pkt_len >= 8) {
+            ESP_LOGI(TAG, "  Report: %02x %02x %02x %02x %02x %02x %02x %02x",
+                     report_data[0], report_data[1], report_data[2], report_data[3],
+                     report_data[4], report_data[5], report_data[6], report_data[7]);
+        }
+
+        // Process any notification from the connected device as potential HID data
+        if (pkt_len >= 3) {
+            self->processHidReport(report_data, pkt_len);
         }
         break;
     }
