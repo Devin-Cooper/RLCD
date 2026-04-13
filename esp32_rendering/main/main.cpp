@@ -896,19 +896,12 @@ extern "C" void app_main() {
         }
 
         // ----------------------------------------------------------
-        // Power management: light sleep when idle in dashboard mode
+        // Power management: DISABLED
+        // Light sleep stops the SPI bus which blanks the ST7305 reflective
+        // display. Since the display draws no power (reflective, no backlight),
+        // light sleep saves minimal current but causes a blank screen.
+        // TODO: Re-enable with proper SPI bus re-init after wake.
         // ----------------------------------------------------------
-        if (currentMode == AppMode::Dashboard &&
-            (frameStart - lastInputTime) > IDLE_THRESHOLD_US) {
-            ESP_LOGI(TAG, "Idle — entering light sleep");
-            // Configure wake sources: button GPIO + timer
-            esp_sleep_enable_gpio_wakeup();
-            esp_sleep_enable_timer_wakeup(
-                static_cast<uint64_t>(settings.dashboard_interval_ms) * 1000);
-            esp_light_sleep_start();
-            lastInputTime = esp_timer_get_time();  // Reset on wake
-            ESP_LOGI(TAG, "Woke from light sleep");
-        }
 
         // ----------------------------------------------------------
         // Frame pacing: ~10 FPS for dashboard, ~30 FPS for terminal
