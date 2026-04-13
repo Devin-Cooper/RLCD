@@ -392,28 +392,31 @@ void Dashboard::parseOutputs() {
 void Dashboard::drawSparkline(onebit::IFramebuffer& fb, int x, int y, int w, int h,
                               const float* data, int data_len, int head, float max_val) {
     if (max_val <= 0) max_val = 1;
+    if (w <= 0 || h <= 0 || data_len <= 0) return;
 
-    int samples = (w < data_len) ? w : data_len;
     int prev_vy = -1;
 
-    for (int i = 0; i < samples; i++) {
-        int idx = (head - samples + i + data_len) % data_len;
+    // Scale horizontally: map w pixels to data_len samples
+    for (int px = 0; px < w; px++) {
+        // Map pixel position to data index
+        int sample_idx = (px * data_len) / w;
+        int idx = (head - data_len + sample_idx + data_len) % data_len;
         float val = data[idx];
         if (val > max_val) val = max_val;
         int vy = y + h - 1 - static_cast<int>((val / max_val) * (h - 1));
 
         // Fill below the line with dithered pattern
         if (vy < y + h) {
-            onebit::fillRectDithered(fb, x + i, vy, 1, y + h - vy,
+            onebit::fillRectDithered(fb, x + px, vy, 1, y + h - vy,
                                      onebit::DitherLevel::Medium);
         }
 
         // Draw the line point
-        fb.setPixel(x + i, vy, onebit::BLACK);
+        fb.setPixel(x + px, vy, onebit::BLACK);
 
         // Connect to previous point
         if (prev_vy >= 0) {
-            onebit::drawLine(fb, x + i - 1, prev_vy, x + i, vy, onebit::BLACK);
+            onebit::drawLine(fb, x + px - 1, prev_vy, x + px, vy, onebit::BLACK);
         }
         prev_vy = vy;
     }
@@ -432,7 +435,16 @@ void Dashboard::drawGroupBox(onebit::IFramebuffer& fb, const onebit::BitmapFont&
 // Rendering — Mac-style dashboard
 // ============================================================================
 
+static int s_render_count = 0;
+
 void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font) {
+    s_render_count++;
+    if (s_render_count % 50 == 0) {
+        ESP_LOGI(TAG, "render #%d: cmd_count=%d collecting=%d cur_cmd=%d hist_pos=%d cpu=%.2f mem=%.0f%%",
+                 s_render_count, command_count_, collecting_, current_command_,
+                 history_pos_, cpu_load_[0], mem_percent_);
+    }
+
     fb.clear(onebit::WHITE);
 
     if (command_count_ == 0) {
@@ -691,6 +703,14 @@ void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font)
 
         snprintf(buf, sizeof(buf), "Mem: %.1f/%.0fG", mem_used_gb_, mem_total_gb_);
         onebit::drawBitmapText(fb, f, ix, iy + line_h * 2, buf, onebit::BLACK, 1);
+    }
+
+    // ================================================================
+    // Invert the entire display (white-on-black)
+    // ================================================================
+    uint8_t* buf_ptr = fb.buffer();
+    for (size_t i = 0; i < fb.bufferSize(); i++) {
+        buf_ptr[i] = ~buf_ptr[i];
     }
 }
 
