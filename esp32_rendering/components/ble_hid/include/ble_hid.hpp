@@ -86,6 +86,12 @@ private:
     // Pairing timeout timer handle
     void* pairing_timer_;
 
+    // Last discovered address type (public, random, etc.)
+    uint8_t last_addr_type_;
+
+    /// Connect using a specific address type.
+    void connectWithType(const uint8_t addr[6], uint8_t addr_type);
+
     /// Process a HID boot keyboard report (8 bytes).
     /// Format: [modifier, reserved, key1, key2, key3, key4, key5, key6]
     void processHidReport(const uint8_t* report, size_t len);

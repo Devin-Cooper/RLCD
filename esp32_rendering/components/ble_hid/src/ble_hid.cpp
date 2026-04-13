@@ -78,7 +78,8 @@ BleHidHost::BleHidHost()
     : state_(State::Disabled), key_cb_(nullptr), key_ctx_(nullptr),
       state_cb_(nullptr), state_ctx_(nullptr),
       conn_handle_(0xFFFF), hid_report_handle_(0),
-      pairing_timer_(nullptr) {
+      pairing_timer_(nullptr),
+      last_addr_type_(0) {
     std::memset(prev_keys_, 0, sizeof(prev_keys_));
 }
 
@@ -139,8 +140,13 @@ void BleHidHost::stopScan() {
 }
 
 void BleHidHost::connect(const uint8_t addr[6]) {
+    // Use stored address type from last discovery
+    connectWithType(addr, last_addr_type_);
+}
+
+void BleHidHost::connectWithType(const uint8_t addr[6], uint8_t addr_type) {
     ble_addr_t peer_addr;
-    peer_addr.type = BLE_ADDR_PUBLIC;
+    peer_addr.type = addr_type;
     std::memcpy(peer_addr.val, addr, 6);
 
     stopScan();
@@ -149,10 +155,10 @@ void BleHidHost::connect(const uint8_t addr[6]) {
                               30000, nullptr, bleGapEvent, this);
     if (rc == 0) {
         setState(State::Connecting);
-        ESP_LOGI(TAG, "Connecting to %02x:%02x:%02x:%02x:%02x:%02x",
-                 addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
+        ESP_LOGI(TAG, "Connecting to %02x:%02x:%02x:%02x:%02x:%02x (type=%d)",
+                 addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr_type);
     } else {
-        ESP_LOGE(TAG, "Failed to connect: %d", rc);
+        ESP_LOGE(TAG, "Failed to connect: %d (addr_type=%d)", rc, addr_type);
     }
 }
 
@@ -405,12 +411,32 @@ int BleHidHost::bleGapEvent(struct ble_gap_event* event, void* arg) {
         }
 
         if (has_hid) {
-            ESP_LOGI(TAG, "Found HID device, connecting...");
+            // Log device name if available
+            if (fields.name_len > 0) {
+                char name[32] = {};
+                int nlen = fields.name_len < 31 ? fields.name_len : 31;
+                memcpy(name, fields.name, nlen);
+                ESP_LOGI(TAG, "Found HID device: '%s' addr=%02x:%02x:%02x:%02x:%02x:%02x type=%d rssi=%d",
+                         name,
+                         event->disc.addr.val[0], event->disc.addr.val[1],
+                         event->disc.addr.val[2], event->disc.addr.val[3],
+                         event->disc.addr.val[4], event->disc.addr.val[5],
+                         event->disc.addr.type, event->disc.rssi);
+            } else {
+                ESP_LOGI(TAG, "Found HID device: addr=%02x:%02x:%02x:%02x:%02x:%02x type=%d rssi=%d",
+                         event->disc.addr.val[0], event->disc.addr.val[1],
+                         event->disc.addr.val[2], event->disc.addr.val[3],
+                         event->disc.addr.val[4], event->disc.addr.val[5],
+                         event->disc.addr.type, event->disc.rssi);
+            }
+
             // Stop pairing timer if running
             if (self->pairing_timer_) {
                 esp_timer_stop(static_cast<esp_timer_handle_t>(self->pairing_timer_));
             }
-            self->connect(event->disc.addr.val);
+            // Save address type and connect
+            self->last_addr_type_ = event->disc.addr.type;
+            self->connectWithType(event->disc.addr.val, event->disc.addr.type);
         }
         break;
     }
