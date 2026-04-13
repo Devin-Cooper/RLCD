@@ -514,10 +514,14 @@ extern "C" void app_main() {
     app::Dashboard dashboard;
     dashboard.init(settings);
 
-    // Load dashboard commands from active server config
-    if (hasServers && configMgr->activeServer().dashboard_count > 0) {
-        dashboard.updateCommands(configMgr->activeServer().dashboard,
-                                  configMgr->activeServer().dashboard_count);
+    // Load dashboard commands and server name from active server config
+    if (hasServers) {
+        const auto& srv = configMgr->activeServer();
+        if (srv.dashboard_count > 0) {
+            dashboard.updateCommands(srv.dashboard, srv.dashboard_count);
+        }
+        // Show server name (or host) in dashboard title bar
+        dashboard.setServerName(srv.name[0] ? srv.name : srv.host);
     }
 
     app::TerminalMode terminalMode(fb, activeFont);
@@ -668,6 +672,7 @@ extern "C" void app_main() {
                                 if (srv.dashboard_count > 0) {
                                     dashboard.updateCommands(srv.dashboard, srv.dashboard_count);
                                 }
+                                dashboard.setServerName(srv.name[0] ? srv.name : srv.host);
                                 ESP_LOGI(TAG, "Switched to server: %s", srv.name);
                             }
                             break;
@@ -780,6 +785,7 @@ extern "C" void app_main() {
                                     if (srv.dashboard_count > 0) {
                                         dashboard.updateCommands(srv.dashboard, srv.dashboard_count);
                                     }
+                                    dashboard.setServerName(srv.name[0] ? srv.name : srv.host);
                                     ESP_LOGI(TAG, "Switched to server: %s", srv.name);
                                 }
                                 break;
