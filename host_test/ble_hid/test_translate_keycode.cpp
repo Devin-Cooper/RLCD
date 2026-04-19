@@ -9,6 +9,8 @@ using ble_hid::MOD_LSHIFT;
 using ble_hid::MOD_RSHIFT;
 using ble_hid::MOD_LCTRL;
 using ble_hid::MOD_RCTRL;
+using ble_hid::MOD_LGUI;
+using ble_hid::MOD_RGUI;
 
 static std::string bytesOf(const KeyEvent& e) {
     return std::string(reinterpret_cast<const char*>(e.bytes), e.length);
@@ -80,6 +82,13 @@ TEST_CASE("translateKeycode: control/whitespace keys", "[ble_hid][translate]") {
     REQUIRE(bytesOf(translateKeycode(0x2B, 0)) == std::string("\t", 1));
     REQUIRE(bytesOf(translateKeycode(0x2C, 0)) == " ");
     REQUIRE(bytesOf(translateKeycode(0x38, MOD_LSHIFT)) == "?");
+}
+
+TEST_CASE("translateKeycode: CMD+Space emits F1 sequence (ESC O P)", "[ble_hid][translate]") {
+    REQUIRE(bytesOf(translateKeycode(0x2C, MOD_LGUI)) == "\x1bOP");
+    REQUIRE(bytesOf(translateKeycode(0x2C, MOD_RGUI)) == "\x1bOP");
+    // Space alone still emits a plain space.
+    REQUIRE(bytesOf(translateKeycode(0x2C, 0)) == " ");
 }
 
 TEST_CASE("translateKeycode: unmapped keycode yields zero-length event", "[ble_hid][translate]") {
