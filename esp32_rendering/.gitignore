@@ -1,1 +1,17 @@
+# ESP-IDF build artifacts
+build/
+sdkconfig
+sdkconfig.old
+dependencies.lock
+managed_components/
+
+# IDE / editor caches
+.cache/
+.vscode/
+compile_commands.json
+
+# macOS metadata
+.DS_Store
+
+# Legacy / transient
 docs/NEXT_AGENT_PROMPT.md
