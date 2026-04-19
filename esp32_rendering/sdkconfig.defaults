@@ -82,8 +82,10 @@ CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC=y
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
 # --- Stack and Task Configuration ---
-# Larger main task stack for SSH + terminal + crypto
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+# Larger main task stack for SSH + terminal + crypto + menu dispatcher.
+# Bumped from 16 KB after the dispatchInputEvent extraction pushed peak
+# usage from ~13 KB to ~16 KB and triggered a stack-overflow panic.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=24576
 
 # FreeRTOS tick rate (1ms resolution for responsive input)
 CONFIG_FREERTOS_HZ=1000
