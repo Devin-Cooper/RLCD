@@ -24,6 +24,16 @@ bool InputQueue::push(const InputEvent& event, uint32_t timeout_ms) {
     return xQueueSend(queue_, &event, ticks) == pdTRUE;
 }
 
+bool InputQueue::pushOrDrop(const InputEvent& event) {
+    if (push(event, 0)) return true;
+    dropped_count_.fetch_add(1, std::memory_order_relaxed);
+    return false;
+}
+
+uint32_t InputQueue::droppedCount() const {
+    return dropped_count_.load(std::memory_order_relaxed);
+}
+
 bool InputQueue::pushFromISR(const InputEvent& event) {
     if (!queue_) return false;
     BaseType_t higher_priority_woken = pdFALSE;

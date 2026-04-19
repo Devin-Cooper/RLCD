@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -43,6 +44,14 @@ public:
     /// Push from ISR context. Returns true on success.
     bool pushFromISR(const InputEvent& event);
 
+    /// Push with silent drop on queue-full. Increments droppedCount on
+    /// failure; always returns without blocking. Prefer at producer sites
+    /// that cannot tolerate backpressure (BLE host task, button timer).
+    bool pushOrDrop(const InputEvent& event);
+
+    /// Cumulative count of events dropped by pushOrDrop (never resets).
+    uint32_t droppedCount() const;
+
     /// Pop an event. Blocks up to timeout_ms (0 = no wait).
     bool pop(InputEvent& event, uint32_t timeout_ms = 0);
 
@@ -54,6 +63,7 @@ public:
 
 private:
     QueueHandle_t queue_;
+    std::atomic<uint32_t> dropped_count_{0};
 };
 
 /// Global input queue singleton.

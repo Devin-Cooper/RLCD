@@ -323,7 +323,7 @@ extern "C" void app_main() {
                 ie.source = input::Source::Button;
                 ie.type = input::EventType::ButtonShort;
                 ie.button_id = 0;
-                input::globalInputQueue().push(ie);
+                input::globalInputQueue().pushOrDrop(ie);
             }, nullptr);
 
         btns.onEvent(buttons::Button::A, buttons::Event::LongPressStart,
@@ -333,7 +333,7 @@ extern "C" void app_main() {
                 ie.source = input::Source::Button;
                 ie.type = input::EventType::ButtonLong;
                 ie.button_id = 0;
-                input::globalInputQueue().push(ie);
+                input::globalInputQueue().pushOrDrop(ie);
             }, nullptr);
 
         btns.onEvent(buttons::Button::B, buttons::Event::SingleClick,
@@ -343,7 +343,7 @@ extern "C" void app_main() {
                 ie.source = input::Source::Button;
                 ie.type = input::EventType::ButtonShort;
                 ie.button_id = 1;
-                input::globalInputQueue().push(ie);
+                input::globalInputQueue().pushOrDrop(ie);
             }, nullptr);
 
         btns.onEvent(buttons::Button::B, buttons::Event::LongPressStart,
@@ -353,7 +353,7 @@ extern "C" void app_main() {
                 ie.source = input::Source::Button;
                 ie.type = input::EventType::ButtonLong;
                 ie.button_id = 1;
-                input::globalInputQueue().push(ie);
+                input::globalInputQueue().pushOrDrop(ie);
             }, nullptr);
 
         btns.startAutoUpdate();
@@ -421,7 +421,7 @@ extern "C" void app_main() {
         ie.data_length = evt.length;
         memcpy(ie.data, evt.bytes,
                evt.length < sizeof(ie.data) ? evt.length : sizeof(ie.data));
-        input::globalInputQueue().push(ie);
+        input::globalInputQueue().pushOrDrop(ie);
     }, nullptr);
 
     bleHost.autoReconnect();
@@ -657,12 +657,29 @@ extern "C" void app_main() {
 
     ESP_LOGI(TAG, "Entering main loop — mode=%d", static_cast<int>(currentMode));
 
+    // Drop-counter watchdog state (Spec 05): rate-limit the warning so
+    // sustained backpressure doesn't flood the log.
+    uint32_t lastDroppedCount = 0;
+    int64_t  lastDropLogUs = 0;
+    constexpr int64_t DROP_LOG_INTERVAL_US = 1000000;  // 1 Hz
+
     // ==================================================================
     // Main loop
     // ==================================================================
     while (true) {
         int64_t frameStart = esp_timer_get_time();
         int64_t now_ms = frameStart / 1000;
+
+        // Log pushOrDrop drops when count advances (at most 1 Hz).
+        {
+            uint32_t cur = input::globalInputQueue().droppedCount();
+            if (cur != lastDroppedCount &&
+                (frameStart - lastDropLogUs) >= DROP_LOG_INTERVAL_US) {
+                ESP_LOGW("input", "dropped %u events (cumulative)", cur);
+                lastDroppedCount = cur;
+                lastDropLogUs = frameStart;
+            }
+        }
 
         // ----------------------------------------------------------
         // Process input events
