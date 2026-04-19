@@ -94,7 +94,7 @@ using Callback = void(*)(Button btn, Event event, void* userData);
 class ButtonHandler {
 public:
     explicit ButtonHandler(const Config& config = Config{});
-    ~ButtonHandler();
+    virtual ~ButtonHandler();
 
     // Non-copyable
     ButtonHandler(const ButtonHandler&) = delete;
@@ -177,8 +177,14 @@ private:
     esp_timer_handle_t timerHandle_ = nullptr;
     bool initialized_ = false;
 
+protected:
+    // Host-test seam: subclass overrides readGpioLevel to inject synthetic
+    // GPIO levels, and drives processButton(idx) directly.
     void processButton(size_t idx);
-    uint8_t readGpioLevel(size_t idx) const;
+    virtual uint8_t readGpioLevel(size_t idx) const;
+    const ButtonState& stateOf(size_t idx) const { return states_[idx]; }
+
+private:
     void fireEvent(size_t idx, Event event);
     gpio_num_t getPin(size_t idx) const;
 
