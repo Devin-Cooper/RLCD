@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include "esp_wifi.h"
@@ -78,7 +79,7 @@ public:
     void forgetNetwork(const char* ssid);
 
 private:
-    State state_;
+    std::atomic<State> state_;
     StateCallback state_cb_;
     void* state_ctx_;
     char current_ssid_[33];

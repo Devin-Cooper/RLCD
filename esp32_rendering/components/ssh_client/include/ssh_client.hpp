@@ -83,7 +83,7 @@ public:
     bool verifyHostKey();
 
 private:
-    State state_;
+    std::atomic<State> state_;
     DataCallback data_cb_;
     void* data_ctx_;
     StateCallback state_cb_;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <cstddef>
 
@@ -69,10 +70,13 @@ public:
     /// Attempt reconnect to last bonded device (non-blocking).
     void autoReconnect();
 
-    State state() const { return state_; }
+    State state() const { return state_.load(std::memory_order_acquire); }
 
 private:
-    State state_;
+    // 4-byte enum atomic — on xtensa LX7 word loads/stores are atomic in
+    // hardware, so std::atomic<State> is effectively lock-free even if the
+    // stdlib doesn't mark `is_always_lock_free`.
+    std::atomic<State> state_;
     KeyCallback key_cb_;
     void* key_ctx_;
     StateCallback state_cb_;

@@ -151,11 +151,11 @@ void WifiManager::disconnect() {
 
 ConnectionInfo WifiManager::connectionInfo() const {
     ConnectionInfo info = {};
-    info.state = state_;
+    info.state = state_.load(std::memory_order_acquire);
     std::strncpy(info.ssid, current_ssid_, sizeof(info.ssid) - 1);
     std::strncpy(info.ip, current_ip_, sizeof(info.ip) - 1);
 
-    if (state_ == State::Connected) {
+    if (info.state == State::Connected) {
         wifi_ap_record_t ap;
         if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
             info.rssi = ap.rssi;
@@ -261,7 +261,7 @@ void WifiManager::loadKnownNetworks() {
 }
 
 void WifiManager::setState(State s) {
-    state_ = s;
+    state_.store(s, std::memory_order_release);
     if (state_cb_) {
         state_cb_(s, state_ctx_);
     }
@@ -291,7 +291,7 @@ void WifiManager::handleWifiEvent(int32_t id, void* data) {
     switch (id) {
     case WIFI_EVENT_STA_DISCONNECTED: {
         ESP_LOGW(TAG, "Disconnected from WiFi");
-        if (state_ == State::Connecting && retry_count_ < max_retries_) {
+        if (state_.load(std::memory_order_acquire) == State::Connecting && retry_count_ < max_retries_) {
             // Reconnect with backoff: 1s, 2s, 4s, 8s, 16s, 30s (capped)
             // Uses a one-shot timer to avoid blocking the event handler
             int delay_ms = std::min(1000 << retry_count_, 30000);

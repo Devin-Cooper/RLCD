@@ -86,7 +86,7 @@ void BleHidHost::startScan() {
 
 void BleHidHost::stopScan() {
     ble_gap_disc_cancel();
-    if (state_ == State::Scanning) {
+    if (state_.load(std::memory_order_acquire) == State::Scanning) {
         setState(State::Disconnected);
     }
 }
@@ -182,7 +182,7 @@ KeyEvent BleHidHost::translateKeycode(uint8_t keycode, uint8_t modifiers) {
 // --- State ---
 
 void BleHidHost::setState(State s) {
-    state_ = s;
+    state_.store(s, std::memory_order_release);
     if (state_cb_) {
         state_cb_(s, state_ctx_);
     }
@@ -190,7 +190,7 @@ void BleHidHost::setState(State s) {
 
 void BleHidHost::pairingTimeoutCb(void* arg) {
     auto* self = static_cast<BleHidHost*>(arg);
-    if (self->state_ == State::Scanning) {
+    if (self->state_.load(std::memory_order_acquire) == State::Scanning) {
         ESP_LOGW(TAG, "Pairing timeout — exiting pairing mode");
         self->stopScan();
     }

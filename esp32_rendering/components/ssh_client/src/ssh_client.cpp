@@ -53,7 +53,7 @@ SshClient::~SshClient() {
 }
 
 void SshClient::connect(const Config& config) {
-    if (state_ != State::Disconnected) {
+    if (state_.load(std::memory_order_acquire) != State::Disconnected) {
         disconnect();
     }
 
@@ -75,7 +75,7 @@ void SshClient::connect(const Config& config) {
 }
 
 void SshClient::send(const uint8_t* data, size_t len) {
-    if (!send_queue_ || state_ != State::Connected) return;
+    if (!send_queue_ || state_.load(std::memory_order_acquire) != State::Connected) return;
 
     // Split into SendItem-sized chunks if needed
     size_t offset = 0;
@@ -89,7 +89,7 @@ void SshClient::send(const uint8_t* data, size_t len) {
 }
 
 void SshClient::resizeTerminal(int cols, int rows) {
-    if (!channel_ || state_ != State::Connected) return;
+    if (!channel_ || state_.load(std::memory_order_acquire) != State::Connected) return;
     auto* ch = static_cast<LIBSSH2_CHANNEL*>(channel_);
     libssh2_channel_request_pty_size(ch, cols, rows);
     ESP_LOGI(TAG, "Terminal resized to %dx%d", cols, rows);
@@ -517,7 +517,7 @@ exit_loop:
 }
 
 void SshClient::setState(State s, const char* msg) {
-    state_ = s;
+    state_.store(s, std::memory_order_release);
     if (state_cb_) {
         state_cb_(s, msg, state_ctx_);
     }

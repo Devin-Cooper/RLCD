@@ -3,7 +3,6 @@
 #include <freertos/stream_buffer.h>
 #include <esp_log.h>
 #include <esp_timer.h>
-#include <esp_sleep.h>
 #include <esp_heap_caps.h>
 #include <nvs_flash.h>
 #include <nvs.h>
@@ -618,12 +617,6 @@ extern "C" void app_main() {
     FramebufferAdapter prevAdapter(prevFb);
     bool hasPrevFrame = prevFb.buffer() != nullptr;
 
-    // ------------------------------------------------------------------
-    // Idle tracking for power management
-    // ------------------------------------------------------------------
-    int64_t lastInputTime = esp_timer_get_time();
-    constexpr int64_t IDLE_THRESHOLD_US = 60 * 1000000LL;  // 60s idle → light sleep
-
     ESP_LOGI(TAG, "Entering main loop — mode=%d", static_cast<int>(currentMode));
 
     // ==================================================================
@@ -638,8 +631,6 @@ extern "C" void app_main() {
         // ----------------------------------------------------------
         input::InputEvent evt;
         while (input::globalInputQueue().pop(evt)) {
-            lastInputTime = frameStart;
-
             // --- Button A short press: toggle menu ---
             if (evt.source == input::Source::Button &&
                 evt.type == input::EventType::ButtonShort &&
