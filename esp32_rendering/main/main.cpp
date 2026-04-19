@@ -278,6 +278,56 @@ extern "C" void app_main() {
     initLittleFs();
 
     // ------------------------------------------------------------------
+    // Step 3a: Physical buttons (early — before blocking network waits)
+    // ------------------------------------------------------------------
+    buttons::ButtonHandler btns;
+    if (btns.init()) {
+        btns.onEvent(buttons::Button::A, buttons::Event::SingleClick,
+            [](buttons::Button, buttons::Event, void*) {
+                ESP_LOGI("main", "btn A short");
+                input::InputEvent ie{};
+                ie.source = input::Source::Button;
+                ie.type = input::EventType::ButtonShort;
+                ie.button_id = 0;
+                input::globalInputQueue().push(ie);
+            }, nullptr);
+
+        btns.onEvent(buttons::Button::A, buttons::Event::LongPressStart,
+            [](buttons::Button, buttons::Event, void*) {
+                ESP_LOGI("main", "btn A long");
+                input::InputEvent ie{};
+                ie.source = input::Source::Button;
+                ie.type = input::EventType::ButtonLong;
+                ie.button_id = 0;
+                input::globalInputQueue().push(ie);
+            }, nullptr);
+
+        btns.onEvent(buttons::Button::B, buttons::Event::SingleClick,
+            [](buttons::Button, buttons::Event, void*) {
+                ESP_LOGI("main", "btn B short");
+                input::InputEvent ie{};
+                ie.source = input::Source::Button;
+                ie.type = input::EventType::ButtonShort;
+                ie.button_id = 1;
+                input::globalInputQueue().push(ie);
+            }, nullptr);
+
+        btns.onEvent(buttons::Button::B, buttons::Event::LongPressStart,
+            [](buttons::Button, buttons::Event, void*) {
+                ESP_LOGI("main", "btn B long");
+                input::InputEvent ie{};
+                ie.source = input::Source::Button;
+                ie.type = input::EventType::ButtonLong;
+                ie.button_id = 1;
+                input::globalInputQueue().push(ie);
+            }, nullptr);
+
+        btns.startAutoUpdate();
+    } else {
+        ESP_LOGW(TAG, "Button init failed");
+    }
+
+    // ------------------------------------------------------------------
     // Step 3b: SD Card
     // ------------------------------------------------------------------
     showStatus(fb, display, "Checking SD card...");
@@ -562,52 +612,6 @@ extern "C" void app_main() {
     );
 
     // ------------------------------------------------------------------
-    // Initialize physical buttons into unified input queue
-    // ------------------------------------------------------------------
-    buttons::ButtonHandler btns;
-    if (btns.init()) {
-        btns.onEvent(buttons::Button::A, buttons::Event::SingleClick,
-            [](buttons::Button, buttons::Event, void*) {
-                input::InputEvent ie{};
-                ie.source = input::Source::Button;
-                ie.type = input::EventType::ButtonShort;
-                ie.button_id = 0;
-                input::globalInputQueue().push(ie);
-            }, nullptr);
-
-        btns.onEvent(buttons::Button::A, buttons::Event::LongPressStart,
-            [](buttons::Button, buttons::Event, void*) {
-                input::InputEvent ie{};
-                ie.source = input::Source::Button;
-                ie.type = input::EventType::ButtonLong;
-                ie.button_id = 0;
-                input::globalInputQueue().push(ie);
-            }, nullptr);
-
-        btns.onEvent(buttons::Button::B, buttons::Event::SingleClick,
-            [](buttons::Button, buttons::Event, void*) {
-                input::InputEvent ie{};
-                ie.source = input::Source::Button;
-                ie.type = input::EventType::ButtonShort;
-                ie.button_id = 1;
-                input::globalInputQueue().push(ie);
-            }, nullptr);
-
-        btns.onEvent(buttons::Button::B, buttons::Event::LongPressStart,
-            [](buttons::Button, buttons::Event, void*) {
-                input::InputEvent ie{};
-                ie.source = input::Source::Button;
-                ie.type = input::EventType::ButtonLong;
-                ie.button_id = 1;
-                input::globalInputQueue().push(ie);
-            }, nullptr);
-
-        btns.startAutoUpdate();
-    } else {
-        ESP_LOGW(TAG, "Button init failed");
-    }
-
-    // ------------------------------------------------------------------
     // Adapter for ST7305 display (expects rendering::IFramebuffer)
     // ------------------------------------------------------------------
     FramebufferAdapter displayAdapter(fb);
@@ -631,15 +635,58 @@ extern "C" void app_main() {
         // ----------------------------------------------------------
         input::InputEvent evt;
         while (input::globalInputQueue().pop(evt)) {
-            // --- Button A short press: toggle menu ---
+            // --- Button A short press: pure toggle open/close ---
+            // Confirmation moved to Button-B-long (below) and Keyboard-Enter
+            // so rapid taps don't accidentally commit Item::Dashboard.
             if (evt.source == input::Source::Button &&
                 evt.type == input::EventType::ButtonShort &&
                 evt.button_id == 0) {
                 if (menu.isOpen()) {
-                    // Confirm selection
+                    ESP_LOGI(TAG, "menu close");
+                    menu.close();
+                } else {
+                    ESP_LOGI(TAG, "menu open");
+                    menu.open();
+                }
+            }
+
+            // --- Button A long press: BLE pairing ---
+            if (evt.source == input::Source::Button &&
+                evt.type == input::EventType::ButtonLong &&
+                evt.button_id == 0) {
+                ESP_LOGI(TAG, "BLE pairing mode triggered");
+                currentMode = AppMode::Pairing;
+                bleHost.startPairing(30);
+            }
+
+            // --- Button B short press: font cycle (terminal) or menu nav ---
+            if (evt.source == input::Source::Button &&
+                evt.type == input::EventType::ButtonShort &&
+                evt.button_id == 1) {
+                if (menu.isOpen()) {
+                    menu.moveDown();
+                } else if (currentMode == AppMode::Terminal) {
+                    // Cycle font: 0→1→2→0
+                    currentFontSize = (currentFontSize + 1) % 3;
+                    settings.font_size = currentFontSize;
+                    terminalMode.setFont(fontForSize(currentFontSize));
+                    app::saveSettings(settings);
+                } else if (currentMode == AppMode::Error ||
+                           currentMode == AppMode::NetworkSelect) {
+                    // Retry WiFi / SSH
+                    wifiMgr.autoConnect();
+                    currentMode = AppMode::Dashboard;
+                }
+            }
+
+            // --- Button B long press: confirm menu OR terminal→dashboard swap ---
+            if (evt.source == input::Source::Button &&
+                evt.type == input::EventType::ButtonLong &&
+                evt.button_id == 1) {
+                if (menu.isOpen()) {
                     app::Menu::Item sel = menu.confirm();
                     menu.close();
-
+                    ESP_LOGI(TAG, "menu confirm (btn B long): %d", static_cast<int>(sel));
                     switch (sel) {
                         case app::Menu::Item::Dashboard:
                             currentMode = AppMode::Dashboard;
@@ -691,45 +738,7 @@ extern "C" void app_main() {
                         default:
                             break;
                     }
-                } else {
-                    menu.open();
-                }
-            }
-
-            // --- Button A long press: BLE pairing ---
-            if (evt.source == input::Source::Button &&
-                evt.type == input::EventType::ButtonLong &&
-                evt.button_id == 0) {
-                ESP_LOGI(TAG, "BLE pairing mode triggered");
-                currentMode = AppMode::Pairing;
-                bleHost.startPairing(30);
-            }
-
-            // --- Button B short press: font cycle (terminal) or menu nav ---
-            if (evt.source == input::Source::Button &&
-                evt.type == input::EventType::ButtonShort &&
-                evt.button_id == 1) {
-                if (menu.isOpen()) {
-                    menu.moveDown();
                 } else if (currentMode == AppMode::Terminal) {
-                    // Cycle font: 0→1→2→0
-                    currentFontSize = (currentFontSize + 1) % 3;
-                    settings.font_size = currentFontSize;
-                    terminalMode.setFont(fontForSize(currentFontSize));
-                    app::saveSettings(settings);
-                } else if (currentMode == AppMode::Error ||
-                           currentMode == AppMode::NetworkSelect) {
-                    // Retry WiFi / SSH
-                    wifiMgr.autoConnect();
-                    currentMode = AppMode::Dashboard;
-                }
-            }
-
-            // --- Button B long press: disconnect SSH / return to dashboard ---
-            if (evt.source == input::Source::Button &&
-                evt.type == input::EventType::ButtonLong &&
-                evt.button_id == 1) {
-                if (currentMode == AppMode::Terminal) {
                     currentMode = AppMode::Dashboard;
                     ESP_LOGI(TAG, "Returned to dashboard");
                 }
@@ -752,6 +761,7 @@ extern "C" void app_main() {
                     if (evt.data_length == 1 && evt.data[0] == '\r') {
                         app::Menu::Item sel = menu.confirm();
                         menu.close();
+                        ESP_LOGI(TAG, "menu confirm (kbd): %d", static_cast<int>(sel));
                         switch (sel) {
                             case app::Menu::Item::Dashboard:
                                 currentMode = AppMode::Dashboard;
@@ -806,11 +816,25 @@ extern "C" void app_main() {
                     }
                     // Escape closes menu
                     if (evt.data_length == 1 && evt.data[0] == 0x1B) {
+                        ESP_LOGI(TAG, "menu close (esc)");
                         menu.close();
                     }
-                } else if (currentMode == AppMode::Terminal &&
-                           sshClient.state() == ssh::State::Connected) {
-                    sshClient.send(evt.data, evt.data_length);
+                } else {
+                    // Menu is closed. F1 (ESC O P) opens the menu when in
+                    // Terminal or Dashboard — intercept before forwarding to
+                    // SSH so F1 doesn't reach the remote shell.
+                    bool isF1 = (evt.data_length == 3 &&
+                                 evt.data[0] == 0x1B &&
+                                 evt.data[1] == 'O' &&
+                                 evt.data[2] == 'P');
+                    if (isF1 && (currentMode == AppMode::Terminal ||
+                                 currentMode == AppMode::Dashboard)) {
+                        ESP_LOGI(TAG, "menu open (F1)");
+                        menu.open();
+                    } else if (currentMode == AppMode::Terminal &&
+                               sshClient.state() == ssh::State::Connected) {
+                        sshClient.send(evt.data, evt.data_length);
+                    }
                 }
             }
         }
