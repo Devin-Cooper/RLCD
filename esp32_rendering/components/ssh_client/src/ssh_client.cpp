@@ -37,6 +37,27 @@ struct SendItem {
 
 namespace ssh {
 
+// Hostname sanitizer (Spec 04 Bug 4). Accept [A-Za-z0-9._-]{1,253} only;
+// reject empty, leading '-' or '.', any '/'. Keeps the TOFU known_hosts
+// path `/littlefs/known_hosts/<host>_<port>` confined to that directory.
+static bool is_valid_hostname(const char* s) {
+    if (!s) return false;
+    size_t n = 0;
+    while (s[n] != '\0') ++n;
+    if (n == 0 || n > 253) return false;
+    if (s[0] == '-' || s[0] == '.') return false;
+    for (size_t i = 0; i < n; ++i) {
+        char c = s[i];
+        bool ok =
+            (c >= 'A' && c <= 'Z') ||
+            (c >= 'a' && c <= 'z') ||
+            (c >= '0' && c <= '9') ||
+            c == '.' || c == '-' || c == '_';
+        if (!ok) return false;
+    }
+    return true;
+}
+
 SshClient::SshClient()
     : state_(State::Disconnected),
       data_cb_(nullptr), data_ctx_(nullptr),
@@ -167,6 +188,16 @@ bool SshClient::getPublicKey(char* pubkey_out, size_t pubkey_size) {
 
 bool SshClient::verifyHostKey() {
     if (!session_) return false;
+
+    // Spec 04 Bug 4: sanitize host before building any filesystem path
+    // (TOFU known_hosts) — refuse path-traversal hostnames up front.
+    if (!is_valid_hostname(config_.host)) {
+        ESP_LOGE(TAG, "Rejected invalid SSH host '%s' (unsafe characters or length)",
+                 config_.host);
+        setState(State::Error, "Invalid SSH host — refusing to connect");
+        return false;
+    }
+
     auto* sess = static_cast<LIBSSH2_SESSION*>(session_);
 
     // Get server's host key fingerprint
@@ -176,7 +207,7 @@ bool SshClient::verifyHostKey() {
         return false;
     }
 
-    // Build storage path based on host
+    // Build storage path based on host (now validated above).
     char path[128];
     snprintf(path, sizeof(path), "/littlefs/known_hosts/%s_%d",
              config_.host, config_.port);
