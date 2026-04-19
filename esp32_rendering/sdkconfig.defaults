@@ -92,9 +92,13 @@ CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
 # --- OTA ---
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
-# --- Power Management ---
-CONFIG_PM_ENABLE=y
-CONFIG_PM_DFS_INIT_AUTO=y
+# --- Coredump ---
+# Write panic-time ELF coredump to the `coredump` partition (partitions.csv).
+# Retrieve with: idf.py coredump-info / coredump-debug after next boot.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
+CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=64
 
 # --- FAT Filesystem (SD Card) ---
 CONFIG_FATFS_LFN_HEAP=y
