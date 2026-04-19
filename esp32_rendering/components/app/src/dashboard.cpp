@@ -3,7 +3,8 @@
 #include "config_manager.hpp"
 #include <1bit/render/primitives.hpp>
 #include <1bit/render/bitmap_font.hpp>
-#include <1bit/render/patterns.hpp>
+#include <1bit/render/pattern.hpp>
+#include <1bit/render/pattern_tiles.hpp>
 #include <1bit/fonts/term_5x7.hpp>
 #include <esp_log.h>
 #include <cstdio>
@@ -398,8 +399,8 @@ void Dashboard::drawSparkline(onebit::IFramebuffer& fb, int x, int y, int w, int
 
         // Fill below the line with dithered pattern
         if (vy < y + h) {
-            onebit::fillRectDithered(fb, x + px, vy, 1, y + h - vy,
-                                     onebit::DitherLevel::Medium);
+            onebit::fillPatternRect(fb, x + px, vy, 1, y + h - vy,
+                                    onebit::bayer(128, 4));
         }
 
         // Draw the line point
@@ -504,8 +505,8 @@ void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font)
             onebit::fillRect(fb, bar_x + 1, row_y + 5, fill_w, 9, onebit::BLACK);
         int remain = bar_w - 2 - fill_w;
         if (remain > 0)
-            onebit::fillRectDithered(fb, bar_x + 1 + fill_w, row_y + 5, remain, 9,
-                                     onebit::DitherLevel::Sparse);
+            onebit::fillPatternRect(fb, bar_x + 1 + fill_w, row_y + 5, remain, 9,
+                                    onebit::bayer(64, 4));
 
         char pct_str[8];
         snprintf(pct_str, sizeof(pct_str), "%3.0f%%", cpu_pct);
@@ -535,8 +536,8 @@ void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font)
             onebit::fillRect(fb, bar_x + 1, row_y + 5, fill_w, 9, onebit::BLACK);
         int remain = bar_w - 2 - fill_w;
         if (remain > 0)
-            onebit::fillRectDithered(fb, bar_x + 1 + fill_w, row_y + 5, remain, 9,
-                                     onebit::DitherLevel::Sparse);
+            onebit::fillPatternRect(fb, bar_x + 1 + fill_w, row_y + 5, remain, 9,
+                                    onebit::bayer(64, 4));
 
         char pct_str[8];
         snprintf(pct_str, sizeof(pct_str), "%3.0f%%", pct);
@@ -565,8 +566,8 @@ void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font)
             onebit::fillRect(fb, bar_x + 1, row_y + 5, fill_w, 9, onebit::BLACK);
         int remain = bar_w - 2 - fill_w;
         if (remain > 0)
-            onebit::fillRectDithered(fb, bar_x + 1 + fill_w, row_y + 5, remain, 9,
-                                     onebit::DitherLevel::Sparse);
+            onebit::fillPatternRect(fb, bar_x + 1 + fill_w, row_y + 5, remain, 9,
+                                    onebit::bayer(64, 4));
 
         char pct_str[8];
         snprintf(pct_str, sizeof(pct_str), "%3.0f%%", pct);
