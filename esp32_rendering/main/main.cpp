@@ -106,6 +106,31 @@ enum class AppMode : uint8_t {
     Pairing,
 };
 
+// Forward declarations for helpers defined lower in this file but used by
+// the dispatch helpers just below.
+static const onebit::BitmapFont& fontForSize(uint8_t size);
+static void showStatus(onebit::IFramebuffer& fb, st7305::Display& display,
+                       const char* line1, const char* line2 = nullptr);
+
+// ============================================================================
+// Input dispatch state (passed-by-reference to dispatchInputEvent / helpers)
+// ============================================================================
+
+struct DispatchState {
+    AppMode& currentMode;
+    app::Menu& menu;
+    app::Dashboard& dashboard;
+    app::TerminalMode& terminalMode;
+    sdcard::ConfigManager* configMgr;
+    ssh::SshClient& sshClient;
+    ble_hid::BleHidHost& bleHost;
+    wifi::WifiManager& wifiMgr;
+    app::Settings& settings;
+    uint8_t& currentFontSize;
+    onebit::IFramebuffer& fb;
+    st7305::Display& display;
+};
+
 // ============================================================================
 // Server rotation (shared by Button-B-long menu confirm and Keyboard-Enter
 // menu confirm paths — dedup per Spec 05).
@@ -140,6 +165,145 @@ static void switchToNextServer(sdcard::ConfigManager* configMgr,
     }
     dashboard.setServerName(srv.name[0] ? srv.name : srv.host);
     ESP_LOGI(TAG, "Switched to server: %s", srv.name);
+}
+
+// ============================================================================
+// Menu-selection handler (shared by Button-B-long + Keyboard-Enter paths).
+// ============================================================================
+
+static void handleMenuSelection(app::Menu::Item sel, DispatchState& s) {
+    switch (sel) {
+        case app::Menu::Item::Dashboard:
+            s.currentMode = AppMode::Dashboard;
+            break;
+        case app::Menu::Item::Terminal:
+            s.currentMode = AppMode::Terminal;
+            break;
+        case app::Menu::Item::Servers:
+            switchToNextServer(s.configMgr, s.sshClient, s.dashboard);
+            break;
+        case app::Menu::Item::Settings:
+            // TODO: settings editor screen
+            break;
+        case app::Menu::Item::WiFi:
+            s.currentMode = AppMode::NetworkSelect;
+            break;
+        case app::Menu::Item::About:
+            showStatus(s.fb, s.display, "RLCD Terminal v1.0",
+                       "github.com/Devin-Cooper/RLCD");
+            vTaskDelay(pdMS_TO_TICKS(2000));
+            break;
+        default:
+            break;
+    }
+}
+
+// ============================================================================
+// Input dispatcher — single source of truth for input → mode routing.
+// Called once per queued InputEvent; extracted from main loop for clarity
+// and to eliminate the ~200-line inline branch chain.
+// ============================================================================
+
+static void dispatchInputEvent(const input::InputEvent& evt, DispatchState& s) {
+    // --- Button A short press: pure open/close toggle (never confirm) ---
+    if (evt.source == input::Source::Button &&
+        evt.type == input::EventType::ButtonShort &&
+        evt.button_id == 0) {
+        if (s.menu.isOpen()) {
+            ESP_LOGI(TAG, "menu close");
+            s.menu.close();
+        } else {
+            ESP_LOGI(TAG, "menu open");
+            s.menu.open();
+        }
+        return;
+    }
+
+    // --- Button A long press: BLE pairing ---
+    if (evt.source == input::Source::Button &&
+        evt.type == input::EventType::ButtonLong &&
+        evt.button_id == 0) {
+        ESP_LOGI(TAG, "BLE pairing mode triggered");
+        s.currentMode = AppMode::Pairing;
+        s.bleHost.startPairing(30);
+        return;
+    }
+
+    // --- Button B short press: menu nav down / font cycle / retry ---
+    if (evt.source == input::Source::Button &&
+        evt.type == input::EventType::ButtonShort &&
+        evt.button_id == 1) {
+        if (s.menu.isOpen()) {
+            s.menu.moveDown();
+        } else if (s.currentMode == AppMode::Terminal) {
+            s.currentFontSize = (s.currentFontSize + 1) % 3;
+            s.settings.font_size = s.currentFontSize;
+            s.terminalMode.setFont(fontForSize(s.currentFontSize));
+            app::saveSettings(s.settings);
+        } else if (s.currentMode == AppMode::Error ||
+                   s.currentMode == AppMode::NetworkSelect) {
+            s.wifiMgr.autoConnect();
+            s.currentMode = AppMode::Dashboard;
+        }
+        return;
+    }
+
+    // --- Button B long press: menu confirm OR terminal→dashboard swap ---
+    if (evt.source == input::Source::Button &&
+        evt.type == input::EventType::ButtonLong &&
+        evt.button_id == 1) {
+        if (s.menu.isOpen()) {
+            app::Menu::Item sel = s.menu.confirm();
+            s.menu.close();
+            ESP_LOGI(TAG, "menu confirm (btn B long): %d", static_cast<int>(sel));
+            handleMenuSelection(sel, s);
+        } else if (s.currentMode == AppMode::Terminal) {
+            s.currentMode = AppMode::Dashboard;
+            ESP_LOGI(TAG, "Returned to dashboard");
+        }
+        return;
+    }
+
+    // --- Keyboard input: menu nav / confirm / close / SSH passthrough ---
+    if (evt.source == input::Source::Keyboard &&
+        evt.type == input::EventType::Keypress) {
+        if (s.menu.isOpen()) {
+            // Arrow keys
+            if (evt.data_length == 3 &&
+                evt.data[0] == 0x1B && evt.data[1] == '[') {
+                if (evt.data[2] == 'A') s.menu.moveUp();
+                if (evt.data[2] == 'B') s.menu.moveDown();
+            }
+            // Enter confirms
+            if (evt.data_length == 1 && evt.data[0] == '\r') {
+                app::Menu::Item sel = s.menu.confirm();
+                s.menu.close();
+                ESP_LOGI(TAG, "menu confirm (kbd): %d", static_cast<int>(sel));
+                handleMenuSelection(sel, s);
+            }
+            // Escape closes
+            if (evt.data_length == 1 && evt.data[0] == 0x1B) {
+                ESP_LOGI(TAG, "menu close (esc)");
+                s.menu.close();
+            }
+            return;
+        }
+
+        // Menu closed: F1 (ESC O P) opens menu in Terminal/Dashboard;
+        // everything else passes through to SSH in Terminal mode only.
+        bool isF1 = (evt.data_length == 3 &&
+                     evt.data[0] == 0x1B &&
+                     evt.data[1] == 'O' &&
+                     evt.data[2] == 'P');
+        if (isF1 && (s.currentMode == AppMode::Terminal ||
+                     s.currentMode == AppMode::Dashboard)) {
+            ESP_LOGI(TAG, "menu open (F1)");
+            s.menu.open();
+        } else if (s.currentMode == AppMode::Terminal &&
+                   s.sshClient.state() == ssh::State::Connected) {
+            s.sshClient.send(evt.data, evt.data_length);
+        }
+    }
 }
 
 // ============================================================================
@@ -189,7 +353,7 @@ static void showSplash(onebit::IFramebuffer& fb, st7305::Display& display) {
 // ============================================================================
 
 static void showStatus(onebit::IFramebuffer& fb, st7305::Display& display,
-                       const char* line1, const char* line2 = nullptr) {
+                       const char* line1, const char* line2) {
     fb.clear(onebit::WHITE);
     const auto& font = onebit::fonts::TERM_6X9;
     onebit::drawBitmapText(fb, font, 10, 10, line1, onebit::BLACK);
@@ -682,185 +846,17 @@ extern "C" void app_main() {
         }
 
         // ----------------------------------------------------------
-        // Process input events
+        // Process input events (dispatcher extracted to dispatchInputEvent)
         // ----------------------------------------------------------
+        DispatchState dispatch{
+            currentMode, menu, dashboard, terminalMode,
+            configMgr, sshClient, bleHost, wifiMgr,
+            settings, currentFontSize,
+            fb, display
+        };
         input::InputEvent evt;
         while (input::globalInputQueue().pop(evt)) {
-            // --- Button A short press: pure toggle open/close ---
-            // Confirmation moved to Button-B-long (below) and Keyboard-Enter
-            // so rapid taps don't accidentally commit Item::Dashboard.
-            if (evt.source == input::Source::Button &&
-                evt.type == input::EventType::ButtonShort &&
-                evt.button_id == 0) {
-                if (menu.isOpen()) {
-                    ESP_LOGI(TAG, "menu close");
-                    menu.close();
-                } else {
-                    ESP_LOGI(TAG, "menu open");
-                    menu.open();
-                }
-            }
-
-            // --- Button A long press: BLE pairing ---
-            if (evt.source == input::Source::Button &&
-                evt.type == input::EventType::ButtonLong &&
-                evt.button_id == 0) {
-                ESP_LOGI(TAG, "BLE pairing mode triggered");
-                currentMode = AppMode::Pairing;
-                bleHost.startPairing(30);
-            }
-
-            // --- Button B short press: font cycle (terminal) or menu nav ---
-            if (evt.source == input::Source::Button &&
-                evt.type == input::EventType::ButtonShort &&
-                evt.button_id == 1) {
-                if (menu.isOpen()) {
-                    menu.moveDown();
-                } else if (currentMode == AppMode::Terminal) {
-                    // Cycle font: 0→1→2→0
-                    currentFontSize = (currentFontSize + 1) % 3;
-                    settings.font_size = currentFontSize;
-                    terminalMode.setFont(fontForSize(currentFontSize));
-                    app::saveSettings(settings);
-                } else if (currentMode == AppMode::Error ||
-                           currentMode == AppMode::NetworkSelect) {
-                    // Retry WiFi / SSH
-                    wifiMgr.autoConnect();
-                    currentMode = AppMode::Dashboard;
-                }
-            }
-
-            // --- Button B long press: confirm menu OR terminal→dashboard swap ---
-            if (evt.source == input::Source::Button &&
-                evt.type == input::EventType::ButtonLong &&
-                evt.button_id == 1) {
-                if (menu.isOpen()) {
-                    app::Menu::Item sel = menu.confirm();
-                    menu.close();
-                    ESP_LOGI(TAG, "menu confirm (btn B long): %d", static_cast<int>(sel));
-                    switch (sel) {
-                        case app::Menu::Item::Dashboard:
-                            currentMode = AppMode::Dashboard;
-                            break;
-                        case app::Menu::Item::Terminal:
-                            currentMode = AppMode::Terminal;
-                            break;
-                        case app::Menu::Item::Servers:
-                            switchToNextServer(configMgr, sshClient, dashboard);
-                            break;
-                        case app::Menu::Item::Settings:
-                            // TODO: settings editor screen
-                            break;
-                        case app::Menu::Item::WiFi:
-                            currentMode = AppMode::NetworkSelect;
-                            break;
-                        case app::Menu::Item::About:
-                            showStatus(fb, display, "RLCD Terminal v1.0",
-                                       "github.com/Devin-Cooper/RLCD");
-                            vTaskDelay(pdMS_TO_TICKS(2000));
-                            break;
-                        default:
-                            break;
-                    }
-                } else if (currentMode == AppMode::Terminal) {
-                    currentMode = AppMode::Dashboard;
-                    ESP_LOGI(TAG, "Returned to dashboard");
-                }
-            }
-
-            // --- Keyboard input in terminal mode → send to SSH ---
-            if (evt.source == input::Source::Keyboard &&
-                evt.type == input::EventType::Keypress) {
-                if (menu.isOpen()) {
-                    // Arrow keys for menu navigation
-                    if (evt.data_length == 3 &&
-                        evt.data[0] == 0x1B && evt.data[1] == '[') {
-                        if (evt.data[2] == 'A') menu.moveUp();      // Up
-                        if (evt.data[2] == 'B') menu.moveDown();    // Down
-                        if (evt.data[2] == 'C' || evt.data[2] == 'D') {
-                            // Left/Right — confirm or close
-                        }
-                    }
-                    // Enter confirms
-                    if (evt.data_length == 1 && evt.data[0] == '\r') {
-                        app::Menu::Item sel = menu.confirm();
-                        menu.close();
-                        ESP_LOGI(TAG, "menu confirm (kbd): %d", static_cast<int>(sel));
-                        switch (sel) {
-                            case app::Menu::Item::Dashboard:
-                                currentMode = AppMode::Dashboard;
-                                break;
-                            case app::Menu::Item::Terminal:
-                                currentMode = AppMode::Terminal;
-                                break;
-                            case app::Menu::Item::Servers: {
-                                if (configMgr->serverCount() > 1) {
-                                    int next = (configMgr->activeServerIndex() + 1) % configMgr->serverCount();
-                                    configMgr->setActiveServer(next);
-                                    const auto& srv = configMgr->activeServer();
-                                    sshClient.disconnect();
-                                    ssh::Config cfg = {};
-                                    strncpy(cfg.host, srv.host, sizeof(cfg.host) - 1);
-                                    cfg.port = srv.port;
-                                    strncpy(cfg.username, srv.username, sizeof(cfg.username) - 1);
-                                    cfg.use_key_auth = srv.use_key_auth;
-                                    if (!cfg.use_key_auth) {
-                                        nvs_handle_t handle;
-                                        if (nvs_open("ssh_creds", NVS_READONLY, &handle) == ESP_OK) {
-                                            char nvs_key[24];
-                                            snprintf(nvs_key, sizeof(nvs_key), "srv_p_%d", next);
-                                            size_t len = sizeof(cfg.password);
-                                            nvs_get_str(handle, nvs_key, cfg.password, &len);
-                                            nvs_close(handle);
-                                        }
-                                    }
-                                    sshClient.connect(cfg);
-                                    if (srv.dashboard_count > 0) {
-                                        dashboard.updateCommands(srv.dashboard, srv.dashboard_count);
-                                    }
-                                    dashboard.setServerName(srv.name[0] ? srv.name : srv.host);
-                                    ESP_LOGI(TAG, "Switched to server: %s", srv.name);
-                                }
-                                break;
-                            }
-                            case app::Menu::Item::Settings:
-                                // TODO: settings editor screen
-                                break;
-                            case app::Menu::Item::WiFi:
-                                currentMode = AppMode::NetworkSelect;
-                                break;
-                            case app::Menu::Item::About:
-                                showStatus(fb, display, "RLCD Terminal v1.0",
-                                           "github.com/Devin-Cooper/RLCD");
-                                vTaskDelay(pdMS_TO_TICKS(2000));
-                                break;
-                            default:
-                                break;
-                        }
-                    }
-                    // Escape closes menu
-                    if (evt.data_length == 1 && evt.data[0] == 0x1B) {
-                        ESP_LOGI(TAG, "menu close (esc)");
-                        menu.close();
-                    }
-                } else {
-                    // Menu is closed. F1 (ESC O P) opens the menu when in
-                    // Terminal or Dashboard — intercept before forwarding to
-                    // SSH so F1 doesn't reach the remote shell.
-                    bool isF1 = (evt.data_length == 3 &&
-                                 evt.data[0] == 0x1B &&
-                                 evt.data[1] == 'O' &&
-                                 evt.data[2] == 'P');
-                    if (isF1 && (currentMode == AppMode::Terminal ||
-                                 currentMode == AppMode::Dashboard)) {
-                        ESP_LOGI(TAG, "menu open (F1)");
-                        menu.open();
-                    } else if (currentMode == AppMode::Terminal &&
-                               sshClient.state() == ssh::State::Connected) {
-                        sshClient.send(evt.data, evt.data_length);
-                    }
-                }
-            }
+            dispatchInputEvent(evt, dispatch);
         }
 
         // ----------------------------------------------------------
