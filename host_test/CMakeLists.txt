@@ -39,6 +39,6 @@ include(cmake/AddHostTest.cmake)
 # Subdirectories — one per component. Explicit, no glob.
 # --------------------------------------------------------------------------
 add_subdirectory(smoke)
-# add_subdirectory(ble_hid)
+add_subdirectory(ble_hid)
 # add_subdirectory(app)
 # add_subdirectory(buttons)

@@ -3,6 +3,10 @@
 #include <cstdint>
 #include <cstddef>
 
+// KeyEvent + translateKeycode live in a pure-logic TU so host tests can link
+// against them without pulling NimBLE headers.
+#include "hid_translate.hpp"
+
 // NimBLE headers needed for callback signatures
 #include "host/ble_gap.h"
 #include "host/ble_gatt.h"
@@ -15,12 +19,6 @@ enum class State {
     Connecting,
     Connected,
     Disconnected,
-};
-
-/// Terminal-ready key event: already converted from HID to byte sequence.
-struct KeyEvent {
-    uint8_t bytes[8];   // Terminal byte sequence (e.g., "\x1b[A" for arrow up)
-    uint8_t length;     // Number of valid bytes
 };
 
 using KeyCallback = void(*)(const KeyEvent& event, void* ctx);
