@@ -30,12 +30,11 @@ ESP-IDF firmware that turns the board into a self-contained SSH terminal and ser
 - **Dashboard mode** -- curated server stats (CPU, memory, disk, network, GPU, Docker, screen sessions) refreshed on a configurable interval
 - **SSH client** -- libssh2 with hardware-accelerated AES-128-CTR (7.5 MB/s), Ed25519 auth (26ms), TOFU host key verification
 - **BLE keyboard** -- NimBLE HID host with auto-reconnect to bonded devices, full keycode-to-terminal translation (arrows, function keys, Ctrl combos)
-- **WiFi** -- auto-connect to known networks by signal strength, scan-and-select fallback with on-screen password entry
+- **WiFi** -- auto-connect to known networks by signal strength; new networks are added via SD card JSON config (on-screen password entry is not implemented).
 - **3 font sizes** -- 80x37 (5x7), 66x30 (6x9), 50x23 (8x12) -- cycle with button or F-key
 - **Menu system** -- overlay navigable via keyboard or physical buttons
-- **Power management** -- modem sleep during active SSH (~20mA), auto light sleep in dashboard idle (~1.3mA)
+- **Power management** -- WiFi modem-sleep during active SSH (~20mA). Light sleep is disabled because ST7305 needs continuous SPI power.
 - **OTA updates** -- dual 3MB app partitions with automatic rollback
-- **Encrypted credentials** -- NVS encryption for stored WiFi/SSH passwords
 
 #### Hardware-Informed Optimizations
 
@@ -65,19 +64,19 @@ BLE HID Input (P:9)         Dashboard Poll (P:5)
 
 | Partition | Size | Purpose |
 |-----------|------|---------|
-| NVS + Keys | 28 KB | Encrypted WiFi/SSH credentials |
+| NVS | 24 KB | WiFi/SSH credentials (plaintext; encryption deferred) |
 | OTA_0 / OTA_1 | 3 MB each | Dual application slots with rollback |
 | LittleFS | 2 MB | SSH keys, known_hosts, dashboard config |
 | Core Dump | 1 MB | Crash diagnostics |
 
 #### Building
 
-Requires ESP-IDF v5.5+ and the [onebit](https://github.com/YOUR_USERNAME/1bit-display) library:
+Requires ESP-IDF v5.5+ and the [1bit-display](https://github.com/tinkeringtanuki/1bit-display) library:
 
 ```bash
 cd esp32_rendering
 
-# Set the path to the 1bit-display library (default: ../1bit-display)
+# Set the path to the 1bit-display library (default: ../../1bit-display relative to esp32_rendering/)
 export ONEBIT_LIB_DIR=/path/to/1bit-display
 
 idf.py set-target esp32s3
@@ -89,8 +88,8 @@ idf.py -p /dev/ttyUSB0 flash monitor
 
 1. **Flash firmware** and power on
 2. **Pair a BLE keyboard** -- long-press Button A to enter pairing mode (30s timeout)
-3. **Connect WiFi** -- select your network from the scan list, type password via keyboard
-4. **Configure SSH** -- open Settings menu, enter server host/port/username
+3. **Connect WiFi** -- the device auto-connects to networks saved in NVS or in `/sdcard/wifi.json`. Adding a new network from the UI is not implemented.
+4. **Configure SSH** -- drop a JSON file into `/sdcard/servers/` with `{name, host, port, username, dashboard[]}`, then pick it from the Servers menu. (In-app Settings editor is not yet implemented.)
 5. **Authenticate** -- password on first connect; upload Ed25519 keys to `/littlefs/ssh_ed25519` for key auth
 
 #### Dashboard Configuration
