@@ -107,6 +107,42 @@ enum class AppMode : uint8_t {
 };
 
 // ============================================================================
+// Server rotation (shared by Button-B-long menu confirm and Keyboard-Enter
+// menu confirm paths — dedup per Spec 05).
+// ============================================================================
+
+static void switchToNextServer(sdcard::ConfigManager* configMgr,
+                                ssh::SshClient& sshClient,
+                                app::Dashboard& dashboard) {
+    if (configMgr->serverCount() <= 1) return;
+    int next = (configMgr->activeServerIndex() + 1) % configMgr->serverCount();
+    configMgr->setActiveServer(next);
+    const auto& srv = configMgr->activeServer();
+    sshClient.disconnect();
+    ssh::Config cfg = {};
+    strncpy(cfg.host, srv.host, sizeof(cfg.host) - 1);
+    cfg.port = srv.port;
+    strncpy(cfg.username, srv.username, sizeof(cfg.username) - 1);
+    cfg.use_key_auth = srv.use_key_auth;
+    if (!cfg.use_key_auth) {
+        nvs_handle_t handle;
+        if (nvs_open("ssh_creds", NVS_READONLY, &handle) == ESP_OK) {
+            char nvs_key[24];
+            snprintf(nvs_key, sizeof(nvs_key), "srv_p_%d", next);
+            size_t len = sizeof(cfg.password);
+            nvs_get_str(handle, nvs_key, cfg.password, &len);
+            nvs_close(handle);
+        }
+    }
+    sshClient.connect(cfg);
+    if (srv.dashboard_count > 0) {
+        dashboard.updateCommands(srv.dashboard, srv.dashboard_count);
+    }
+    dashboard.setServerName(srv.name[0] ? srv.name : srv.host);
+    ESP_LOGI(TAG, "Switched to server: %s", srv.name);
+}
+
+// ============================================================================
 // Font table — indexed by Settings::font_size (0/1/2)
 // ============================================================================
 
@@ -692,36 +728,9 @@ extern "C" void app_main() {
                         case app::Menu::Item::Terminal:
                             currentMode = AppMode::Terminal;
                             break;
-                        case app::Menu::Item::Servers: {
-                            if (configMgr->serverCount() > 1) {
-                                int next = (configMgr->activeServerIndex() + 1) % configMgr->serverCount();
-                                configMgr->setActiveServer(next);
-                                const auto& srv = configMgr->activeServer();
-                                sshClient.disconnect();
-                                ssh::Config cfg = {};
-                                strncpy(cfg.host, srv.host, sizeof(cfg.host) - 1);
-                                cfg.port = srv.port;
-                                strncpy(cfg.username, srv.username, sizeof(cfg.username) - 1);
-                                cfg.use_key_auth = srv.use_key_auth;
-                                if (!cfg.use_key_auth) {
-                                    nvs_handle_t handle;
-                                    if (nvs_open("ssh_creds", NVS_READONLY, &handle) == ESP_OK) {
-                                        char nvs_key[24];
-                                        snprintf(nvs_key, sizeof(nvs_key), "srv_p_%d", next);
-                                        size_t len = sizeof(cfg.password);
-                                        nvs_get_str(handle, nvs_key, cfg.password, &len);
-                                        nvs_close(handle);
-                                    }
-                                }
-                                sshClient.connect(cfg);
-                                if (srv.dashboard_count > 0) {
-                                    dashboard.updateCommands(srv.dashboard, srv.dashboard_count);
-                                }
-                                dashboard.setServerName(srv.name[0] ? srv.name : srv.host);
-                                ESP_LOGI(TAG, "Switched to server: %s", srv.name);
-                            }
+                        case app::Menu::Item::Servers:
+                            switchToNextServer(configMgr, sshClient, dashboard);
                             break;
-                        }
                         case app::Menu::Item::Settings:
                             // TODO: settings editor screen
                             break;
