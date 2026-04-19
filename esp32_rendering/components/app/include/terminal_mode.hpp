@@ -54,6 +54,7 @@ private:
     onebit::TerminalRenderer* renderer_;
 
     std::function<void(int, int)> resize_cb_;
+    std::function<void(const uint8_t*, size_t)> output_cb_;
 
     /// Rebuild terminal buffer and renderer for new font.
     void rebuild(const onebit::BitmapFont& font);

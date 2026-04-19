@@ -22,8 +22,8 @@ TerminalMode::~TerminalMode() {
 
 void TerminalMode::rebuild(const onebit::BitmapFont& font) {
     // Calculate grid dimensions from display size and font metrics
-    int cell_w = font.glyph_width;   // no extra spacing — renderer handles it
-    int cell_h = font.glyph_height + 1;  // +1 row spacing (matches TerminalRenderer)
+    int cell_w = font.glyph_width;
+    int cell_h = font.glyph_height + 1;
     int new_cols = fb_.width() / cell_w;
     int new_rows = fb_.height() / cell_h;
 
@@ -33,16 +33,21 @@ void TerminalMode::rebuild(const onebit::BitmapFont& font) {
     ESP_LOGI(TAG, "Terminal grid: %dx%d (font %dx%d)",
              new_cols, new_rows, font.glyph_width, font.glyph_height);
 
-    // Preserve output callback if parser exists
-    // (OutputCallback is stored in parser, not directly accessible — we
-    //  re-wire after rebuild via setOutputCallback)
-
     delete renderer_;
     delete parser_;
     delete buffer_;
 
     buffer_ = new onebit::TerminalBuffer(new_cols, new_rows, 500);
-    parser_ = new onebit::AnsiParser(*buffer_);
+    // Re-apply stored output callback so DSR / cursor-position replies
+    // continue to flow after a font cycle (Spec 04 bug 1).
+    if (output_cb_) {
+        auto cb = output_cb_;
+        parser_ = new onebit::AnsiParser(
+            *buffer_,
+            [cb](const uint8_t* data, size_t len) { if (cb) cb(data, len); });
+    } else {
+        parser_ = new onebit::AnsiParser(*buffer_);
+    }
     renderer_ = new onebit::TerminalRenderer(fb_, font);
 }
 
@@ -54,23 +59,19 @@ void TerminalMode::feedData(const uint8_t* data, size_t len) {
 
 void TerminalMode::setOutputCallback(
         std::function<void(const uint8_t*, size_t)> cb) {
-    // Re-create parser with new output callback
-    if (buffer_) {
-        const onebit::BitmapFont* current_font = nullptr;
-        if (renderer_) {
-            current_font = &renderer_->font();
-        }
+    // Store so subsequent rebuild() calls can re-wire the parser.
+    output_cb_ = cb;
 
-        delete parser_;
+    if (!buffer_) return;
+
+    delete parser_;
+    if (output_cb_) {
+        auto stored = output_cb_;
         parser_ = new onebit::AnsiParser(
             *buffer_,
-            [cb](const uint8_t* data, size_t len) {
-                if (cb) cb(data, len);
-            }
-        );
-
-        // Renderer stays — font unchanged, just rewired the parser
-        (void)current_font;
+            [stored](const uint8_t* data, size_t len) { if (stored) stored(data, len); });
+    } else {
+        parser_ = new onebit::AnsiParser(*buffer_);
     }
 }
 
