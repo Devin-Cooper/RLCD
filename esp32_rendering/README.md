@@ -1,218 +1,145 @@
-# ESP32-S3 Rendering Toolkit
+# ESP32 Terminal (`esp32_rendering` subproject)
 
-A high-performance C++ rendering library for the Waveshare ESP32-S3-RLCD-4.2 board with ST7305 reflective LCD (400x300, 1-bit).
+ESP-IDF firmware for the Waveshare ESP32-S3-RLCD-4.2 board. Turns the board into a self-contained SSH terminal and server dashboard driven by a Bluetooth LE keyboard.
 
-## Features
+> Directory is named `esp32_rendering/` for historical reasons. The CMake
+> `project()` call names the project `esp32_terminal`, but ESP-IDF derives the
+> binary filename from the source directory, so the compiled artifact is
+> `esp32_rendering.bin` (in `build/`).
 
-- **Hardware-agnostic rendering library** - Can be used with any 1-bit display
-- **Optimized for ESP32-S3** - Uses PSRAM for large buffers, efficient byte operations
-- **Full primitives suite** - Lines, polygons, circles, rectangles with fill support
-- **Bayer dithering** - 5 pattern levels for grayscale simulation
-- **Bezier curves** - Cubic bezier with texture-ball strokes (Pope's technique)
-- **Vector font** - Scalable 0-9, A-Z, punctuation with variable widths
-- **Animation utilities** - Easing, breathing, wiggle, morphing effects
+## What it does
 
-## Project Structure
+- **Terminal mode** — VT100/xterm emulator rendering vim, htop, and other TUI apps on the 400x300 1-bit ST7305 display. Three font sizes (5x7 / 6x9 / 8x12).
+- **Dashboard mode** — curated server stats (CPU, memory, disk, GPU, Docker, screen sessions) refreshed on an interval; commands are user-defined.
+- **SSH client** — libssh2 with hardware-accelerated AES-128-CTR (~7.5 MB/s), Ed25519 or password auth, TOFU host-key verification.
+- **BLE HID host** — NimBLE central-role HID keyboard host with bonded-device auto-reconnect and full keycode translation (arrows, F-keys, Ctrl combos).
+- **WiFi** — STA auto-connect to known networks ranked by signal strength.
+- **SD-card multi-server config** — drop JSON files into `/sdcard/servers/` to register servers; the menu lets you switch between them live.
+- **Physical buttons + menu overlay** — works without a keyboard for basic navigation.
+
+## Project layout
 
 ```
 esp32_rendering/
-├── components/
-│   ├── rendering/          # Hardware-agnostic rendering library
-│   │   ├── include/rendering/
-│   │   │   ├── types.hpp       # Point, PointF, Rect, Color
-│   │   │   ├── framebuffer.hpp # Template framebuffer
-│   │   │   ├── primitives.hpp  # Lines, polygons, circles
-│   │   │   ├── patterns.hpp    # Bayer dithering
-│   │   │   ├── bezier.hpp      # Cubic bezier curves
-│   │   │   ├── vector_font.hpp # Scalable font
-│   │   │   └── animation.hpp   # Animation utilities
-│   │   └── src/
-│   └── st7305/             # Display driver
-│       ├── include/st7305.hpp
-│       └── src/st7305.cpp
+├── CMakeLists.txt              # Top-level ESP-IDF project (project(esp32_terminal))
+├── sdkconfig.defaults          # Canonical Kconfig defaults (sdkconfig regenerated each build)
+├── partitions.csv              # 16MB flash layout: OTA x2, LittleFS, coredump
+├── idf.sh                      # Wrapper that locates ESP-IDF 5.5.x and runs idf.py
 ├── main/
-│   └── main.cpp            # Demo application
-├── CMakeLists.txt
-├── sdkconfig.defaults
-└── partitions.csv
+│   ├── main.cpp                # Boot sequence, mode switching, input dispatch
+│   └── idf_component.yml       # Pulls joltwallet/littlefs
+├── components/
+│   ├── app/                    # Menu, dashboard, terminal mode, settings
+│   ├── ble_hid/                # NimBLE HID keyboard host
+│   ├── buttons/                # Debounced button handler
+│   ├── i2c_bsp/                # I2C bus abstraction
+│   ├── input_queue/            # Unified FreeRTOS event queue
+│   ├── rendering/              # Legacy rendering primitives (superseded by onebit)
+│   ├── sdcard_config/          # SD card FAT mount + JSON server config parser
+│   ├── sensors/                # RTC (PCF85063), SHTC3, battery
+│   ├── ssh_client/             # libssh2 wrapper + TOFU host key store
+│   ├── st7305/                 # ST7305 1-bit SPI display driver
+│   └── wifi_manager/           # WiFi STA lifecycle + NVS credential storage
+└── docs/
+    └── ST7305_FLICKER_INVESTIGATION.md
 ```
 
-## Quick Start
+## Prerequisites
 
-### Prerequisites
+- **ESP-IDF v5.5.x** (required; the `idf.sh` wrapper enforces the version).
+- **[1bit-display](https://github.com/tinkeringtanuki/1bit-display) library** checked out somewhere on disk.
+- Waveshare ESP32-S3-RLCD-4.2 board.
 
-- **ESP-IDF v5.5.x** (required for new I2C master driver API)
-- Waveshare ESP32-S3-RLCD-4.2 board
+## Building
 
-### Installing ESP-IDF
-
-**Option 1: ESP-IDF Extension Manager (Recommended)**
-- Install the [VS Code ESP-IDF extension](https://github.com/espressif/vscode-esp-idf-extension)
-- Or download from: https://github.com/espressif/idf-installer
-
-**Option 2: Manual Installation**
-```bash
-mkdir -p ~/esp && cd ~/esp
-git clone -b v5.5 --recursive https://github.com/espressif/esp-idf.git esp-idf-v5.5
-cd esp-idf-v5.5
-./install.sh esp32s3
-```
-
-### Build and Flash
-
-Use the included wrapper script (auto-detects ESP-IDF installation):
+The top-level `CMakeLists.txt` looks for `1bit-display` via the `ONEBIT_LIB_DIR` env var, falling back to `../../1bit-display` (sibling to the RLCD repo).
 
 ```bash
 cd esp32_rendering
-./idf.sh build              # Build
-./idf.sh flash              # Flash to device
-./idf.sh monitor            # Serial monitor
-./idf.sh flash monitor      # Flash and monitor
-./idf.sh menuconfig         # Configure options
-```
 
-Or manually with ESP-IDF:
-```bash
-source ~/.espressif/v5.5.2/esp-idf/export.sh  # Path may vary
+# Option A: rely on the default location (../../1bit-display)
+./idf.sh build
+
+# Option B: point to a custom location
+ONEBIT_LIB_DIR=/absolute/path/to/1bit-display ./idf.sh build
+
+# Or with vanilla ESP-IDF
+source ~/.espressif/v5.5.2/esp-idf/export.sh
 idf.py set-target esp32s3
 idf.py build
-idf.py flash monitor
 ```
 
-## API Overview
+Flash and monitor:
 
-### Framebuffer
-
-```cpp
-#include "rendering/framebuffer.hpp"
-
-rendering::Framebuffer400x300 fb;
-fb.clear(rendering::WHITE);
-fb.setPixel(100, 50, rendering::BLACK);
-fb.fillSpan(y, x0, x1, rendering::BLACK);  // x1 is exclusive
+```bash
+./idf.sh flash monitor
+# or
+idf.py -p /dev/ttyUSB0 flash monitor
 ```
 
-### Primitives
+### First flash after a `partitions.csv` change
 
-```cpp
-#include "rendering/primitives.hpp"
+If you ever see `E (...) esp_image: image at 0x...: has invalid magic` on boot, the on-device partition table is out of sync. Erase the whole chip:
 
-using namespace rendering;
-
-drawLine(fb, 0, 0, 100, 100, BLACK);
-drawThickLine(fb, p0, p1, 3, BLACK);
-fillPolygon(fb, points, count, BLACK);
-fillCircle(fb, 200, 150, 50, BLACK);
-fillRect(fb, 10, 10, 80, 60, BLACK);
+```bash
+./idf.sh erase-flash
+./idf.sh flash
 ```
 
-### Patterns (Dithering)
+## Crash diagnostics
 
-```cpp
-#include "rendering/patterns.hpp"
+Coredumps are enabled (ELF format, CRC32-checked, up to 64 tasks) and written to the dedicated `coredump` partition. After a crash:
 
-fillPolygonPattern(fb, points, count, Pattern::Medium);
-fillCirclePattern(fb, cx, cy, r, Pattern::Dense);
-fillRectPattern(fb, x, y, w, h, Pattern::Sparse);
+```bash
+./idf.sh coredump-info         # summary
+./idf.sh coredump-debug        # gdb with full symbols
 ```
 
-### Bezier Curves
+## First-time setup
 
-```cpp
-#include "rendering/bezier.hpp"
+1. Flash firmware and power on the board.
+2. Long-press Button A to enter BLE pairing mode (30 s window).
+3. Pair a BLE keyboard from its own "add device" flow.
+4. Via the on-screen menu or keyboard shortcut, open Servers and pick an SD-card-defined server, or edit credentials from the menu.
+5. Authenticate — password on first connect. To use key auth, copy an Ed25519 private key to `/littlefs/ssh_ed25519` (upload via a later tooling story).
 
-PointF curve[] = {{20, 50}, {100, 20}, {180, 80}, {260, 40}};
-drawBezierCurve(fb, curve, 4, 0.5f, BLACK);
-strokeBezierTextureBall(fb, curve, 4, 0.5f, 3.0f);  // Textured stroke
+### Server config file format
+
+Place one JSON file per server in `/sdcard/servers/`:
+
+```json
+{
+  "name": "home-lab",
+  "host": "192.168.1.10",
+  "port": 22,
+  "username": "pi",
+  "dashboard": [
+    {"label": "CPU", "cmd": "cat /proc/loadavg"},
+    {"label": "Memory", "cmd": "free -m"},
+    {"label": "Disk", "cmd": "df -h"}
+  ]
+}
 ```
 
-### Vector Font
+Files larger than 8 KiB are skipped (see `components/sdcard_config/src/config_manager.cpp`).
 
-```cpp
-#include "rendering/vector_font.hpp"
+## ST7305 display notes
 
-renderString(fb, "HELLO", 10, 20, 30, 40, 4, 2, BLACK);
-renderStringCentered(fb, "CENTERED", 200, 100, 24, 32);
-renderStringRight(fb, "RIGHT", 390, 200, 20, 28);
-```
+The ST7305 reflective LCD requires Display Inversion Mode ON (0x21) to prevent flicker with high-frequency dither patterns. The driver inverts pixel logic (framebuffer initialised to 0xFF, BLACK clears the corresponding bit). See `docs/ST7305_FLICKER_INVESTIGATION.md` for the full analysis.
 
-### Animation
+## Pin configuration
 
-```cpp
-#include "rendering/animation.hpp"
-
-AnimationState anim(getTime());
-anim.update(currentTime);
-
-float scale = anim.breathingScale(0.9f, 1.1f, 2.0f);
-float offset = anim.breathingOffset(10.0f, 1.5f);
-
-Point wiggled[6];
-wigglePoints(points, 6, wiggled, 3.0f, 5.0f, anim.elapsed(), 12345);
-
-PointF morphed[5];
-transitionPoints(shapeA, shapeB, 5, morphed, progress, easeInOut);
-```
-
-### Display Driver
-
-```cpp
-#include "st7305.hpp"
-
-st7305::Config config;  // Uses default pins
-st7305::Display display(config);
-display.init();
-display.show(fb);  // Transfer framebuffer to display
-```
-
-## ST7305 Display Configuration
-
-The ST7305 reflective LCD requires specific initialization settings to prevent flickering with dithered patterns. The driver uses the official Waveshare BSP settings:
-
-### Critical Settings
-
-| Register | Value | Purpose |
-|----------|-------|---------|
-| 0xC1 (VSHP) | 0x41 | Source driving voltage |
-| 0xC4 | 0x41 | Voltage setting |
-| 0xD8 | 0xA6, 0xE9 | Panel timing control |
-| 0xB2 | 0x05 | Booster setting |
-| 0xB0 | 0x64 | Frequency setting |
-| 0x21 | - | **Display Inversion ON** |
-
-### Display Inversion Mode
-
-The display **must** use Display Inversion ON (0x21) to prevent flickering with high-frequency patterns like Bayer dithering or checkerboards. This requires inverting the pixel logic in the driver:
-
-- Buffer initialized to 0xFF (white background)
-- BLACK pixels: clear the corresponding bit
-- WHITE pixels: bit remains set
-
-See `docs/ST7305_FLICKER_INVESTIGATION.md` for detailed analysis of the flicker issue and solution.
-
-## Memory Usage
-
-| Component | Size | Location |
-|-----------|------|----------|
-| Framebuffer | 15 KB | PSRAM |
-| Display buffer | 15 KB | PSRAM |
-| Pixel LUTs | 360 KB | PSRAM |
-| Glyph data | ~3 KB | Flash |
-| **Total PSRAM** | ~390 KB | 4.8% of 8MB |
-
-## Pin Configuration (Default)
-
-| Signal | GPIO | Notes |
-|--------|------|-------|
-| SPI MOSI | 12 | LCD data |
-| SPI SCK | 11 | LCD clock |
-| LCD DC | 5 | Data/Command |
-| LCD CS | 40 | Chip select |
-| LCD RST | 41 | Reset |
-| I2C SDA | 6 | RTC, Temp sensor |
-| I2C SCL | 7 | RTC, Temp sensor |
-| BAT_ADC | 4 | ADC1_CH3, 3:1 divider |
+| Signal   | GPIO | Notes |
+|----------|------|-------|
+| SPI MOSI | 12   | LCD data |
+| SPI SCK  | 11   | LCD clock |
+| LCD DC   | 5    | Data/Command |
+| LCD CS   | 40   | Chip select |
+| LCD RST  | 41   | Reset |
+| I2C SDA  | 6    | RTC, temp/humidity |
+| I2C SCL  | 7    | RTC, temp/humidity |
+| BAT_ADC  | 4    | ADC1_CH3, 3:1 divider |
 
 ## License
 
-MIT License
+MIT — see [../LICENSE](../LICENSE).
