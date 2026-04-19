@@ -47,8 +47,6 @@
 
 // Legacy rendering (clock face, shapes)
 #include "rendering/framebuffer.hpp"
-#include "rendering/clock_face.hpp"
-#include "rendering/animation.hpp"
 
 static const char* TAG = "main";
 
