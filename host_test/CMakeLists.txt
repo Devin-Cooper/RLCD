@@ -40,5 +40,5 @@ include(cmake/AddHostTest.cmake)
 # --------------------------------------------------------------------------
 add_subdirectory(smoke)
 add_subdirectory(ble_hid)
-# add_subdirectory(app)
+add_subdirectory(app)
 # add_subdirectory(buttons)

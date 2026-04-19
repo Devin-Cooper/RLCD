@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "src/menu.cpp"
         "src/dashboard.cpp"
+        "src/dashboard_feed.cpp"
         "src/terminal_mode.cpp"
         "src/settings.cpp"
     INCLUDE_DIRS "include"

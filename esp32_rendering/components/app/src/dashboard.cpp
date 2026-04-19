@@ -1,4 +1,5 @@
 #include "dashboard.hpp"
+#include "dashboard_feed.hpp"
 #include "config_manager.hpp"
 #include <1bit/render/primitives.hpp>
 #include <1bit/render/bitmap_font.hpp>
@@ -232,81 +233,27 @@ void Dashboard::feedData(const uint8_t* data, size_t len) {
     if (!collecting_ || current_command_ >= command_count_) return;
 
     auto& cmd = commands_[current_command_];
+    FeedBuffer buf{cmd.output, cmd.output_len, MAX_OUTPUT_LEN, skip_echo_};
+    FeedStatus st = feedChunk(buf, data, len);
+    cmd.output_len = buf.output_len;
+    skip_echo_     = buf.skip_echo;
 
-    for (size_t i = 0; i < len; ++i) {
-        char ch = static_cast<char>(data[i]);
+    if (st == FeedStatus::Complete) {
+        ESP_LOGI(TAG, "Got output[%d] %s: '%.*s'",
+                 current_command_, cmd.label,
+                 cmd.output_len > 40 ? 40 : cmd.output_len, cmd.output);
 
-        // Skip the echoed command line
-        if (skip_echo_) {
-            if (ch == '\n') {
-                skip_echo_ = false;
-            }
-            continue;
-        }
+        ++current_command_;
+        need_send_next_ = true;
 
-        // Append to current command output
-        if (cmd.output_len < MAX_OUTPUT_LEN - 1) {
-            cmd.output[cmd.output_len++] = ch;
-            cmd.output[cmd.output_len] = '\0';
-        }
+        if (current_command_ >= command_count_) {
+            parseOutputs();
+            cpu_history_[history_pos_ % HISTORY_LEN] = cpu_load_[0];
+            mem_history_[history_pos_ % HISTORY_LEN] = mem_percent_;
+            history_pos_++;
 
-        // Check if sentinel is at the end of the output
-        if (cmd.output_len >= SENTINEL_LEN) {
-            if (strncmp(cmd.output + cmd.output_len - SENTINEL_LEN,
-                        SENTINEL, SENTINEL_LEN) == 0) {
-                // Trim sentinel and trailing whitespace
-                cmd.output_len -= SENTINEL_LEN;
-                while (cmd.output_len > 0 &&
-                       (cmd.output[cmd.output_len - 1] == '\n' ||
-                        cmd.output[cmd.output_len - 1] == '\r' ||
-                        cmd.output[cmd.output_len - 1] == ' ')) {
-                    --cmd.output_len;
-                }
-                cmd.output[cmd.output_len] = '\0';
-
-                // Strip bash bracketed paste mode escapes
-                const char* bp_seq = "\x1b[?2004l";
-                const int bp_len = 8;
-                char* bp = strstr(cmd.output, bp_seq);
-                while (bp) {
-                    memmove(bp, bp + bp_len, cmd.output_len - (bp - cmd.output) - bp_len + 1);
-                    cmd.output_len -= bp_len;
-                    bp = strstr(cmd.output, bp_seq);
-                }
-                const char* bp_seq2 = "\x1b[?2004h";
-                bp = strstr(cmd.output, bp_seq2);
-                while (bp) {
-                    memmove(bp, bp + bp_len, cmd.output_len - (bp - cmd.output) - bp_len + 1);
-                    cmd.output_len -= bp_len;
-                    bp = strstr(cmd.output, bp_seq2);
-                }
-                // Trim leading whitespace/newlines after stripping
-                while (cmd.output_len > 0 &&
-                       (cmd.output[0] == '\n' || cmd.output[0] == '\r' || cmd.output[0] == ' ')) {
-                    memmove(cmd.output, cmd.output + 1, cmd.output_len);
-                    --cmd.output_len;
-                }
-
-                ESP_LOGI(TAG, "Got output[%d] %s: '%.*s'",
-                         current_command_, cmd.label,
-                         cmd.output_len > 40 ? 40 : cmd.output_len, cmd.output);
-
-                // Move to next command
-                ++current_command_;
-                need_send_next_ = true;
-
-                if (current_command_ >= command_count_) {
-                    // Last sentinel — parse immediately
-                    parseOutputs();
-                    cpu_history_[history_pos_ % HISTORY_LEN] = cpu_load_[0];
-                    mem_history_[history_pos_ % HISTORY_LEN] = mem_percent_;
-                    history_pos_++;
-
-                    collecting_ = false;
-                    ESP_LOGI(TAG, "Dashboard cycle complete");
-                }
-                return;
-            }
+            collecting_ = false;
+            ESP_LOGI(TAG, "Dashboard cycle complete");
         }
     }
 }
