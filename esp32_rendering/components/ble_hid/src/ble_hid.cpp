@@ -1,4 +1,5 @@
 #include "ble_hid.hpp"
+#include "hid_report_process.hpp"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
@@ -163,35 +164,13 @@ void BleHidHost::autoReconnect() {
 // --- HID Report Processing ---
 
 void BleHidHost::processHidReport(const uint8_t* report, size_t len) {
-    if (len < 8) return;
-
-    uint8_t modifiers = report[0];
-    // report[1] is reserved
-
-    // Detect newly pressed keys (present in current report but not previous)
-    for (int i = 2; i < 8; i++) {
-        uint8_t key = report[i];
-        if (key == 0) continue;
-
-        // Check if this key was already in the previous report
-        bool was_pressed = false;
-        for (int j = 2; j < 8; j++) {
-            if (prev_keys_[j - 2] == key) {
-                was_pressed = true;
-                break;
-            }
-        }
-
-        if (!was_pressed) {
-            KeyEvent event = translateKeycode(key, modifiers);
-            if (event.length > 0 && key_cb_) {
-                key_cb_(event, key_ctx_);
-            }
-        }
-    }
-
-    // Save current key state
-    std::memcpy(prev_keys_, report + 2, 6);
+    // Forwards to pure-logic TU so host tests can exercise the state machine.
+    ble_hid::processHidReport(report, len, prev_keys_,
+        [](const KeyEvent& ev, void* ctx) {
+            auto* self = static_cast<BleHidHost*>(ctx);
+            if (self->key_cb_) self->key_cb_(ev, self->key_ctx_);
+        },
+        this);
 }
 
 KeyEvent BleHidHost::translateKeycode(uint8_t keycode, uint8_t modifiers) {
