@@ -45,8 +45,11 @@ public:
 private:
     /// Maximum number of dashboard commands
     static constexpr int MAX_COMMANDS = 8;
-    /// Maximum output buffer per command
-    static constexpr int MAX_OUTPUT_LEN = 256;
+    /// Maximum output buffer per command (raised from 256 for commands like
+    /// `df -h` with many filesystems — Spec 04 Bug 2).
+    static constexpr int MAX_OUTPUT_LEN = 1024;
+    /// Milliseconds of silence after buffer overflow before advancing.
+    static constexpr int64_t OVERFLOW_TIMEOUT_MS = 5000;
     /// Maximum label length
     static constexpr int MAX_LABEL_LEN = 24;
     /// History length for sparkline graphs
@@ -58,6 +61,10 @@ private:
         char output[MAX_OUTPUT_LEN];
         int output_len;
         bool valid;
+        // Spec 04 Bug 2: overflow tracking. Once output fills capacity-1,
+        // feedChunk's sentinel scan cannot match; we advance on timeout.
+        bool overflowed;
+        int64_t first_byte_ms;
     };
 
     DashboardCommand commands_[MAX_COMMANDS];

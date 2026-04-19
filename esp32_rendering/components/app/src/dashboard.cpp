@@ -99,6 +99,8 @@ bool Dashboard::loadConfig() {
         cmd.output[0] = '\0';
         cmd.output_len = 0;
         cmd.valid = true;
+        cmd.overflowed = false;
+        cmd.first_byte_ms = 0;
         ++command_count_;
     }
 
@@ -127,6 +129,8 @@ void Dashboard::loadDefaults() {
         cmd.output[0] = '\0';
         cmd.output_len = 0;
         cmd.valid = true;
+        cmd.overflowed = false;
+        cmd.first_byte_ms = 0;
         ++command_count_;
     }
 }
@@ -145,6 +149,8 @@ void Dashboard::updateCommands(const sdcard::DashboardCommand* cmds, int count) 
         commands_[i].output[0] = '\0';
         commands_[i].output_len = 0;
         commands_[i].valid = true;
+        commands_[i].overflowed = false;
+        commands_[i].first_byte_ms = 0;
         command_count_++;
     }
     // Reset collection state for new command set
@@ -172,6 +178,22 @@ void Dashboard::setServerName(const char* name) {
 void Dashboard::update(ssh::SshClient& ssh, int64_t now_ms) {
     if (ssh.state() != ssh::State::Connected) return;
     if (command_count_ == 0) return;
+
+    // Spec 04 Bug 2 — overflow-timeout fallback.
+    // If the current command's output filled to capacity without finding the
+    // sentinel and no new bytes have arrived for OVERFLOW_TIMEOUT_MS, give up
+    // on it and advance so the dashboard cycle doesn't hang forever.
+    if (collecting_ && current_command_ < command_count_) {
+        auto& cmd = commands_[current_command_];
+        if (cmd.overflowed && cmd.first_byte_ms != 0 &&
+            (now_ms - cmd.first_byte_ms) > OVERFLOW_TIMEOUT_MS) {
+            ESP_LOGW(TAG, "cmd[%d] %s: sentinel not found after overflow, advancing",
+                     current_command_, cmd.label);
+            ++current_command_;
+            need_send_next_ = true;
+            skip_echo_ = false;
+        }
+    }
 
     // Send next command in the sequence if one is pending
     if (need_send_next_) {
@@ -217,6 +239,8 @@ void Dashboard::sendNextCommand(ssh::SshClient& ssh) {
     // Clear this command's output right before sending (not all at once)
     commands_[current_command_].output[0] = '\0';
     commands_[current_command_].output_len = 0;
+    commands_[current_command_].overflowed = false;
+    commands_[current_command_].first_byte_ms = 0;
     skip_echo_ = true;
 
     char buf[256];
@@ -233,8 +257,28 @@ void Dashboard::feedData(const uint8_t* data, size_t len) {
     if (!collecting_ || current_command_ >= command_count_) return;
 
     auto& cmd = commands_[current_command_];
+
+    // Spec 04 Bug 2: timestamp first real byte so update() can time-out an
+    // overflowed command. Any byte arriving past skip_echo counts.
+    if (cmd.first_byte_ms == 0 && len > 0) {
+        // Only stamp if we'll actually process bytes (skip_echo eats them
+        // until the first newline; we still consider the first byte that
+        // makes it past as the "first byte" for timeout purposes).
+        int64_t now_ms = esp_timer_get_time() / 1000;
+        cmd.first_byte_ms = now_ms;
+    }
+
     FeedBuffer buf{cmd.output, cmd.output_len, MAX_OUTPUT_LEN, skip_echo_};
     FeedStatus st = feedChunk(buf, data, len);
+
+    // Detect overflow: buffer filled up but sentinel not yet found.
+    if (st == FeedStatus::Continue &&
+        buf.output_len >= MAX_OUTPUT_LEN - 1 && !cmd.overflowed) {
+        cmd.overflowed = true;
+        ESP_LOGW(TAG, "cmd[%d] %s: output exceeded %d bytes, awaiting timeout",
+                 current_command_, cmd.label, MAX_OUTPUT_LEN - 1);
+    }
+
     cmd.output_len = buf.output_len;
     skip_echo_     = buf.skip_echo;
 
