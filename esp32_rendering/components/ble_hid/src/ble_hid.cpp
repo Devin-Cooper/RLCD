@@ -387,9 +387,9 @@ int BleHidHost::bleGapEvent(struct ble_gap_event* event, void* arg) {
         uint16_t pkt_len = OS_MBUF_PKTLEN(event->notify_rx.om);
         uint8_t* report_data = OS_MBUF_DATA(event->notify_rx.om, uint8_t*);
 
-        ESP_LOGI(TAG, "Notify RX: handle=%d len=%d", attr, pkt_len);
+        ESP_LOGD(TAG, "Notify RX: handle=%d len=%d", attr, pkt_len);
         if (pkt_len >= 8) {
-            ESP_LOGI(TAG, "  Report: %02x %02x %02x %02x %02x %02x %02x %02x",
+            ESP_LOGD(TAG, "  Report: %02x %02x %02x %02x %02x %02x %02x %02x",
                      report_data[0], report_data[1], report_data[2], report_data[3],
                      report_data[4], report_data[5], report_data[6], report_data[7]);
         }

@@ -248,7 +248,7 @@ void Dashboard::sendNextCommand(ssh::SshClient& ssh) {
                      commands_[current_command_].command, SENTINEL);
     if (n > 0 && n < static_cast<int>(sizeof(buf))) {
         ssh.send(reinterpret_cast<const uint8_t*>(buf), static_cast<size_t>(n));
-        ESP_LOGI(TAG, "Sent cmd[%d]: %s", current_command_,
+        ESP_LOGD(TAG, "Sent cmd[%d]: %s", current_command_,
                  commands_[current_command_].label);
     }
 }
@@ -283,7 +283,7 @@ void Dashboard::feedData(const uint8_t* data, size_t len) {
     skip_echo_     = buf.skip_echo;
 
     if (st == FeedStatus::Complete) {
-        ESP_LOGI(TAG, "Got output[%d] %s: '%.*s'",
+        ESP_LOGD(TAG, "Got output[%d] %s: '%.*s'",
                  current_command_, cmd.label,
                  cmd.output_len > 40 ? 40 : cmd.output_len, cmd.output);
 
@@ -431,7 +431,7 @@ static int s_render_count = 0;
 void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font) {
     s_render_count++;
     if (s_render_count % 50 == 0) {
-        ESP_LOGI(TAG, "render #%d: cmd_count=%d collecting=%d cur_cmd=%d hist_pos=%d cpu=%.2f mem=%.0f%%",
+        ESP_LOGD(TAG, "render #%d: cmd_count=%d collecting=%d cur_cmd=%d hist_pos=%d cpu=%.2f mem=%.0f%%",
                  s_render_count, command_count_, collecting_, current_command_,
                  history_pos_, cpu_load_[0], mem_percent_);
     }
