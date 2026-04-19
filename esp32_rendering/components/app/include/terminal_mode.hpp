@@ -8,6 +8,7 @@
 #include "ssh_client.hpp"
 #include <cstdint>
 #include <functional>
+#include <memory>
 
 namespace app {
 
@@ -49,9 +50,9 @@ public:
 
 private:
     onebit::IFramebuffer& fb_;
-    onebit::TerminalBuffer* buffer_;
-    onebit::AnsiParser* parser_;
-    onebit::TerminalRenderer* renderer_;
+    std::unique_ptr<onebit::TerminalBuffer> buffer_;
+    std::unique_ptr<onebit::AnsiParser> parser_;
+    std::unique_ptr<onebit::TerminalRenderer> renderer_;
 
     std::function<void(int, int)> resize_cb_;
     std::function<void(const uint8_t*, size_t)> output_cb_;

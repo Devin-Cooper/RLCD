@@ -7,18 +7,11 @@ namespace app {
 
 TerminalMode::TerminalMode(onebit::IFramebuffer& fb, const onebit::BitmapFont& font)
     : fb_(fb)
-    , buffer_(nullptr)
-    , parser_(nullptr)
-    , renderer_(nullptr)
 {
     rebuild(font);
 }
 
-TerminalMode::~TerminalMode() {
-    delete renderer_;
-    delete parser_;
-    delete buffer_;
-}
+TerminalMode::~TerminalMode() = default;
 
 void TerminalMode::rebuild(const onebit::BitmapFont& font) {
     // Calculate grid dimensions from display size and font metrics
@@ -33,22 +26,25 @@ void TerminalMode::rebuild(const onebit::BitmapFont& font) {
     ESP_LOGI(TAG, "Terminal grid: %dx%d (font %dx%d)",
              new_cols, new_rows, font.glyph_width, font.glyph_height);
 
-    delete renderer_;
-    delete parser_;
-    delete buffer_;
+    // unique_ptr destruction order matches declaration order (renderer,
+    // parser, buffer) when we reassign. Reset explicitly to drop the old
+    // objects before allocating the new buffer.
+    renderer_.reset();
+    parser_.reset();
+    buffer_.reset();
 
-    buffer_ = new onebit::TerminalBuffer(new_cols, new_rows, 500);
+    buffer_ = std::make_unique<onebit::TerminalBuffer>(new_cols, new_rows, 500);
     // Re-apply stored output callback so DSR / cursor-position replies
     // continue to flow after a font cycle (Spec 04 bug 1).
     if (output_cb_) {
         auto cb = output_cb_;
-        parser_ = new onebit::AnsiParser(
+        parser_ = std::make_unique<onebit::AnsiParser>(
             *buffer_,
             [cb](const uint8_t* data, size_t len) { if (cb) cb(data, len); });
     } else {
-        parser_ = new onebit::AnsiParser(*buffer_);
+        parser_ = std::make_unique<onebit::AnsiParser>(*buffer_);
     }
-    renderer_ = new onebit::TerminalRenderer(fb_, font);
+    renderer_ = std::make_unique<onebit::TerminalRenderer>(fb_, font);
 }
 
 void TerminalMode::feedData(const uint8_t* data, size_t len) {
@@ -64,14 +60,14 @@ void TerminalMode::setOutputCallback(
 
     if (!buffer_) return;
 
-    delete parser_;
+    parser_.reset();
     if (output_cb_) {
         auto stored = output_cb_;
-        parser_ = new onebit::AnsiParser(
+        parser_ = std::make_unique<onebit::AnsiParser>(
             *buffer_,
             [stored](const uint8_t* data, size_t len) { if (stored) stored(data, len); });
     } else {
-        parser_ = new onebit::AnsiParser(*buffer_);
+        parser_ = std::make_unique<onebit::AnsiParser>(*buffer_);
     }
 }
 

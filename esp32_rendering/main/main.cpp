@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <atomic>
+#include <memory>
 
 // Display and sensors
 #include "st7305.hpp"
@@ -530,8 +531,9 @@ extern "C" void app_main() {
     // ------------------------------------------------------------------
     showStatus(fb, display, "Checking SD card...");
     sdcard::SDCardManager sdcard;
-    // ConfigManager has ~14KB of ServerConfig arrays — heap allocate to avoid stack overflow
-    auto* configMgr = new sdcard::ConfigManager();
+    // ConfigManager has ~14KB of ServerConfig arrays — heap allocate (via
+    // unique_ptr) to avoid stack overflow and clean up automatically.
+    auto configMgr = std::make_unique<sdcard::ConfigManager>();
     bool hasServers = false;
 
     bool sdMounted = sdcard.mount();
@@ -850,7 +852,7 @@ extern "C" void app_main() {
         // ----------------------------------------------------------
         DispatchState dispatch{
             currentMode, menu, dashboard, terminalMode,
-            configMgr, sshClient, bleHost, wifiMgr,
+            configMgr.get(), sshClient, bleHost, wifiMgr,
             settings, currentFontSize,
             fb, display
         };
