@@ -39,8 +39,6 @@ esp32_rendering/
 │   ├── ssh_client/             # libssh2 wrapper + TOFU host key store
 │   ├── st7305/                 # ST7305 1-bit SPI display driver
 │   └── wifi_manager/           # WiFi STA lifecycle + NVS credential storage
-└── docs/
-    └── ST7305_FLICKER_INVESTIGATION.md
 ```
 
 ## Prerequisites
@@ -124,7 +122,7 @@ Files larger than 8 KiB are skipped (see `components/sdcard_config/src/config_ma
 
 ## ST7305 display notes
 
-The ST7305 reflective LCD requires Display Inversion Mode ON (0x21) to prevent flicker with high-frequency dither patterns. The driver inverts pixel logic (framebuffer initialised to 0xFF, BLACK clears the corresponding bit). See `docs/ST7305_FLICKER_INVESTIGATION.md` for the full analysis.
+The ST7305 reflective LCD requires Display Inversion Mode ON (0x21) to prevent flicker with high-frequency dither patterns. The driver inverts pixel logic (framebuffer initialised to 0xFF, BLACK clears the corresponding bit).
 
 ## Pin configuration
 

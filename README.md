@@ -186,7 +186,6 @@ RLCD/
 │   └── partitions.csv          # 16MB flash layout with OTA + LittleFS
 ├── simulator/                  # Python/Pygame display simulator
 ├── hello_vu/                   # ESP-IDF VU meter project
-├── docs/
 ├── REFERENCES/                 # Component datasheets
 └── README.md
 ```
