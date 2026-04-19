@@ -57,6 +57,11 @@ bool ConfigManager::loadGlobalConfig(wifi::WifiManager& wifi_mgr) {
     }
 
     char* buf = static_cast<char*>(malloc(size + 1));
+    if (!buf) {
+        ESP_LOGE(TAG, "OOM reading config.json (%ld bytes)", size);
+        fclose(f);
+        return false;
+    }
     size_t bytes_read = fread(buf, 1, size, f);
     buf[bytes_read] = '\0';
     fclose(f);
@@ -165,6 +170,11 @@ bool ConfigManager::parseServerJson(const char* path, ServerConfig& out, int ind
     }
 
     char* buf = static_cast<char*>(malloc(size + 1));
+    if (!buf) {
+        ESP_LOGE(TAG, "OOM parsing server JSON %s (%ld bytes)", path, size);
+        fclose(f);
+        return false;
+    }
     fread(buf, 1, size, f);
     buf[size] = '\0';
     fclose(f);
@@ -338,6 +348,11 @@ void ConfigManager::scrubJsonFile(const char* path) {
     fseek(f, 0, SEEK_SET);
 
     char* buf = static_cast<char*>(malloc(size + 1));
+    if (!buf) {
+        ESP_LOGE(TAG, "OOM scrubbing %s (%ld bytes)", path, size);
+        fclose(f);
+        return;
+    }
     fread(buf, 1, size, f);
     buf[size] = '\0';
     fclose(f);
@@ -386,6 +401,11 @@ void ConfigManager::scrubGlobalConfig() {
     fseek(f, 0, SEEK_SET);
 
     char* buf = static_cast<char*>(malloc(size + 1));
+    if (!buf) {
+        ESP_LOGE(TAG, "OOM scrubbing %s (%ld bytes)", SD_CONFIG_PATH, size);
+        fclose(f);
+        return;
+    }
     fread(buf, 1, size, f);
     buf[size] = '\0';
     fclose(f);
