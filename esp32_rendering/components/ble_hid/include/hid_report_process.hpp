@@ -8,11 +8,15 @@ namespace ble_hid {
 
 using Emit = void(*)(const KeyEvent& event, void* ctx);
 
-/// Pure: process one 8-byte HID boot-keyboard report against caller-owned
-/// prev_keys state. Updates prev_keys in place. Emits callbacks for each
-/// newly-pressed key. Reports with len < 8 are ignored.
-/// Layout: [modifier, reserved, k1, k2, k3, k4, k5, k6].
-void processHidReport(const uint8_t* report, std::size_t len,
+/// Pure: process one HID boot-keyboard report body against caller-owned
+/// prev_keys state. `body` is `[modifier, reserved, k1..k6]` (8 bytes) —
+/// the caller is responsible for stripping any report-ID prefix before
+/// calling this (per HOGP report-protocol format). Reports with
+/// `body_len < 8` are ignored.
+///
+/// Updates `prev_keys` in place. Emits a callback for every newly-pressed
+/// keycode (translated via translateKeycode).
+void processHidReport(const uint8_t* body, std::size_t body_len,
                       uint8_t prev_keys[6],
                       Emit emit, void* ctx) noexcept;
 
