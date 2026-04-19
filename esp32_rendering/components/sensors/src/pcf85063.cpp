@@ -7,7 +7,7 @@ static const char* TAG = "pcf85063";
 
 namespace sensors {
 
-Pcf85063::Pcf85063(I2cMasterBus& bus)
+Pcf85063::Pcf85063(i2c_bsp::I2cMasterBus& bus)
     : bus_(bus)
     , dev_(nullptr) {
 }

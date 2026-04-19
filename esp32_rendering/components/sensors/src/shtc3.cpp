@@ -8,7 +8,7 @@ static const char* TAG = "shtc3";
 
 namespace sensors {
 
-Shtc3::Shtc3(I2cMasterBus& bus)
+Shtc3::Shtc3(i2c_bsp::I2cMasterBus& bus)
     : bus_(bus)
     , dev_(nullptr)
     , id_(0) {

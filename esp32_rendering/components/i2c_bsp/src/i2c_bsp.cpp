@@ -3,6 +3,8 @@
 
 static const char* TAG = "i2c_bsp";
 
+namespace i2c_bsp {
+
 I2cMasterBus::I2cMasterBus(gpio_num_t scl, gpio_num_t sda, i2c_port_t port)
     : handle_(nullptr) {
     i2c_master_bus_config_t bus_config = {};
@@ -68,3 +70,5 @@ esp_err_t I2cMasterBus::writeRead(i2c_master_dev_handle_t dev,
                                    uint8_t* rbuf, size_t rlen) {
     return i2c_master_transmit_receive(dev, wbuf, wlen, rbuf, rlen, -1);
 }
+
+} // namespace i2c_bsp

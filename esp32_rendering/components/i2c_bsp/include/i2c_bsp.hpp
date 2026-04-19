@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <cstddef>
 
+namespace i2c_bsp {
+
 /// I2C master bus wrapper for ESP-IDF new I2C driver
 class I2cMasterBus {
 public:
@@ -45,3 +47,5 @@ public:
 private:
     i2c_master_bus_handle_t handle_;
 };
+
+} // namespace i2c_bsp

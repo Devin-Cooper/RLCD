@@ -18,7 +18,7 @@ struct RtcTime {
 /// PCF85063 RTC driver (I2C address 0x51)
 class Pcf85063 {
 public:
-    explicit Pcf85063(I2cMasterBus& bus);
+    explicit Pcf85063(i2c_bsp::I2cMasterBus& bus);
     ~Pcf85063();
 
     /// Initialize the RTC (resets OS flag, starts oscillator)
@@ -31,7 +31,7 @@ public:
     void setTime(const RtcTime& time);
 
 private:
-    I2cMasterBus& bus_;
+    i2c_bsp::I2cMasterBus& bus_;
     i2c_master_dev_handle_t dev_;
 
     static constexpr uint8_t ADDR = 0x51;

@@ -8,7 +8,7 @@ namespace sensors {
 /// SHTC3 temperature/humidity sensor driver (I2C address 0x70)
 class Shtc3 {
 public:
-    explicit Shtc3(I2cMasterBus& bus);
+    explicit Shtc3(i2c_bsp::I2cMasterBus& bus);
     ~Shtc3();
 
     /// Initialize sensor, verify ID
@@ -27,7 +27,7 @@ public:
     void wakeup();
 
 private:
-    I2cMasterBus& bus_;
+    i2c_bsp::I2cMasterBus& bus_;
     i2c_master_dev_handle_t dev_;
     uint16_t id_;
 
