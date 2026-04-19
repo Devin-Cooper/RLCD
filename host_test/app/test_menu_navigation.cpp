@@ -26,20 +26,28 @@ TEST_CASE("Menu: close hides overlay; index preserved", "[app][menu]") {
     REQUIRE(m.selected() == Menu::Item::Terminal);
 }
 
-// CHARACTERIZATION (pre-Spec-03): moveDown clamps at last item, does NOT wrap.
-// When Spec 03 lands and flips moveDown to wrap, these assertions flip to
-// expect Menu::Item::Dashboard after sufficient moveDown calls.
-TEST_CASE("Menu: moveDown clamps at last item (pre-Spec-03)", "[app][menu][pre-spec-03]") {
+TEST_CASE("Menu: moveDown wraps from last to first", "[app][menu][wrap]") {
     Menu m;
     m.open();
-    for (int i = 0; i < 100; ++i) m.moveDown();
+    for (int i = 0; i < 5; ++i) m.moveDown();
+    REQUIRE(m.selected() == Menu::Item::About);
+    m.moveDown();
+    REQUIRE(m.selected() == Menu::Item::Dashboard);
+}
+
+TEST_CASE("Menu: moveUp wraps from first to last", "[app][menu][wrap]") {
+    Menu m;
+    m.open();
+    REQUIRE(m.selected() == Menu::Item::Dashboard);
+    m.moveUp();
     REQUIRE(m.selected() == Menu::Item::About);
 }
 
-TEST_CASE("Menu: moveUp clamps at first item (pre-Spec-03)", "[app][menu][pre-spec-03]") {
+TEST_CASE("Menu: many moveDown cycles return to origin", "[app][menu][wrap]") {
     Menu m;
     m.open();
-    for (int i = 0; i < 100; ++i) m.moveUp();
+    const int count = static_cast<int>(Menu::Item::Count);
+    for (int i = 0; i < count * 3; ++i) m.moveDown();
     REQUIRE(m.selected() == Menu::Item::Dashboard);
 }
 

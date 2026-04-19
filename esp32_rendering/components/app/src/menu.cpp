@@ -40,13 +40,17 @@ void Menu::close() {
 }
 
 void Menu::moveUp() {
-    if (selected_index_ > 0) {
+    if (selected_index_ == 0) {
+        selected_index_ = ITEM_COUNT - 1;
+    } else {
         --selected_index_;
     }
 }
 
 void Menu::moveDown() {
-    if (selected_index_ < ITEM_COUNT - 1) {
+    if (selected_index_ >= ITEM_COUNT - 1) {
+        selected_index_ = 0;
+    } else {
         ++selected_index_;
     }
 }
