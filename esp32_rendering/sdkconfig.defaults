@@ -59,6 +59,9 @@ CONFIG_BT_NIMBLE_ROLE_CENTRAL=y
 CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=n
 CONFIG_BT_NIMBLE_ROLE_BROADCASTER=n
 CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+# Persist bonded-device keys to NVS so BLE keyboards reconnect without re-pairing.
+# Required by ble_store_config_init() — Spec 02 BLE HID keypress fix.
+CONFIG_BT_NIMBLE_NVS_PERSIST=y
 
 # --- WiFi/BLE Coexistence ---
 CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y

@@ -3,9 +3,8 @@
 ESP-IDF firmware for the Waveshare ESP32-S3-RLCD-4.2 board. Turns the board into a self-contained SSH terminal and server dashboard driven by a Bluetooth LE keyboard.
 
 > Directory is named `esp32_rendering/` for historical reasons. The CMake
-> `project()` call names the project `esp32_terminal`, but ESP-IDF derives the
-> binary filename from the source directory, so the compiled artifact is
-> `esp32_rendering.bin` (in `build/`).
+> `project(esp32_terminal)` call determines the artifact name, so the
+> compiled binary is `build/esp32_terminal.bin`.
 
 ## What it does
 
