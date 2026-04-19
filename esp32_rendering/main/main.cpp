@@ -268,6 +268,12 @@ static void dispatchInputEvent(const input::InputEvent& evt, DispatchState& s) {
     // --- Keyboard input: menu nav / confirm / close / SSH passthrough ---
     if (evt.source == input::Source::Keyboard &&
         evt.type == input::EventType::Keypress) {
+        ESP_LOGI(TAG, "[dispatch] kbd len=%d b0=%02x mode=%d menu_open=%d ssh_state=%d",
+                 evt.data_length,
+                 evt.data_length > 0 ? evt.data[0] : 0,
+                 static_cast<int>(s.currentMode),
+                 s.menu.isOpen() ? 1 : 0,
+                 static_cast<int>(s.sshClient.state()));
         if (s.menu.isOpen()) {
             // Arrow keys
             if (evt.data_length == 3 &&
@@ -587,7 +593,9 @@ extern "C" void app_main() {
         ie.data_length = evt.length;
         memcpy(ie.data, evt.bytes,
                evt.length < sizeof(ie.data) ? evt.length : sizeof(ie.data));
-        input::globalInputQueue().pushOrDrop(ie);
+        bool ok = input::globalInputQueue().pushOrDrop(ie);
+        ESP_LOGI("main", "[bridge] BLE key -> queue len=%d first=%02x pushed=%d",
+                 evt.length, evt.length > 0 ? evt.bytes[0] : 0, ok ? 1 : 0);
     }, nullptr);
 
     bleHost.autoReconnect();

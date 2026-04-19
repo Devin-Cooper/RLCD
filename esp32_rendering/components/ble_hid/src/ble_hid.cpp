@@ -40,7 +40,9 @@ BleHidHost::BleHidHost()
     : state_(State::Disabled), key_cb_(nullptr), key_ctx_(nullptr),
       state_cb_(nullptr), state_ctx_(nullptr),
       conn_handle_(kInvalidHandle),
-      reports_count_(0), subscribe_next_idx_(0), pending_ref_reads_(0),
+      reports_count_(0), subscribe_next_idx_(0),
+      pending_ref_reads_(0), current_dsc_slot_(0),
+      post_discovery_done_(false),
       protocol_mode_handle_(kInvalidHandle),
       control_point_handle_(kInvalidHandle),
       hid_svc_start_handle_(0), hid_svc_end_handle_(0),
@@ -202,6 +204,8 @@ void BleHidHost::clearReportSlots() {
     reports_count_ = 0;
     subscribe_next_idx_ = 0;
     pending_ref_reads_ = 0;
+    current_dsc_slot_ = 0;
+    post_discovery_done_ = false;
     protocol_mode_handle_ = kInvalidHandle;
     control_point_handle_ = kInvalidHandle;
     hid_svc_start_handle_ = 0;
@@ -222,10 +226,23 @@ void BleHidHost::processHidReport(const uint8_t* report, size_t len, uint8_t rep
         body++;
         body_len--;
     }
+    ESP_LOGI(TAG, "[parse] report_id=%d len=%u body_len=%u cb=%p",
+             report_id, (unsigned)len, (unsigned)body_len, (void*)key_cb_);
+    if (body_len < 8) {
+        ESP_LOGW(TAG, "[parse] body_len=%u < 8 — dropping (boot-protocol parser needs 8 bytes)",
+                 (unsigned)body_len);
+        return;
+    }
     ble_hid::processHidReport(body, body_len, prev_keys_,
         [](const KeyEvent& ev, void* ctx) {
             auto* self = static_cast<BleHidHost*>(ctx);
-            if (self->key_cb_) self->key_cb_(ev, self->key_ctx_);
+            ESP_LOGI(TAG, "[parse] emit key len=%d first=%02x",
+                     ev.length, ev.length > 0 ? ev.bytes[0] : 0);
+            if (self->key_cb_) {
+                self->key_cb_(ev, self->key_ctx_);
+            } else {
+                ESP_LOGW(TAG, "[parse] key_cb_ is null — event dropped");
+            }
         },
         this);
 }
@@ -296,18 +313,19 @@ int BleHidHost::gattChrDiscCb(uint16_t conn_handle, const struct ble_gatt_error*
         ESP_LOGI(TAG, "Characteristic discovery complete (%d report slots)",
                  self->reports_count_);
 
-        // Start descriptor discovery over the entire HID service range.
-        // The descriptor callback will populate CCCD handles + Report
-        // Reference descriptors and (via reference-read completion) kick
-        // off CCCD subscription + Protocol Mode / Control Point writes.
-        if (self->hid_svc_start_handle_ != 0) {
-            int rc = ble_gattc_disc_all_dscs(conn_handle,
-                                              self->hid_svc_start_handle_,
-                                              self->hid_svc_end_handle_,
-                                              gattDscDiscCb, self);
-            if (rc != 0) {
-                ESP_LOGE(TAG, "Failed to start descriptor discovery: %d", rc);
-            }
+        // Kick off per-slot descriptor discovery. NimBLE's
+        // ble_gattc_disc_all_dscs reports back the chr_val_handle we
+        // passed in (not the descriptor's actual characteristic), so we
+        // must issue one call per slot to correctly associate each
+        // CCCD / Report Reference with its slot. startReportDescriptorReads
+        // drives the iteration; onAllReferenceReadsComplete fires when
+        // every slot is walked AND every 0x2908 read has landed.
+        if (self->reports_count_ > 0) {
+            self->current_dsc_slot_ = 0;
+            self->startReportDescriptorReads();
+        } else {
+            // No Report characteristics found — nothing to subscribe to.
+            ESP_LOGW(TAG, "No Report characteristics on peer");
         }
         return 0;
     }
@@ -338,58 +356,115 @@ int BleHidHost::gattChrDiscCb(uint16_t conn_handle, const struct ble_gatt_error*
     return 0;
 }
 
-// Step 3: descriptor discovery across the whole HID service. We are looking
-// for 0x2902 (CCCD) and 0x2908 (Report Reference). CCCD handles are
-// associated with the nearest preceding Report characteristic in handle
-// order; Report Reference values must be read asynchronously.
-int BleHidHost::gattDscDiscCb(uint16_t conn_handle, const struct ble_gatt_error* error,
+// Kick off descriptor discovery for slot current_dsc_slot_, walking
+// val_handle+1 up to the next slot's val_handle - 1 (or HID service end
+// for the last slot, bounded by protocol_mode / control_point handles
+// if they happen to fall inside). NimBLE replays our chr_val_handle arg
+// in the callback, so "the slot we're walking" lives in the member
+// current_dsc_slot_ rather than being extracted from the callback arg.
+void BleHidHost::startReportDescriptorReads() {
+    while (current_dsc_slot_ < reports_count_) {
+        uint16_t start = reports_[current_dsc_slot_].val_handle + 1;
+        uint16_t end = hid_svc_end_handle_;
+
+        // End this slot at the next slot's val_handle - 1.
+        if (current_dsc_slot_ + 1 < reports_count_) {
+            uint16_t next = reports_[current_dsc_slot_ + 1].val_handle;
+            if (next > 0 && next - 1 < end) end = next - 1;
+        }
+        // Also stop short of Protocol Mode / Control Point if they fall
+        // inside the slot's span.
+        if (protocol_mode_handle_ != kInvalidHandle &&
+            protocol_mode_handle_ > start && protocol_mode_handle_ - 1 < end) {
+            end = protocol_mode_handle_ - 1;
+        }
+        if (control_point_handle_ != kInvalidHandle &&
+            control_point_handle_ > start && control_point_handle_ - 1 < end) {
+            end = control_point_handle_ - 1;
+        }
+
+        if (end < start) {
+            // No descriptors between this characteristic and the next —
+            // skip straight to the next slot.
+            ESP_LOGI(TAG, "[dsc] slot[%d] no descriptor range (start=%d end=%d)",
+                     current_dsc_slot_, start, end);
+            current_dsc_slot_++;
+            continue;
+        }
+
+        ESP_LOGI(TAG, "[dsc] slot[%d] discovering descriptors in [%d..%d]",
+                 current_dsc_slot_, start, end);
+        int rc = ble_gattc_disc_all_dscs(conn_handle_,
+                                          reports_[current_dsc_slot_].val_handle,
+                                          end,
+                                          gattDscDiscCb, this);
+        if (rc != 0) {
+            ESP_LOGE(TAG, "[dsc] slot[%d] disc_all_dscs failed: %d",
+                     current_dsc_slot_, rc);
+            current_dsc_slot_++;
+            continue;
+        }
+        return;  // Wait for callback → EDONE → advance or complete.
+    }
+
+    // All slots walked. pending_ref_reads_ is now always 0 since we
+    // removed the Report Reference read — but keep the gate for safety
+    // if it's re-enabled in the future.
+    if (pending_ref_reads_ == 0 && !post_discovery_done_) {
+        post_discovery_done_ = true;
+        onAllReferenceReadsComplete();
+    }
+}
+
+// Step 3: descriptor discovery PER SLOT. `chr_val_handle` in the callback
+// is whatever we passed as `chr_val_handle` to disc_all_dscs (NimBLE does
+// not re-derive it), so we track which slot we're walking via the member
+// current_dsc_slot_.
+int BleHidHost::gattDscDiscCb(uint16_t /*conn_handle*/, const struct ble_gatt_error* error,
                                uint16_t chr_val_handle, const struct ble_gatt_dsc* dsc,
                                void* arg) {
     auto* self = static_cast<BleHidHost*>(arg);
 
     if (error->status == BLE_HS_EDONE) {
-        // Descriptor discovery complete. If there are no outstanding
-        // reference reads, proceed to subscribe + Protocol Mode /
-        // Control Point immediately; otherwise the last read's callback
-        // will drive the continuation.
-        if (self->pending_ref_reads_ == 0) {
-            self->onAllReferenceReadsComplete();
-        }
+        // This slot's descriptor walk finished — advance to the next slot.
+        ESP_LOGI(TAG, "[dsc] slot[%d] walk complete", self->current_dsc_slot_);
+        self->current_dsc_slot_++;
+        self->startReportDescriptorReads();
         return 0;
     }
     if (error->status != 0) {
-        ESP_LOGE(TAG, "Descriptor discovery error: %d", error->status);
+        ESP_LOGE(TAG, "Descriptor discovery error on slot[%d]: %d",
+                 self->current_dsc_slot_, error->status);
+        self->current_dsc_slot_++;
+        self->startReportDescriptorReads();
         return 0;
     }
 
-    // chr_val_handle is the value handle of the characteristic that
-    // precedes this descriptor in handle order. Find the matching slot.
-    int slot_idx = -1;
-    for (int i = 0; i < self->reports_count_; ++i) {
-        if (self->reports_[i].val_handle == chr_val_handle) {
-            slot_idx = i;
-            break;
-        }
-    }
+    int slot_idx = self->current_dsc_slot_;
+    ESP_LOGI(TAG, "[dsc] slot[%d] saw descriptor handle=%d uuid16=0x%04x (chr_val_handle=%d)",
+             slot_idx, dsc->handle,
+             dsc->uuid.u.type == BLE_UUID_TYPE_16 ?
+                 ((const ble_uuid16_t*)&dsc->uuid)->value : 0,
+             chr_val_handle);
 
     if (ble_uuid_cmp(&dsc->uuid.u, &CCCD_UUID.u) == 0) {
-        if (slot_idx >= 0) {
+        if (slot_idx >= 0 && slot_idx < self->reports_count_) {
             self->reports_[slot_idx].cccd_handle = dsc->handle;
             ESP_LOGI(TAG, "Slot[%d] CCCD handle=%d", slot_idx, dsc->handle);
         }
     } else if (ble_uuid_cmp(&dsc->uuid.u, &REPORT_REFERENCE_UUID.u) == 0) {
-        if (slot_idx >= 0) {
-            // Read the Report Reference value asynchronously — payload is
-            // 2 bytes: [report_id, report_type] where type 1=Input.
-            self->pending_ref_reads_++;
-            int rc = ble_gattc_read(conn_handle, dsc->handle,
-                                     reportReferenceReadCb, self);
-            if (rc != 0) {
-                ESP_LOGE(TAG, "Slot[%d] Report Reference read failed: %d",
-                         slot_idx, rc);
-                self->pending_ref_reads_--;
-            }
-        }
+        // Note: we used to ble_gattc_read() here to extract the
+        // [report_id, type] pair. In practice the peer returns
+        // BLE_ATT_ERR_INSUFFICIENT_AUTHEN (0x05 / 0x0105 / err=261) for
+        // that read until an encrypted link is established, AND the read
+        // serializes poorly against concurrent per-slot disc_all_dscs
+        // calls (causing BLE_HS_EBUSY on the next slot). Since our
+        // subscription loop accepts type==0 as "Input-implicit" anyway,
+        // we skip the read and rely on the peer honouring our CCCD
+        // enable. report_id stays 0 so notifications are treated as
+        // unprefixed boot-protocol reports.
+        ESP_LOGD(TAG, "Slot[%d] Report Reference (0x2908) handle=%d — skipped",
+                 slot_idx, dsc->handle);
     }
     return 0;
 }
@@ -450,28 +525,47 @@ void BleHidHost::onAllReferenceReadsComplete() {
 }
 
 void BleHidHost::subscribeNextInputReport() {
-    // Advance through report slots, subscribing to any that look like
-    // Input reports (type == 1, or type == 0 for boot-only devices
-    // without a Report Reference descriptor).
+    // Advance through report slots, subscribing to Input reports (type == 1,
+    // or type == 0 for boot-only peers without a Report Reference).
+    // NimBLE allows only ONE GATT procedure per connection at a time, so
+    // each CCCD write must complete before the next is initiated. Chain
+    // via cccdWriteCb.
     while (subscribe_next_idx_ < reports_count_) {
         ReportSlot& slot = reports_[subscribe_next_idx_];
+        int idx = subscribe_next_idx_;
         subscribe_next_idx_++;
         bool is_input = (slot.type == 0 || slot.type == 1);
         if (!is_input || slot.cccd_handle == kInvalidHandle) continue;
 
-        uint8_t notify_enable[] = {0x01, 0x00};
+        static const uint8_t notify_enable[] = {0x01, 0x00};
         int rc = ble_gattc_write_flat(conn_handle_, slot.cccd_handle,
                                        notify_enable, sizeof(notify_enable),
-                                       nullptr, nullptr);
+                                       cccdWriteCb, this);
         if (rc == 0) {
-            ESP_LOGI(TAG, "Subscribed to Report slot val=%d cccd=%d id=%d type=%d",
-                     slot.val_handle, slot.cccd_handle, slot.report_id, slot.type);
-        } else {
-            ESP_LOGE(TAG, "CCCD write failed (slot val=%d cccd=%d): %d",
-                     slot.val_handle, slot.cccd_handle, rc);
+            ESP_LOGI(TAG, "[sub] slot[%d] CCCD write initiated val=%d cccd=%d id=%d type=%d",
+                     idx, slot.val_handle, slot.cccd_handle, slot.report_id, slot.type);
+            return;  // Wait for cccdWriteCb → chains the next slot.
         }
+        ESP_LOGE(TAG, "[sub] slot[%d] CCCD write initiate failed: %d (val=%d cccd=%d)",
+                 idx, rc, slot.val_handle, slot.cccd_handle);
+        // Fall through to try the next slot rather than stalling.
     }
     ESP_LOGI(TAG, "HID Input subscriptions complete");
+}
+
+int BleHidHost::cccdWriteCb(uint16_t /*conn_handle*/,
+                            const struct ble_gatt_error* error,
+                            struct ble_gatt_attr* /*attr*/, void* arg) {
+    auto* self = static_cast<BleHidHost*>(arg);
+    if (error && error->status != 0) {
+        ESP_LOGW(TAG, "[sub] CCCD write callback status=%d — continuing",
+                 error->status);
+    } else {
+        ESP_LOGI(TAG, "[sub] CCCD write ack OK");
+    }
+    // Chain the next subscription regardless of this one's success.
+    self->subscribeNextInputReport();
+    return 0;
 }
 
 void BleHidHost::writeProtocolMode(uint8_t value) {
@@ -509,6 +603,10 @@ void BleHidHost::writeControlPoint(uint8_t value) {
 
 int BleHidHost::bleGapEvent(struct ble_gap_event* event, void* arg) {
     auto* self = static_cast<BleHidHost*>(arg);
+
+    // DIAG: trace every GAP event we receive so we can see the pairing /
+    // encryption / subscribe flow on the serial log.
+    ESP_LOGI(TAG, "[gap] event type=%d", event->type);
 
     switch (event->type) {
     case BLE_GAP_EVENT_DISC: {
@@ -559,10 +657,21 @@ int BleHidHost::bleGapEvent(struct ble_gap_event* event, void* arg) {
             self->setState(State::Connected);
             ESP_LOGI(TAG, "Connected (handle=%d)", self->conn_handle_);
 
-            ESP_LOGI(TAG, "Starting GATT service discovery...");
-            int rc2 = ble_gattc_disc_all_svcs(self->conn_handle_, gattSvcDiscCb, self);
-            if (rc2 != 0) {
-                ESP_LOGE(TAG, "Failed to start service discovery: %d", rc2);
+            // HID-over-GATT peers gate CCCD writes on an encrypted link.
+            // Kick off bonding / encryption immediately; GATT discovery
+            // starts when BLE_GAP_EVENT_ENC_CHANGE lands with status=0.
+            int rc_sec = ble_gap_security_initiate(self->conn_handle_);
+            if (rc_sec == 0) {
+                ESP_LOGI(TAG, "Security initiated; awaiting ENC_CHANGE");
+            } else if (rc_sec == BLE_HS_EALREADY) {
+                ESP_LOGI(TAG, "Link already secure — starting discovery");
+                int rc2 = ble_gattc_disc_all_svcs(self->conn_handle_,
+                                                   gattSvcDiscCb, self);
+                if (rc2 != 0) {
+                    ESP_LOGE(TAG, "Failed to start service discovery: %d", rc2);
+                }
+            } else {
+                ESP_LOGE(TAG, "ble_gap_security_initiate failed: %d", rc_sec);
             }
         } else {
             ESP_LOGW(TAG, "Connection failed: %d", event->connect.status);
@@ -580,7 +689,22 @@ int BleHidHost::bleGapEvent(struct ble_gap_event* event, void* arg) {
     }
 
     case BLE_GAP_EVENT_ENC_CHANGE: {
-        ESP_LOGI(TAG, "Encryption change: status=%d", event->enc_change.status);
+        ESP_LOGI(TAG, "Encryption change: status=%d conn=%d",
+                 event->enc_change.status, event->enc_change.conn_handle);
+        if (event->enc_change.status == 0) {
+            // Now that the link is encrypted, kick off GATT discovery.
+            // Post-discovery (subscribeNextInputReport) will issue CCCD
+            // writes that require this encrypted state.
+            ESP_LOGI(TAG, "Link encrypted — starting GATT service discovery");
+            int rc2 = ble_gattc_disc_all_svcs(self->conn_handle_,
+                                               gattSvcDiscCb, self);
+            if (rc2 != 0) {
+                ESP_LOGE(TAG, "Failed to start service discovery: %d", rc2);
+            }
+        } else {
+            ESP_LOGE(TAG, "Encryption failed (status=%d) — keyboard won't work",
+                     event->enc_change.status);
+        }
         break;
     }
 
@@ -607,23 +731,35 @@ int BleHidHost::bleGapEvent(struct ble_gap_event* event, void* arg) {
     }
 
     case BLE_GAP_EVENT_MTU: {
-        ESP_LOGD(TAG, "MTU updated: %d", event->mtu.value);
+        ESP_LOGI(TAG, "MTU updated: %d", event->mtu.value);
         break;
     }
 
     case BLE_GAP_EVENT_SUBSCRIBE: {
-        ESP_LOGD(TAG, "Subscribe event: attr=%d reason=%d cur_notify=%d",
+        ESP_LOGI(TAG, "[gap] Subscribe: attr=%d reason=%d cur_notify=%d cur_indicate=%d",
                  event->subscribe.attr_handle,
-                 event->subscribe.reason, event->subscribe.cur_notify);
+                 event->subscribe.reason,
+                 event->subscribe.cur_notify,
+                 event->subscribe.cur_indicate);
         break;
     }
 
     case BLE_GAP_EVENT_NOTIFY_RX: {
         uint16_t attr = event->notify_rx.attr_handle;
         uint16_t pkt_len = OS_MBUF_PKTLEN(event->notify_rx.om);
-        uint8_t* report_data = OS_MBUF_DATA(event->notify_rx.om, uint8_t*);
+        uint8_t report_data[32] = {};
+        uint16_t copy_len = pkt_len > sizeof(report_data) ? sizeof(report_data) : pkt_len;
+        ble_hs_mbuf_to_flat(event->notify_rx.om, report_data, copy_len, nullptr);
 
-        ESP_LOGD(TAG, "Notify RX: handle=%d len=%d", attr, pkt_len);
+        // DIAG: always log the handle + hex so we can see what comes in even
+        // for unsubscribed handles. Keep at INFO until we're confident keys
+        // are flowing end-to-end.
+        char hex[96] = {};
+        int hp = 0;
+        for (uint16_t i = 0; i < copy_len && hp < (int)sizeof(hex) - 4; ++i) {
+            hp += snprintf(hex + hp, sizeof(hex) - hp, "%02x ", report_data[i]);
+        }
+        ESP_LOGI(TAG, "[notify] handle=%d len=%d bytes=[%s]", attr, pkt_len, hex);
 
         // Route by handle to the matching slot so we know report_id + type.
         int slot_idx = -1;
@@ -634,15 +770,25 @@ int BleHidHost::bleGapEvent(struct ble_gap_event* event, void* arg) {
             }
         }
         if (slot_idx < 0) {
-            ESP_LOGD(TAG, "Notify from unsubscribed handle %d — ignoring", attr);
+            ESP_LOGW(TAG, "[notify] handle %d not in any ReportSlot (%d slots) — dropping",
+                     attr, self->reports_count_);
+            for (int i = 0; i < self->reports_count_; ++i) {
+                ESP_LOGW(TAG, "[notify]   slot[%d] val_handle=%d cccd=%d id=%d type=%d",
+                         i, self->reports_[i].val_handle,
+                         self->reports_[i].cccd_handle,
+                         self->reports_[i].report_id,
+                         self->reports_[i].type);
+            }
             break;
         }
         ReportSlot& slot = self->reports_[slot_idx];
+        ESP_LOGI(TAG, "[notify] slot[%d] matched: id=%d type=%d",
+                 slot_idx, slot.report_id, slot.type);
         if (slot.type != 0 && slot.type != 1) {
-            // Output / Feature report — not keyboard input.
+            ESP_LOGW(TAG, "[notify] slot type=%d is not Input — dropping", slot.type);
             break;
         }
-        self->processHidReport(report_data, pkt_len, slot.report_id);
+        self->processHidReport(report_data, copy_len, slot.report_id);
         break;
     }
 

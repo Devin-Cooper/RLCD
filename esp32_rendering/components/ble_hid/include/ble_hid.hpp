@@ -83,6 +83,8 @@ private:
     int        reports_count_;      // number of slots populated
     int        subscribe_next_idx_; // index of next slot to subscribe to CCCD
     int        pending_ref_reads_;  // outstanding 0x2908 reads (Spec 02 race fix)
+    int        current_dsc_slot_;   // index of slot whose descriptors are currently being walked
+    bool       post_discovery_done_; // guard so Protocol Mode / CCCD writes only run once
 
     // Non-Report characteristic handles (0 = not discovered).
     uint16_t protocol_mode_handle_;  // 0x2A4E
@@ -129,6 +131,11 @@ private:
     static int reportReferenceReadCb(uint16_t conn_handle,
                                      const struct ble_gatt_error* error,
                                      struct ble_gatt_attr* attr, void* arg);
+
+    // CCCD write completion — chains the next slot's subscription.
+    static int cccdWriteCb(uint16_t conn_handle,
+                           const struct ble_gatt_error* error,
+                           struct ble_gatt_attr* attr, void* arg);
 
     // Per-phase helpers.
     void startReportDescriptorReads();
