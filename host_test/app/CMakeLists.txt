@@ -50,3 +50,14 @@ add_host_test(
         "${APP_DIR}/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
 )
+
+add_host_test(
+    NAME test_server_creds_store
+    SOURCES
+        test_server_creds_store.cpp
+        "${RLCD_COMPONENTS}/sdcard_config/src/config_store_nvs.cpp"
+    INCLUDES
+        "${RLCD_COMPONENTS}/sdcard_config/include"
+        "${RLCD_COMPONENTS}/wifi_manager/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
+)

@@ -74,6 +74,13 @@ public:
     void setActiveServer(int index);
     const ServerRuntime& activeServer() const;
 
+    // NVS store (delegates to config_store_nvs.cpp for host-testability).
+    int loadFromNvs();
+    bool persistToNvs();
+    int upsertServer(const ServerCreds& creds, int index = -1);
+    bool deleteServer(int index);
+    // setActiveServer already exists — its body also persists to NVS.
+
     /// Get parsed device settings from config.json (caller applies to app::Settings)
     const ParsedSettings& parsedSettings() const { return parsed_settings_; }
 

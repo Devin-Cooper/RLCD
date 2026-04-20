@@ -1,4 +1,5 @@
 #include "config_manager.hpp"
+#include "config_store_nvs.hpp"
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -454,8 +455,44 @@ const ServerRuntime& ConfigManager::getServer(int index) const {
 void ConfigManager::setActiveServer(int index) {
     if (index >= 0 && index < server_count_) {
         active_index_ = index;
+        persistActiveIndex(index);
         ESP_LOGI(TAG, "Active server: %s", servers_[active_index_].creds.name);
     }
+}
+
+int ConfigManager::loadFromNvs() {
+    server_count_ = loadServersFromNvs(servers_, MAX_SERVERS);
+    active_index_ = loadActiveIndex(server_count_);
+    return server_count_;
+}
+
+bool ConfigManager::persistToNvs() {
+    return persistServersToNvs(servers_, server_count_);
+}
+
+int ConfigManager::upsertServer(const ServerCreds& creds, int index) {
+    if (index < 0) {
+        if (server_count_ >= MAX_SERVERS) return -1;
+        index = server_count_++;
+    } else if (index >= server_count_) {
+        return -1;
+    }
+    servers_[index].creds = creds;
+    servers_[index].valid = true;
+    if (!persistToNvs()) return -1;
+    return index;
+}
+
+bool ConfigManager::deleteServer(int index) {
+    if (index < 0 || index >= server_count_) return false;
+    for (int i = index; i < server_count_ - 1; ++i) {
+        servers_[i] = servers_[i + 1];
+    }
+    server_count_--;
+    if (active_index_ == index) active_index_ = 0;
+    else if (active_index_ > index) active_index_--;
+    persistActiveIndex(active_index_);
+    return persistToNvs();
 }
 
 const ServerRuntime& ConfigManager::activeServer() const {
