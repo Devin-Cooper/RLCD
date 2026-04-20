@@ -1,0 +1,15 @@
+menu "Test Console"
+    config TEST_CONSOLE_ENABLED
+        bool "Enable serial test console"
+        default n
+        help
+            Enables the on-device test REPL over the S3's built-in
+            USB-JTAG CDC (not UART0 — the ESP32-S3-RLCD board has no
+            external UART bridge). Adds ~20KB flash. Do NOT enable
+            in production firmware.
+
+    config TEST_CONSOLE_HISTORY_LEN
+        int "Command history size"
+        depends on TEST_CONSOLE_ENABLED
+        default 32
+endmenu

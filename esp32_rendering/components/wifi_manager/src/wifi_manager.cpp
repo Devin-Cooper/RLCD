@@ -9,6 +9,14 @@
 #include <cstring>
 #include <algorithm>
 
+#if CONFIG_TEST_CONSOLE_ENABLED
+#include <optional>
+#include <vector>
+namespace {
+    std::optional<std::vector<wifi::NetworkInfo>> s_testScanOverride;
+}
+#endif
+
 static const char* TAG = "wifi_mgr";
 static const char* NVS_NAMESPACE = "wifi_creds";
 
@@ -109,6 +117,17 @@ void WifiManager::startScan() {
 }
 
 int WifiManager::scanResults(NetworkInfo* results, int max_results) {
+#if CONFIG_TEST_CONSOLE_ENABLED
+    if (s_testScanOverride && !s_testScanOverride->empty()) {
+        int count = static_cast<int>(s_testScanOverride->size());
+        if (count > max_results) count = max_results;
+        for (int i = 0; i < count; ++i) {
+            results[i] = (*s_testScanOverride)[i];
+        }
+        s_testScanOverride.reset();   // consume-once
+        return count;
+    }
+#endif
     uint16_t num = max_results;
     wifi_ap_record_t* records = new wifi_ap_record_t[num];
     esp_wifi_scan_get_ap_records(&num, records);
@@ -126,6 +145,15 @@ int WifiManager::scanResults(NetworkInfo* results, int max_results) {
     delete[] records;
     return count;
 }
+
+#if CONFIG_TEST_CONSOLE_ENABLED
+void WifiManager::pushTestScanResult(const NetworkInfo& n) {
+    if (!s_testScanOverride) s_testScanOverride.emplace();
+    if (s_testScanOverride->size() < MAX_SCAN_RESULTS) {
+        s_testScanOverride->push_back(n);
+    }
+}
+#endif
 
 void WifiManager::connect(const char* ssid, const char* password) {
     wifi_config_t config = {};

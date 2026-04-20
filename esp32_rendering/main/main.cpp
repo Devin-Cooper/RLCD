@@ -40,6 +40,7 @@
 #include "screens/terminal_screen.hpp"
 #include "screens/pairing_screen.hpp"
 #include "screens/wifi_screen.hpp"
+#include "test_console.hpp"
 
 // SD card config
 #include "sdcard_manager.hpp"
@@ -709,6 +710,13 @@ extern "C" void app_main() {
             overlay.showError("SD parse errors", body);
         }
     }
+
+#if CONFIG_TEST_CONSOLE_ENABLED
+    static test_console::Context tctx{
+        fb, stack, overlay, wifiMgr, *configMgr, bleHost, sshClient, settings
+    };
+    test_console::init(tctx);
+#endif
 
     // Wire SSH data into stream buffer — SSH task pushes, main loop drains
     sshClient.onData([](const uint8_t* data, size_t len, void* ctx) {

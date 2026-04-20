@@ -77,7 +77,12 @@ void MenuScreen::handleInput(const input::InputEvent& evt,
 }
 
 void MenuScreen::dispatchSelection(ScreenStack& stack, Item item) {
-    stack.pop();   // pop self first
+    // Use replace() for every target so the "dismiss Menu + show Target"
+    // transition happens atomically in applyPending(). A prior pop() + push()
+    // combination is broken because push() is immediate and pop() is
+    // deferred: pop-set-pending, push-immediate-mutate, then applyPending
+    // runs the deferred pop — which pops the freshly-pushed Target instead
+    // of Menu, leaving stack = [Dashboard, Menu] unchanged.
     switch (item) {
         case Item::Dashboard:
             stack.replace(std::make_unique<DashboardScreen>(ctx_));
@@ -86,16 +91,16 @@ void MenuScreen::dispatchSelection(ScreenStack& stack, Item item) {
             stack.replace(std::make_unique<TerminalScreen>(ctx_));
             break;
         case Item::Servers:
-            stack.push(std::make_unique<ServerListScreen>(ctx_));
+            stack.replace(std::make_unique<ServerListScreen>(ctx_));
             break;
         case Item::Settings:
-            stack.push(std::make_unique<SettingsScreen>(ctx_));
+            stack.replace(std::make_unique<SettingsScreen>(ctx_));
             break;
         case Item::WiFi:
-            stack.push(std::make_unique<WifiScreen>(ctx_));
+            stack.replace(std::make_unique<WifiScreen>(ctx_));
             break;
         case Item::About:
-            stack.push(std::make_unique<AboutScreen>(ctx_));
+            stack.replace(std::make_unique<AboutScreen>(ctx_));
             break;
         default:
             break;

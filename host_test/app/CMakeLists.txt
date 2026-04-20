@@ -62,3 +62,11 @@ add_host_test(
         "${RLCD_COMPONENTS}/wifi_manager/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
 )
+
+add_host_test(
+    NAME test_response_parser
+    SOURCES
+        test_response_parser.cpp
+    INCLUDES
+        "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
+)

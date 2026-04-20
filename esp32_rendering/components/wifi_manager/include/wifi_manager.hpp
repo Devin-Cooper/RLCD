@@ -91,6 +91,13 @@ public:
     /// to `out` (NUL-terminated). Returns false otherwise.
     bool knownPassword(const char* ssid, char* out, size_t out_cap) const;
 
+#if CONFIG_TEST_CONSOLE_ENABLED
+    /// Test-only: append a canned NetworkInfo to the scan-override buffer.
+    /// Next call to scanResults() returns from this buffer and clears it
+    /// (consume-once semantics).
+    void pushTestScanResult(const NetworkInfo& n);
+#endif
+
 private:
     std::atomic<State> state_;
     StateCallback state_cb_;
