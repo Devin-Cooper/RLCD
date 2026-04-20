@@ -4,6 +4,7 @@
 #include "screen_stack.hpp"
 #include "settings.hpp"
 #include "overlay.hpp"
+#include "font_for_size.hpp"
 #include <esp_log.h>
 
 static const char* TAG = "term_screen";
@@ -36,6 +37,7 @@ void TerminalScreen::handleInput(const input::InputEvent& evt,
         evt.button_id == 1) {
         ctx_.currentFontSize = (ctx_.currentFontSize + 1) % 3;
         ctx_.settings.font_size = ctx_.currentFontSize;
+        ctx_.terminalMode.setFont(app::fontForSize(ctx_.currentFontSize));
         if (!app::saveSettings(ctx_.settings)) {
             ctx_.overlay.showError("Settings save failed", "NVS write error");
         }

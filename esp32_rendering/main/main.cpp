@@ -35,6 +35,7 @@
 #include "screen_stack.hpp"
 #include "screen_context.hpp"
 #include "overlay.hpp"
+#include "font_for_size.hpp"
 #include "screens/dashboard_screen.hpp"
 #include "screens/terminal_screen.hpp"
 #include "screens/pairing_screen.hpp"
@@ -58,6 +59,7 @@
 #include "rendering/framebuffer.hpp"
 
 static const char* TAG = "main";
+using app::fontForSize;
 
 // ============================================================================
 // SSH data stream buffer — SSH task writes, main loop reads
@@ -110,7 +112,6 @@ private:
 };
 
 // Forward declarations for helpers defined lower in this file.
-static const onebit::BitmapFont& fontForSize(uint8_t size);
 static void showStatus(onebit::IFramebuffer& fb, st7305::Display& display,
                        const char* line1, const char* line2 = nullptr);
 
@@ -169,18 +170,6 @@ static void reconnectActiveServer(sdcard::ConfigManager* configMgr,
     }
     dashboard.setServerName(srv.creds.name[0] ? srv.creds.name : srv.creds.host);
     ESP_LOGI(TAG, "Reconnected to active server: %s", srv.creds.name);
-}
-
-// ============================================================================
-// Font table — indexed by Settings::font_size (0/1/2)
-// ============================================================================
-
-static const onebit::BitmapFont& fontForSize(uint8_t size) {
-    switch (size) {
-        case 0: return onebit::fonts::TERM_5X7;
-        case 2: return onebit::fonts::TERM_8X12;
-        default: return onebit::fonts::TERM_6X9;
-    }
 }
 
 // ============================================================================
