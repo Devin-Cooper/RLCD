@@ -163,6 +163,19 @@ MigrationResult runLegacyMigration(ServerRuntime* servers,
 
     // PathA / BeltAndSuspenders: ssh_creds + at least one SD-loaded identity
     if (have_ssh_creds && *count > 0) {
+        // PathA positional-alignment assumption:
+        // Legacy ssh_creds used srv_p_<i> keys indexed by the position in
+        // which server JSONs were originally parsed off the SD card. That
+        // order is driven by readdir() and can vary across reboots. This
+        // migration assumes the current *count in-memory order matches the
+        // original order that produced ssh_creds — which holds for the
+        // common case (same SD card, same files) but can silently misalign
+        // if the user rearranged files or swapped SD cards between the
+        // original boot and the migration boot. We accept this as a known
+        // limitation of the one-shot migration; the password-per-server
+        // edit flow (ServerEditScreen, Task 22) can always correct a
+        // mispaired password after migration.
+        // ... rest of PathA body unchanged ...
         nvs_handle_t h;
         if (nvs_open("ssh_creds", NVS_READONLY, &h) == ESP_OK) {
             for (int i = 0; i < *count; ++i) {

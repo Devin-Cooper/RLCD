@@ -112,6 +112,9 @@ TEST_CASE("Migration: ssh_creds + SD + ssh_host → BeltAndSuspenders",
     auto r = sdcard::runLegacyMigration(s, &cnt, 8);
     REQUIRE(r == sdcard::MigrationResult::BeltAndSuspenders);
 
+    // PathA-equivalent path: password was paired through.
+    REQUIRE(std::strcmp(s[0].creds.password, "pw") == 0);
+
     // ssh_host fields should be erased
     nvs_open("app_settings", NVS_READONLY, &h);
     char host[64] = {}; size_t len = sizeof(host);
