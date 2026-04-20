@@ -19,6 +19,6 @@ idf_component_register(
         "src/screens/server_edit_screen.cpp"
         "src/screens/settings_screen.cpp"
     INCLUDE_DIRS "include"
-    REQUIRES onebit ssh_client sdcard_config nvs_flash input_queue
+    REQUIRES onebit ssh_client sdcard_config nvs_flash input_queue ble_hid wifi_manager
 )
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)

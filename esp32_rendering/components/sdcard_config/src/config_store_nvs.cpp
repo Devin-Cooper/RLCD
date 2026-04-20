@@ -180,7 +180,7 @@ MigrationResult runLegacyMigration(ServerRuntime* servers,
         if (nvs_open("ssh_creds", NVS_READONLY, &h) == ESP_OK) {
             for (int i = 0; i < *count; ++i) {
                 char pw[64] = {}; size_t len = sizeof(pw);
-                char k[16]; snprintf(k, sizeof(k), "srv_p_%d", i);
+                char k[24]; snprintf(k, sizeof(k), "srv_p_%d", i);
                 if (nvs_get_str(h, k, pw, &len) == ESP_OK) {
                     std::strncpy(servers[i].creds.password, pw,
                                  sizeof(servers[i].creds.password) - 1);

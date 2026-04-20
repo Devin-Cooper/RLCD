@@ -2,6 +2,7 @@
 #include "screens/server_edit_screen.hpp"
 #include "screen_stack.hpp"
 #include "overlay.hpp"
+#include "config_manager.hpp"
 #include <1bit/render/primitives.hpp>
 #include <cstring>
 #include <cstdio>
@@ -109,7 +110,7 @@ void ServerListScreen::render(onebit::IFramebuffer& fb,
     for (int i = 0; i < count &&
          y + font.glyph_height < fb.height() - 20; ++i) {
         const auto& c = ctx_.configMgr.getServer(i).creds;
-        char line[80];
+        char line[160];   // name(32) + user(32) + host(64) + port(5) + fixed chars
         snprintf(line, sizeof(line), "%c %c %s (%s@%s:%d)",
                  i == sel_ ? '>' : ' ',
                  i == active ? '*' : ' ',

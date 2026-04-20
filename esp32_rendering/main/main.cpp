@@ -687,16 +687,17 @@ extern "C" void app_main() {
     }
 
     // Surface migration result via overlay (toasts / log / error modal).
+    // Note: we can't use 'MR' as an alias — xtensa specreg.h #defines MR=32.
     {
-        using MR = sdcard::MigrationResult;
+        using MigRes = sdcard::MigrationResult;
         switch (configMgr->lastMigration()) {
-            case MR::PathB:
+            case MigRes::PathB:
                 overlay.showToast("Migrated legacy server", 2500);
                 break;
-            case MR::BeltAndSuspenders:
+            case MigRes::BeltAndSuspenders:
                 overlay.showToast("Discarded legacy ssh_host from Settings", 3000);
                 break;
-            case MR::PathAHole:
+            case MigRes::PathAHole:
                 ESP_LOGW(TAG, "Legacy ssh_creds preserved for next-boot migration");
                 break;
             default: break;

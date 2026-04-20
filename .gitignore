@@ -62,3 +62,4 @@ __pycache__/
 
 # Reference examples (not part of project)
 REFERENCES/
+.claude/

@@ -18,7 +18,7 @@ public:
 private:
     ScreenContext& ctx_;
     uint8_t font_sel_ = 0;
-    char scrollback_[5] = {};
+    char scrollback_[6] = {};   // "65535" + NUL
     char dash_ms_[6] = {};
     TextInput ti_scrollback_;
     TextInput ti_dash_;

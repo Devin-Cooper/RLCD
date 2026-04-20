@@ -191,7 +191,7 @@ void WifiScreen::render(onebit::IFramebuffer& fb,
             char disp[48];
             sanitize(disp, scan_[i].ssid, sizeof(disp));
 
-            char line[80];
+            char line[96];
             snprintf(line, sizeof(line), "%c %s  %ddBm%s",
                      i == sel_ ? '>' : ' ',
                      disp, scan_[i].rssi,
@@ -214,7 +214,7 @@ void WifiScreen::render(onebit::IFramebuffer& fb,
         } else {
             for (int i = 0; i < known_count_ &&
                  y + font.glyph_height < fb.height() - 20; ++i) {
-                char line[80];
+                char line[48];
                 snprintf(line, sizeof(line), "%c %s",
                          i == sel_ ? '>' : ' ', known_[i].ssid);
                 if (i == sel_) {
