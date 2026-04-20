@@ -1,6 +1,8 @@
 def test_migration_path_b_seeds_default_server(fresh_device):
-    # Seed legacy app_settings.ssh_host state.
-    fresh_device.nvs_set("app_settings", "ssh_host", "str", "example.com")
+    # Seed legacy app_settings.ssh_host state. Loopback so post-migration
+    # SSH connect fails fast (ECONNREFUSED via lwIP) instead of DNS-hanging
+    # or TCP-retry-hanging the ssh_client past the watchdog threshold.
+    fresh_device.nvs_set("app_settings", "ssh_host", "str", "127.0.0.1")
     fresh_device.nvs_set("app_settings", "ssh_port", "u16", 2222)
     fresh_device.nvs_set("app_settings", "ssh_user", "str", "dev")
 
@@ -14,4 +16,4 @@ def test_migration_path_b_seeds_default_server(fresh_device):
     servers = fresh_device.server_list()
     assert len(servers) == 1
     assert servers[0]["name"] == "default"
-    assert "example.com" in servers[0]["endpoint"]
+    assert "127.0.0.1" in servers[0]["endpoint"]

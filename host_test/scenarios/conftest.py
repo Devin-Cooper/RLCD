@@ -110,10 +110,17 @@ def wifi_device(fresh_device: Device) -> Device:
 
 @pytest.fixture
 def one_server_device(fresh_device: Device) -> Device:
-    """fresh_device + one configured server 'test@h:22'."""
+    """fresh_device + one configured server at 127.0.0.1.
+
+    Loopback gives an immediate ECONNREFUSED via lwIP, so the SSH client's
+    connect attempt fails fast (well under the task watchdog threshold).
+    Garbage hostnames like 'h' trigger DNS resolve loops, and TEST-NET-1
+    addresses like 192.0.2.1 get TCP-retry-timeout hangs — both paths
+    hang ssh_client past the watchdog and crash the device mid-test.
+    """
     fresh_device.server_upsert({
         "name": "test",
-        "host": "h",
+        "host": "127.0.0.1",
         "port": 22,
         "username": "u",
         "password": "p",

@@ -9,8 +9,10 @@ def _open_server_list(device):
 
 
 def test_server_list_shift_d_deletes_with_confirm(fresh_device):
-    fresh_device.server_upsert({"name":"a", "host":"h1", "port":22, "username":"u", "password":""})
-    fresh_device.server_upsert({"name":"b", "host":"h2", "port":22, "username":"u", "password":""})
+    # Loopback gives fast ECONNREFUSED — any other unreachable target
+    # either DNS-hangs or TCP-retry-hangs the ssh_client past the watchdog.
+    fresh_device.server_upsert({"name":"a", "host":"127.0.0.1", "port":22, "username":"u", "password":""})
+    fresh_device.server_upsert({"name":"b", "host":"127.0.0.1", "port":23, "username":"u", "password":""})
     assert len(fresh_device.server_list()) == 2
 
     _open_server_list(fresh_device)

@@ -5,7 +5,10 @@ import subprocess
 import tempfile
 import time
 
-from .device import Device
+try:
+    from device import Device  # type: ignore
+except ImportError:
+    from .device import Device  # type: ignore
 
 
 PANIC_MARKERS = [
@@ -70,7 +73,7 @@ def extract_coredump(device: Device) -> str:
         "RLCD_ELF_PATH",
         os.path.join(
             os.path.dirname(__file__), "..", "..",
-            "esp32_rendering", "build", "rlcd.elf",
+            "esp32_rendering", "build", "esp32_terminal.elf",
         ),
     )
     try:
