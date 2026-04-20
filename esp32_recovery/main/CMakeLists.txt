@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "recovery_main.cpp"
         "recovery_screen.cpp"
+        "recovery_repl.cpp"
     INCLUDE_DIRS "."
     REQUIRES
         esp_system
@@ -15,4 +16,10 @@ idf_component_register(
         rendering
         st7305
         onebit
+        esp_partition
+        app_update
+        nvs_flash
+        console
+        espcoredump
+        spi_flash
 )
