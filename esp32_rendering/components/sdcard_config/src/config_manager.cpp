@@ -557,15 +557,26 @@ bool ConfigManager::persistToNvs() {
 }
 
 int ConfigManager::upsertServer(const ServerCreds& creds, int index) {
+    int new_count = server_count_;
     if (index < 0) {
         if (server_count_ >= MAX_SERVERS) return -1;
-        index = server_count_++;
+        index = server_count_;
+        new_count = server_count_ + 1;
     } else if (index >= server_count_) {
         return -1;
     }
+    // Stage the write, persist, then commit in-memory state only on success.
+    ServerRuntime saved = servers_[index];
     servers_[index].creds = creds;
     servers_[index].valid = true;
-    if (!persistToNvs()) return -1;
+    int saved_count = server_count_;
+    server_count_ = new_count;
+    if (!persistToNvs()) {
+        // Roll back.
+        servers_[index] = saved;
+        server_count_ = saved_count;
+        return -1;
+    }
     return index;
 }
 
