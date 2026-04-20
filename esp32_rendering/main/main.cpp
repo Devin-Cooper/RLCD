@@ -32,6 +32,12 @@
 #include "menu.hpp"
 #include "dashboard.hpp"
 #include "terminal_mode.hpp"
+#include "screen.hpp"
+#include "screen_stack.hpp"
+#include "screen_context.hpp"
+#include "overlay.hpp"
+#include "screens/dashboard_screen.hpp"
+#include "screens/terminal_screen.hpp"
 
 // SD card config
 #include "sdcard_manager.hpp"
@@ -130,6 +136,8 @@ struct DispatchState {
     uint8_t& currentFontSize;
     onebit::IFramebuffer& fb;
     st7305::Display& display;
+    app::ScreenStack* stack;    // NEW — Task 10
+    app::ScreenContext* ctx;    // NEW — Task 10
 };
 
 // ============================================================================
@@ -169,16 +177,33 @@ static void switchToNextServer(sdcard::ConfigManager* configMgr,
 }
 
 // ============================================================================
+// setMode — keep ScreenStack top in sync with AppMode Dashboard/Terminal
+// transitions. Other modes (Pairing/NetworkSelect/Error) don't yet have
+// Screens; they render via the legacy switch until Task 14.
+// ============================================================================
+
+static void setMode(AppMode newMode, AppMode& mode, app::ScreenStack& stack,
+                    app::ScreenContext& ctx) {
+    if (newMode == mode) return;
+    mode = newMode;
+    if (newMode == AppMode::Dashboard) {
+        stack.replace(std::make_unique<app::DashboardScreen>(ctx));
+    } else if (newMode == AppMode::Terminal) {
+        stack.replace(std::make_unique<app::TerminalScreen>(ctx));
+    }
+}
+
+// ============================================================================
 // Menu-selection handler (shared by Button-B-long + Keyboard-Enter paths).
 // ============================================================================
 
 static void handleMenuSelection(app::Menu::Item sel, DispatchState& s) {
     switch (sel) {
         case app::Menu::Item::Dashboard:
-            s.currentMode = AppMode::Dashboard;
+            setMode(AppMode::Dashboard, s.currentMode, *s.stack, *s.ctx);
             break;
         case app::Menu::Item::Terminal:
-            s.currentMode = AppMode::Terminal;
+            setMode(AppMode::Terminal, s.currentMode, *s.stack, *s.ctx);
             break;
         case app::Menu::Item::Servers:
             switchToNextServer(s.configMgr, s.sshClient, s.dashboard);
@@ -259,7 +284,7 @@ static void dispatchInputEvent(const input::InputEvent& evt, DispatchState& s) {
             ESP_LOGI(TAG, "menu confirm (btn B long): %d", static_cast<int>(sel));
             handleMenuSelection(sel, s);
         } else if (s.currentMode == AppMode::Terminal) {
-            s.currentMode = AppMode::Dashboard;
+            setMode(AppMode::Dashboard, s.currentMode, *s.stack, *s.ctx);
             ESP_LOGI(TAG, "Returned to dashboard");
         }
         return;
@@ -793,6 +818,28 @@ extern "C" void app_main() {
     app::TerminalMode terminalMode(fb, activeFont);
     uint8_t currentFontSize = settings.font_size;
 
+    // ------------------------------------------------------------------
+    // Task 10: ScreenStack + OverlayManager + ScreenContext
+    // ------------------------------------------------------------------
+    app::ScreenStack stack;
+    app::OverlayManager overlay;
+
+    app::ScreenContext ctx{
+        fb, display, sshClient, wifiMgr, *configMgr, bleHost, settings,
+        stack, overlay, dashboard, terminalMode, currentFontSize
+    };
+
+    // Amendment B: bridge the legacy Menu class during the 2a/2b transition.
+    // DashboardScreen/TerminalScreen Btn A short calls this to open the old
+    // Menu. Cleared at Task 14 when AppMode and the legacy Menu are deleted.
+    ctx.openLegacyMenu = [&]() { menu.open(); };
+
+    // Amendment K: populated at Task 14 (reconnect SSH to active server).
+    // Left default-constructed (empty std::function) for 2a.
+    // ctx.switchToActiveServer stays default-constructed.
+
+    stack.push(std::make_unique<app::DashboardScreen>(ctx));
+
     // Wire SSH data into stream buffer — SSH task pushes, main loop drains
     sshClient.onData([](const uint8_t* data, size_t len, void* ctx) {
         (void)ctx;
@@ -844,6 +891,8 @@ extern "C" void app_main() {
         int64_t frameStart = esp_timer_get_time();
         int64_t now_ms = frameStart / 1000;
 
+        overlay.tick(frameStart);
+
         // Log pushOrDrop drops when count advances (at most 1 Hz).
         {
             uint32_t cur = input::globalInputQueue().droppedCount();
@@ -862,25 +911,44 @@ extern "C" void app_main() {
             currentMode, menu, dashboard, terminalMode,
             configMgr.get(), sshClient, bleHost, wifiMgr,
             settings, currentFontSize,
-            fb, display
+            fb, display,
+            &stack, &ctx                 // Task 10: new fields
         };
         input::InputEvent evt;
         while (input::globalInputQueue().pop(evt)) {
-            dispatchInputEvent(evt, dispatch);
+            if (overlay.handleInput(evt)) continue;
+            if (currentMode == AppMode::Dashboard ||
+                currentMode == AppMode::Terminal) {
+                stack.top()->handleInput(evt, stack);
+            } else {
+                dispatchInputEvent(evt, dispatch);
+            }
         }
+        stack.applyPending();
 
         // ----------------------------------------------------------
-        // Drain SSH data stream buffer and route to active mode
+        // Drain SSH data stream buffer and route to active mode.
+        // Amendment I: walk stack with dynamic_cast so a future transparent
+        // MenuScreen (Task 11) on top doesn't hide Dashboard/Terminal.
         // ----------------------------------------------------------
         if (sshDataStream) {
             uint8_t sshBuf[1024];
             size_t received = xStreamBufferReceive(sshDataStream, sshBuf,
                                                     sizeof(sshBuf), 0);
             if (received > 0) {
-                if (currentMode == AppMode::Terminal) {
-                    terminalMode.feedData(sshBuf, received);
-                } else if (currentMode == AppMode::Dashboard) {
-                    dashboard.feedData(sshBuf, received);
+                // Walk stack from top down to find first Dashboard/Terminal.
+                app::DashboardScreen* ds = nullptr;
+                app::TerminalScreen*  ts = nullptr;
+                for (size_t i = stack.depth(); i-- > 0; ) {
+                    app::Screen* scr = stack.at(i);
+                    if (!ds) ds = dynamic_cast<app::DashboardScreen*>(scr);
+                    if (!ts) ts = dynamic_cast<app::TerminalScreen*>(scr);
+                    if (ds || ts) break;
+                }
+                if (currentMode == AppMode::Terminal && ts) {
+                    ts->feedSshData(sshBuf, received);
+                } else if (currentMode == AppMode::Dashboard && ds) {
+                    ds->feedSshData(sshBuf, received);
                 }
             }
         }
@@ -902,13 +970,20 @@ extern "C" void app_main() {
         // Render active mode
         // ----------------------------------------------------------
         switch (currentMode) {
-            case AppMode::Dashboard:
-                dashboard.update(sshClient, now_ms);
-                dashboard.render(fb, fontForSize(currentFontSize));
+            case AppMode::Dashboard: {
+                // Amendment I: walk stack to find DashboardScreen even if
+                // a transparent MenuScreen sits on top (Task 11 onwards).
+                app::DashboardScreen* ds = nullptr;
+                for (size_t i = stack.depth(); i-- > 0; ) {
+                    ds = dynamic_cast<app::DashboardScreen*>(stack.at(i));
+                    if (ds) break;
+                }
+                if (ds) ds->tickUpdate(now_ms);
+                stack.renderAll(fb, fontForSize(currentFontSize));
                 break;
-
+            }
             case AppMode::Terminal:
-                terminalMode.render();
+                stack.renderAll(fb, fontForSize(currentFontSize));
                 break;
 
             case AppMode::NetworkSelect:
@@ -966,11 +1041,15 @@ extern "C" void app_main() {
         }
 
         // ----------------------------------------------------------
-        // Menu overlay (rendered on top of current mode)
+        // Menu overlay (rendered on top of current mode) — legacy path,
+        // preserved through Task 13; removed at Task 14.
         // ----------------------------------------------------------
         if (menu.isOpen()) {
             menu.render(fb, fontForSize(currentFontSize));
         }
+
+        // OverlayManager (toasts / modals) renders above everything.
+        overlay.render(fb, fontForSize(currentFontSize));
 
         // ----------------------------------------------------------
         // Display update (dirty-region optimized)
