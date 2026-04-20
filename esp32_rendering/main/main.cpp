@@ -560,8 +560,6 @@ extern "C" void app_main() {
             nvs_close(h);
         } else {
             ESP_LOGW(TAG, "No wifi_creds NVS namespace found");
-            showStatus(fb, display, "No WiFi credentials", "Check SD card config");
-            vTaskDelay(pdMS_TO_TICKS(2000));
         }
     }
 
@@ -678,6 +676,16 @@ extern "C" void app_main() {
     };
 
     stack.push(std::make_unique<app::DashboardScreen>(ctx));
+
+    // Wire WifiManager error callbacks now that overlay is in scope.
+    wifiMgr.onSaveError([](void* ctx) {
+        auto* ov = static_cast<app::OverlayManager*>(ctx);
+        ov->showError("WiFi save failed", "NVS write error");
+    }, &overlay);
+    wifiMgr.onSlotFull([](void* ctx) {
+        auto* ov = static_cast<app::OverlayManager*>(ctx);
+        ov->showToast("WiFi slot full — overwrote oldest", 3000);
+    }, &overlay);
 
     // Post-stack-init: show deferred boot errors via overlay now that it's live.
     if (wifiConnected && sshCfg.host[0] != '\0' && !sshConnected) {

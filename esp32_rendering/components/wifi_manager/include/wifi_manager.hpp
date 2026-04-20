@@ -53,6 +53,12 @@ public:
         state_ctx_ = ctx;
     }
 
+    using SaveErrorCb = void(*)(void* ctx);
+    using SlotFullCb  = void(*)(void* ctx);
+
+    void onSaveError(SaveErrorCb cb, void* ctx) { save_error_cb_ = cb; save_error_ctx_ = ctx; }
+    void onSlotFull (SlotFullCb  cb, void* ctx) { slot_full_cb_  = cb; slot_full_ctx_  = ctx; }
+
     /// Attempt auto-connect to known networks (by signal strength).
     /// Non-blocking — calls state callback on success/failure.
     void autoConnect();
@@ -106,6 +112,9 @@ private:
     void loadKnownNetworks();
     void setState(State s);
     int findKnownNetwork(const char* ssid) const;
+
+    SaveErrorCb save_error_cb_ = nullptr; void* save_error_ctx_ = nullptr;
+    SlotFullCb  slot_full_cb_  = nullptr; void* slot_full_ctx_  = nullptr;
 
     // Reconnect timer for non-blocking backoff (avoids blocking event handler)
     esp_timer_handle_t reconnect_timer_;

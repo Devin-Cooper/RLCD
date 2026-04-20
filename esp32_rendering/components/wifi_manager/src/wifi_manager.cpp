@@ -166,19 +166,17 @@ ConnectionInfo WifiManager::connectionInfo() const {
 }
 
 void WifiManager::saveNetwork(const char* ssid, const char* password) {
-    // Check if already known
     int idx = findKnownNetwork(ssid);
+    bool overwriting_oldest = false;
     if (idx < 0) {
-        // Find empty slot
         for (int i = 0; i < MAX_KNOWN_NETWORKS; i++) {
-            if (!known_networks_[i].valid) {
-                idx = i;
-                break;
-            }
+            if (!known_networks_[i].valid) { idx = i; break; }
         }
         if (idx < 0) {
-            // Overwrite oldest (slot 0)
+            // All 8 slots full — overwrite slot 0 (oldest). UI layer is
+            // notified via slot_full_cb_ below.
             idx = 0;
+            overwriting_oldest = true;
         }
     }
 
@@ -188,22 +186,35 @@ void WifiManager::saveNetwork(const char* ssid, const char* password) {
                  sizeof(known_networks_[idx].password) - 1);
     known_networks_[idx].valid = true;
 
-    // Persist to NVS
     nvs_handle_t handle;
-    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK) {
-        char key_ssid[16], key_pass[16];
-        snprintf(key_ssid, sizeof(key_ssid), "ssid_%d", idx);
-        snprintf(key_pass, sizeof(key_pass), "pass_%d", idx);
-        nvs_set_str(handle, key_ssid, ssid);
-        nvs_set_str(handle, key_pass, password);
-        nvs_commit(handle);
-        nvs_close(handle);
-        ESP_LOGI(TAG, "Saved network '%s' at slot %d", ssid, idx);
+    esp_err_t e = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "nvs_open wifi_creds rw: %s", esp_err_to_name(e));
+        if (save_error_cb_) save_error_cb_(save_error_ctx_);
+        return;
+    }
+    char key_ssid[16], key_pass[16];
+    snprintf(key_ssid, sizeof(key_ssid), "ssid_%d", idx);
+    snprintf(key_pass, sizeof(key_pass), "pass_%d", idx);
+    nvs_set_str(handle, key_ssid, ssid);
+    nvs_set_str(handle, key_pass, password);
+    e = nvs_commit(handle);
+    nvs_close(handle);
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "nvs_commit wifi_creds: %s", esp_err_to_name(e));
+        if (save_error_cb_) save_error_cb_(save_error_ctx_);
+        return;
     }
 
+    ESP_LOGI(TAG, "Saved network '%s' at slot %d%s",
+             ssid, idx, overwriting_oldest ? " (overwrote oldest)" : "");
+
     known_count_ = 0;
-    for (int i = 0; i < MAX_KNOWN_NETWORKS; i++) {
+    for (int i = 0; i < MAX_KNOWN_NETWORKS; i++)
         if (known_networks_[i].valid) known_count_++;
+
+    if (overwriting_oldest && slot_full_cb_) {
+        slot_full_cb_(slot_full_ctx_);
     }
 }
 
