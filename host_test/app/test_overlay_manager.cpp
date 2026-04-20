@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include "overlay.hpp"
+#include <cstring>
 
 using app::OverlayManager;
 
@@ -35,4 +36,55 @@ TEST_CASE("Overlay: tick expires toasts", "[app][overlay][toast]") {
     REQUIRE(o.activeToastCount() == 1);
     o.tick(150 * 1000);
     REQUIRE(o.activeToastCount() == 0);
+}
+
+static input::InputEvent kbd(const char* bytes) {
+    input::InputEvent e{};
+    e.source = input::Source::Keyboard;
+    e.type   = input::EventType::Keypress;
+    e.data_length = static_cast<uint8_t>(std::strlen(bytes));
+    for (int i = 0; i < e.data_length; ++i) e.data[i] = bytes[i];
+    return e;
+}
+
+TEST_CASE("Overlay: Info modal consumes input, dismisses on any key",
+          "[app][overlay][modal]") {
+    OverlayManager o;
+    o.tick(0);
+    o.showInfo("Title", "Body");
+    REQUIRE(o.hasModal());
+    REQUIRE(o.handleInput(kbd("x")));   // consumed
+    REQUIRE_FALSE(o.hasModal());
+}
+
+TEST_CASE("Overlay: Confirm fires callback with Yes on Enter",
+          "[app][overlay][modal]") {
+    OverlayManager o;
+    o.tick(0);
+    bool got = false, got_result = false;
+    o.showConfirm("Delete?", "Sure?", [&](bool yes){ got = true; got_result = yes; });
+    REQUIRE(o.handleInput(kbd("\r")));
+    REQUIRE(got); REQUIRE(got_result);
+}
+
+TEST_CASE("Overlay: Confirm Esc = No", "[app][overlay][modal]") {
+    OverlayManager o;
+    o.tick(0);
+    bool got_result = true;
+    o.showConfirm("Delete?", "Sure?", [&](bool yes){ got_result = yes; });
+    REQUIRE(o.handleInput(kbd("\x1B")));
+    REQUIRE_FALSE(got_result);
+}
+
+TEST_CASE("Overlay: Confirm arrow toggles selection", "[app][overlay][modal]") {
+    OverlayManager o;
+    o.tick(0);
+    bool got_result = true;
+    o.showConfirm("Delete?", "Sure?", [&](bool yes){ got_result = yes; });
+    input::InputEvent right{}; right.source = input::Source::Keyboard;
+    right.type = input::EventType::Keypress; right.data_length = 3;
+    right.data[0] = 0x1B; right.data[1] = '['; right.data[2] = 'C';
+    o.handleInput(right);
+    o.handleInput(kbd("\r"));
+    REQUIRE_FALSE(got_result);
 }
