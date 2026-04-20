@@ -69,10 +69,11 @@ void ServerEditScreen::saveAndPop(ScreenStack& stack) {
 }
 
 void ServerEditScreen::cancelWithConfirm(ScreenStack& stack) {
-    if (!dirty_) { stack.pop(); return; }
+    (void)stack;  // present for consistency with handleInput signature; callback uses ctx_.stack
+    if (!dirty_) { ctx_.stack.pop(); return; }
     ctx_.overlay.showConfirm("Confirm", "Discard changes?",
-        [&stack](bool yes) {
-            if (yes) stack.pop();
+        [this](bool yes) {
+            if (yes) ctx_.stack.pop();
         });
 }
 
