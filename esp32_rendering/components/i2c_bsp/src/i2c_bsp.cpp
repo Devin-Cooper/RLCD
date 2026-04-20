@@ -1,5 +1,6 @@
 #include "i2c_bsp.hpp"
 #include <esp_log.h>
+#include <cstring>
 
 static const char* TAG = "i2c_bsp";
 
