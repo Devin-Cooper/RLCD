@@ -2,6 +2,7 @@
 #include "screens/dashboard_screen.hpp"
 #include "screens/terminal_screen.hpp"
 #include "screens/about_screen.hpp"
+#include "screens/wifi_screen.hpp"
 #include "screen_stack.hpp"
 #include "overlay.hpp"
 #include <1bit/render/primitives.hpp>
@@ -91,8 +92,7 @@ void MenuScreen::dispatchSelection(ScreenStack& stack, Item item) {
             ctx_.overlay.showToast("Settings editor: coming soon", 2000);
             break;
         case Item::WiFi:
-            ESP_LOGI(TAG, "WiFi — WifiScreen deferred to Task 15");
-            ctx_.overlay.showToast("WiFi setup: coming soon", 2000);
+            stack.push(std::make_unique<WifiScreen>(ctx_));
             break;
         case Item::About:
             stack.push(std::make_unique<AboutScreen>(ctx_));

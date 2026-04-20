@@ -38,6 +38,7 @@
 #include "screens/dashboard_screen.hpp"
 #include "screens/terminal_screen.hpp"
 #include "screens/pairing_screen.hpp"
+#include "screens/wifi_screen.hpp"
 
 // SD card config
 #include "sdcard_manager.hpp"
@@ -708,7 +709,8 @@ extern "C" void app_main() {
                           sshCfg.host[0] ? sshCfg.host : "no host configured");
     }
     if (!wifiConnected) {
-        overlay.showToast("WiFi not connected — Menu > WiFi to setup", 3500);
+        ESP_LOGW(TAG, "WiFi not connected — pushing WifiScreen");
+        stack.push(std::make_unique<app::WifiScreen>(ctx));
     }
 
     // Wire SSH data into stream buffer — SSH task pushes, main loop drains

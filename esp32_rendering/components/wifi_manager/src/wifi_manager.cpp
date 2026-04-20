@@ -1,4 +1,5 @@
 #include "wifi_manager.hpp"
+#include "input_queue.hpp"
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -307,6 +308,14 @@ void WifiManager::handleWifiEvent(int32_t id, void* data) {
     case WIFI_EVENT_STA_CONNECTED:
         ESP_LOGI(TAG, "Connected to WiFi (waiting for IP)");
         break;
+    case WIFI_EVENT_SCAN_DONE: {
+        input::InputEvent ie{};
+        ie.source = input::Source::System;
+        ie.type   = input::EventType::WifiScanDone;
+        ie.data_length = 0;
+        input::globalInputQueue().pushOrDrop(ie);
+        break;
+    }
     default:
         break;
     }
