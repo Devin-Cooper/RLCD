@@ -219,9 +219,16 @@ ctest --test-dir build --output-on-failure
 
 ### On-device scenarios
 
-See `host_test/scenarios/README.md` for the pytest + pyserial
-harness that drives real firmware over UART via the `test_console`
-REPL. Build firmware with the test overlay:
+The pytest + pyserial harness at `host_test/scenarios/` drives real
+firmware over the ESP32-S3's built-in USB-JTAG CDC via the
+`test_console` REPL component — ~40 commands covering input
+injection, NVS, filesystem, introspection, and runtime control.
+14 scenarios cover boot, menu cycling, font settings, pairing,
+WiFi, servers, settings persistence, and the legacy-NVS migration
+path. See `host_test/scenarios/README.md` for fixture docs, the
+full command set, and concurrency caveats.
+
+Build the test-overlay firmware and run the suite:
 
 ~~~bash
 cd esp32_rendering
@@ -229,8 +236,16 @@ idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.test" \
        -p /dev/cu.usbmodem4101 flash
 cd ../host_test/scenarios
 pip install -r requirements.txt
+export TEST_WIFI_SSID='your-ssid' TEST_WIFI_PASS='your-pass'
 python -m pytest -v
 ~~~
+
+The test overlay routes the primary console to USB-JTAG CDC
+(default production builds use UART0) and enables FreeRTOS trace
+facilities for the `tasklist` REPL command. Production firmware
+has zero test-console code — the component is gated by
+`CONFIG_TEST_CONSOLE_ENABLED` and produces empty sources when
+disabled.
 
 ## Reference Documentation
 

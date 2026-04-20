@@ -1,12 +1,13 @@
 # RLCD Device Scenarios
 
-On-device pytest scenarios driven over UART via the `test_console` REPL.
-Complements the Catch2 host unit tests at `host_test/app/` — those are
-pure logic; these run real firmware on connected hardware.
+On-device pytest scenarios driven over the ESP32-S3's built-in
+USB-JTAG CDC via the `test_console` REPL. Complements the Catch2
+host unit tests at `host_test/app/` — those are pure logic; these
+run real firmware on connected hardware.
 
 ## Prerequisites
 
-1. **Build the firmware with `test_console` enabled**:
+1. **Build and flash the firmware with `test_console` enabled**:
    ```bash
    cd esp32_rendering
    source ~/.espressif/v5.5.2/esp-idf/export.sh
@@ -20,25 +21,47 @@ pure logic; these run real firmware on connected hardware.
    pip install -r requirements.txt
    ```
 
+3. **Seed WiFi credentials** (one-time; persisted to NVS by the
+   session fixture):
+   ```bash
+   export TEST_WIFI_SSID='your-ssid'
+   export TEST_WIFI_PASS='your-pass'
+   ```
+   The scenarios assume WiFi is connected on boot — without it the
+   firmware boots to WifiScreen instead of DashboardScreen and every
+   navigation-based test fails.
+
 ## Run
 
 ```bash
 cd host_test/scenarios
-python -m pytest -v
+python -m pytest -v                         # all (~5 min)
+python -m pytest -v -k "not slow"           # skip the 32s BLE timeout test
+python -m pytest test_migration.py -v       # one file
 ```
 
 ## Environment variables
 
 - `TEST_CONSOLE_PORT` — serial port (default `/dev/cu.usbmodem4101`)
-- `TEST_CONSOLE_BAUD` — baud (default 460800; must match Kconfig)
-- `RLCD_ELF_PATH` — coredump ELF path (default `../../esp32_rendering/build/rlcd.elf`)
+- `TEST_CONSOLE_BAUD` — baud (default 460800; USB-JTAG CDC ignores it)
+- `TEST_WIFI_SSID` / `TEST_WIFI_PASS` — seed creds for `fresh_device`
+- `RLCD_ELF_PATH` — coredump ELF (default `../../esp32_rendering/build/esp32_terminal.elf`)
 
 ## Fixtures
 
-- `device`: session-scoped, single open port
-- `fresh_device`: reboot + erase all app NVS namespaces; auto-captures coredump on crash
-- `wifi_device`: `fresh_device` + one saved WiFi ("TestNetwork")
-- `one_server_device`: `fresh_device` + one configured server ("test")
+- `device`: session-scoped, single open port. Seeds WiFi creds from
+  env once at session start.
+- `fresh_device`: reboots the device, erases `servers`/`app_settings`/
+  `ssh_creds` NVS namespaces AND `/sdcard/servers/*.json` (preserves
+  `wifi_creds` so the device reaches DashboardScreen, and preserves
+  non-JSON files in `/sdcard/servers/` like SSH keys). Runs a warmup
+  button press to drain the post-reboot first-event CDC race, then
+  attaches a coredump-capture finalizer via `extract_coredump()`.
+- `wifi_device`: `fresh_device` + one extra saved WiFi ("TestNetwork").
+- `one_server_device`: `fresh_device` + one server at `127.0.0.1:22`.
+  Loopback is used deliberately — any unreachable host hangs the
+  `ssh_client` task past the task watchdog; 127.0.0.1 produces an
+  immediate ECONNREFUSED via lwIP so state stays stable.
 
 ## Adding a new scenario
 
