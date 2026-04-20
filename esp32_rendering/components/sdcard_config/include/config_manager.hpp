@@ -23,18 +23,26 @@ struct DashboardCommand {
     char command[128];
 };
 
-struct ServerConfig {
+struct ServerCreds {
     char name[32];
     char host[64];
     uint16_t port;
     char username[32];
-    char key_path[64];      // LittleFS path after import
-    char key_file_name[64]; // Source key filename from SD card JSON
+    char password[64];      // NVS-destined (not written by parseServerJson yet; Task 19)
     bool use_key_auth;
+    char key_path[64];      // LittleFS path after import
+};
+
+struct ServerRuntime {
+    ServerCreds creds;
     DashboardCommand dashboard[MAX_DASHBOARD_COMMANDS];
     int dashboard_count;
+    char key_file_name[64]; // Source key filename from SD card JSON (for re-import)
     bool valid;             // Set to true if parsed successfully
 };
+
+// Legacy alias for call sites not yet migrated. Removed in Task 25 cleanup.
+using ServerConfig = ServerRuntime;
 
 /// Manages multi-server configuration loaded from SD card JSON files.
 /// Imports WiFi credentials to NVS, SSH keys to LittleFS, and scrubs
@@ -61,21 +69,21 @@ public:
     void scrubSecrets();
 
     int serverCount() const { return server_count_; }
-    const ServerConfig& getServer(int index) const;
+    const ServerRuntime& getServer(int index) const;
     int activeServerIndex() const { return active_index_; }
     void setActiveServer(int index);
-    const ServerConfig& activeServer() const;
+    const ServerRuntime& activeServer() const;
 
     /// Get parsed device settings from config.json (caller applies to app::Settings)
     const ParsedSettings& parsedSettings() const { return parsed_settings_; }
 
 private:
-    ServerConfig servers_[MAX_SERVERS];
+    ServerRuntime servers_[MAX_SERVERS];
     int server_count_;
     int active_index_;
     ParsedSettings parsed_settings_;
 
-    bool parseServerJson(const char* path, ServerConfig& out, int index);
+    bool parseServerJson(const char* path, ServerRuntime& out, int index);
     bool copyFile(const char* src, const char* dst);
     void scrubJsonFile(const char* path);
     void scrubGlobalConfig();

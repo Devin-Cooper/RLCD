@@ -18,7 +18,7 @@ static const char* KEYS_DIR = "/littlefs/keys";
 
 namespace sdcard {
 
-static ServerConfig s_default_server = {};
+static ServerRuntime s_default_server = {};
 
 ConfigManager::ConfigManager()
     : server_count_(0), active_index_(0), parsed_settings_{} {
@@ -144,9 +144,9 @@ int ConfigManager::loadServerConfigs() {
         if (parseServerJson(path, servers_[server_count_], server_count_)) {
             servers_[server_count_].valid = true;
             ESP_LOGI(TAG, "Loaded server: %s (%s:%d)",
-                     servers_[server_count_].name,
-                     servers_[server_count_].host,
-                     servers_[server_count_].port);
+                     servers_[server_count_].creds.name,
+                     servers_[server_count_].creds.host,
+                     servers_[server_count_].creds.port);
             server_count_++;
         }
     }
@@ -156,7 +156,7 @@ int ConfigManager::loadServerConfigs() {
     return server_count_;
 }
 
-bool ConfigManager::parseServerJson(const char* path, ServerConfig& out, int index) {
+bool ConfigManager::parseServerJson(const char* path, ServerRuntime& out, int index) {
     FILE* f = fopen(path, "r");
     if (!f) return false;
 
@@ -190,19 +190,19 @@ bool ConfigManager::parseServerJson(const char* path, ServerConfig& out, int ind
 
     cJSON* v;
     if ((v = cJSON_GetObjectItem(root, "name")) && cJSON_IsString(v))
-        strncpy(out.name, v->valuestring, sizeof(out.name) - 1);
+        strncpy(out.creds.name, v->valuestring, sizeof(out.creds.name) - 1);
     if ((v = cJSON_GetObjectItem(root, "host")) && cJSON_IsString(v))
-        strncpy(out.host, v->valuestring, sizeof(out.host) - 1);
+        strncpy(out.creds.host, v->valuestring, sizeof(out.creds.host) - 1);
     if ((v = cJSON_GetObjectItem(root, "port")) && cJSON_IsNumber(v))
-        out.port = static_cast<uint16_t>(v->valueint);
+        out.creds.port = static_cast<uint16_t>(v->valueint);
     else
-        out.port = 22;
+        out.creds.port = 22;
     if ((v = cJSON_GetObjectItem(root, "username")) && cJSON_IsString(v))
-        strncpy(out.username, v->valuestring, sizeof(out.username) - 1);
+        strncpy(out.creds.username, v->valuestring, sizeof(out.creds.username) - 1);
 
     // Auth method
     if ((v = cJSON_GetObjectItem(root, "auth_method")) && cJSON_IsString(v))
-        out.use_key_auth = (strcmp(v->valuestring, "key") == 0);
+        out.creds.use_key_auth = (strcmp(v->valuestring, "key") == 0);
 
     // Key file — store the filename for importKeys() to process
     if ((v = cJSON_GetObjectItem(root, "key_file")) && cJSON_IsString(v) &&
@@ -210,14 +210,14 @@ bool ConfigManager::parseServerJson(const char* path, ServerConfig& out, int ind
         strncpy(out.key_file_name, v->valuestring, sizeof(out.key_file_name) - 1);
         // Build sanitized LittleFS target path (replace non-alnum with '_')
         char safe_name[32];
-        strncpy(safe_name, out.name, sizeof(safe_name) - 1);
+        strncpy(safe_name, out.creds.name, sizeof(safe_name) - 1);
         safe_name[sizeof(safe_name) - 1] = '\0';
         for (int j = 0; safe_name[j]; j++) {
             if (!isalnum(static_cast<unsigned char>(safe_name[j])))
                 safe_name[j] = '_';
         }
-        snprintf(out.key_path, sizeof(out.key_path), "/littlefs/keys/%s", safe_name);
-        out.use_key_auth = true;
+        snprintf(out.creds.key_path, sizeof(out.creds.key_path), "/littlefs/keys/%s", safe_name);
+        out.creds.use_key_auth = true;
     }
 
     // Password — save to NVS under index-based key; will be scrubbed from SD
@@ -253,7 +253,7 @@ bool ConfigManager::parseServerJson(const char* path, ServerConfig& out, int ind
     }
 
     // Require at minimum a name and host
-    bool valid = (out.name[0] != '\0' && out.host[0] != '\0');
+    bool valid = (out.creds.name[0] != '\0' && out.creds.host[0] != '\0');
 
     cJSON_Delete(root);
     return valid;
@@ -266,22 +266,22 @@ void ConfigManager::importKeys() {
     mkdir(KEYS_DIR, 0755);
 
     for (int i = 0; i < server_count_; i++) {
-        if (!servers_[i].use_key_auth || servers_[i].key_file_name[0] == '\0') continue;
+        if (!servers_[i].creds.use_key_auth || servers_[i].key_file_name[0] == '\0') continue;
 
         // Build source path from stored key_file_name
         char src_path[288];
         snprintf(src_path, sizeof(src_path), "%s/%s",
                  SD_SERVERS_DIR, servers_[i].key_file_name);
 
-        if (copyFile(src_path, servers_[i].key_path)) {
+        if (copyFile(src_path, servers_[i].creds.key_path)) {
             ESP_LOGI(TAG, "Imported key for %s -> %s",
-                     servers_[i].name, servers_[i].key_path);
+                     servers_[i].creds.name, servers_[i].creds.key_path);
         } else {
             ESP_LOGW(TAG, "Failed to import key for %s from %s",
-                     servers_[i].name, src_path);
+                     servers_[i].creds.name, src_path);
             // Fall back to password auth if key import fails
-            servers_[i].use_key_auth = false;
-            servers_[i].key_path[0] = '\0';
+            servers_[i].creds.use_key_auth = false;
+            servers_[i].creds.key_path[0] = '\0';
         }
     }
 }
@@ -446,7 +446,7 @@ void ConfigManager::scrubGlobalConfig() {
 
 // --- Server Access ---
 
-const ServerConfig& ConfigManager::getServer(int index) const {
+const ServerRuntime& ConfigManager::getServer(int index) const {
     if (index < 0 || index >= server_count_) return s_default_server;
     return servers_[index];
 }
@@ -454,11 +454,11 @@ const ServerConfig& ConfigManager::getServer(int index) const {
 void ConfigManager::setActiveServer(int index) {
     if (index >= 0 && index < server_count_) {
         active_index_ = index;
-        ESP_LOGI(TAG, "Active server: %s", servers_[active_index_].name);
+        ESP_LOGI(TAG, "Active server: %s", servers_[active_index_].creds.name);
     }
 }
 
-const ServerConfig& ConfigManager::activeServer() const {
+const ServerRuntime& ConfigManager::activeServer() const {
     if (server_count_ == 0) return s_default_server;
     return servers_[active_index_];
 }

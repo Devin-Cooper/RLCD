@@ -127,10 +127,10 @@ static void switchToNextServer(sdcard::ConfigManager* configMgr,
     const auto& srv = configMgr->activeServer();
     sshClient.disconnect();
     ssh::Config cfg = {};
-    strncpy(cfg.host, srv.host, sizeof(cfg.host) - 1);
-    cfg.port = srv.port;
-    strncpy(cfg.username, srv.username, sizeof(cfg.username) - 1);
-    cfg.use_key_auth = srv.use_key_auth;
+    strncpy(cfg.host, srv.creds.host, sizeof(cfg.host) - 1);
+    cfg.port = srv.creds.port;
+    strncpy(cfg.username, srv.creds.username, sizeof(cfg.username) - 1);
+    cfg.use_key_auth = srv.creds.use_key_auth;
     if (!cfg.use_key_auth) {
         nvs_handle_t handle;
         if (nvs_open("ssh_creds", NVS_READONLY, &handle) == ESP_OK) {
@@ -145,8 +145,8 @@ static void switchToNextServer(sdcard::ConfigManager* configMgr,
     if (srv.dashboard_count > 0) {
         dashboard.updateCommands(srv.dashboard, srv.dashboard_count);
     }
-    dashboard.setServerName(srv.name[0] ? srv.name : srv.host);
-    ESP_LOGI(TAG, "Switched to server: %s", srv.name);
+    dashboard.setServerName(srv.creds.name[0] ? srv.creds.name : srv.creds.host);
+    ESP_LOGI(TAG, "Switched to server: %s", srv.creds.name);
 }
 
 // ============================================================================
@@ -165,10 +165,10 @@ static void reconnectActiveServer(sdcard::ConfigManager* configMgr,
     const auto& srv = configMgr->activeServer();
     sshClient.disconnect();
     ssh::Config cfg = {};
-    strncpy(cfg.host, srv.host, sizeof(cfg.host) - 1);
-    cfg.port = srv.port;
-    strncpy(cfg.username, srv.username, sizeof(cfg.username) - 1);
-    cfg.use_key_auth = srv.use_key_auth;
+    strncpy(cfg.host, srv.creds.host, sizeof(cfg.host) - 1);
+    cfg.port = srv.creds.port;
+    strncpy(cfg.username, srv.creds.username, sizeof(cfg.username) - 1);
+    cfg.use_key_auth = srv.creds.use_key_auth;
     if (!cfg.use_key_auth) {
         nvs_handle_t handle;
         if (nvs_open("ssh_creds", NVS_READONLY, &handle) == ESP_OK) {
@@ -183,8 +183,8 @@ static void reconnectActiveServer(sdcard::ConfigManager* configMgr,
     if (srv.dashboard_count > 0) {
         dashboard.updateCommands(srv.dashboard, srv.dashboard_count);
     }
-    dashboard.setServerName(srv.name[0] ? srv.name : srv.host);
-    ESP_LOGI(TAG, "Reconnected to active server: %s", srv.name);
+    dashboard.setServerName(srv.creds.name[0] ? srv.creds.name : srv.creds.host);
+    ESP_LOGI(TAG, "Reconnected to active server: %s", srv.creds.name);
 }
 
 // ============================================================================
@@ -608,10 +608,10 @@ extern "C" void app_main() {
         // SSH connect — use SD card server config if available, else NVS settings
         if (hasServers) {
             const auto& srv = configMgr->activeServer();
-            strncpy(sshCfg.host, srv.host, sizeof(sshCfg.host) - 1);
-            sshCfg.port = srv.port;
-            strncpy(sshCfg.username, srv.username, sizeof(sshCfg.username) - 1);
-            sshCfg.use_key_auth = srv.use_key_auth;
+            strncpy(sshCfg.host, srv.creds.host, sizeof(sshCfg.host) - 1);
+            sshCfg.port = srv.creds.port;
+            strncpy(sshCfg.username, srv.creds.username, sizeof(sshCfg.username) - 1);
+            sshCfg.use_key_auth = srv.creds.use_key_auth;
             // Load password from NVS if using password auth
             if (!sshCfg.use_key_auth) {
                 nvs_handle_t handle;
@@ -676,7 +676,7 @@ extern "C" void app_main() {
             dashboard.updateCommands(srv.dashboard, srv.dashboard_count);
         }
         // Show server name (or host) in dashboard title bar
-        dashboard.setServerName(srv.name[0] ? srv.name : srv.host);
+        dashboard.setServerName(srv.creds.name[0] ? srv.creds.name : srv.creds.host);
     }
 
     app::TerminalMode terminalMode(fb, activeFont);
