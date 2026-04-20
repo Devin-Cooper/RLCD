@@ -4,6 +4,7 @@
 #include "screens/about_screen.hpp"
 #include "screens/wifi_screen.hpp"
 #include "screens/server_list_screen.hpp"
+#include "screens/settings_screen.hpp"
 #include "screen_stack.hpp"
 #include "overlay.hpp"
 #include <1bit/render/primitives.hpp>
@@ -88,8 +89,7 @@ void MenuScreen::dispatchSelection(ScreenStack& stack, Item item) {
             stack.push(std::make_unique<ServerListScreen>(ctx_));
             break;
         case Item::Settings:
-            ESP_LOGI(TAG, "Settings — SettingsScreen deferred to Task 23");
-            ctx_.overlay.showToast("Settings editor: coming soon", 2000);
+            stack.push(std::make_unique<SettingsScreen>(ctx_));
             break;
         case Item::WiFi:
             stack.push(std::make_unique<WifiScreen>(ctx_));

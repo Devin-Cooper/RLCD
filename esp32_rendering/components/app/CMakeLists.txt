@@ -17,6 +17,7 @@ idf_component_register(
         "src/screens/password_screen.cpp"
         "src/screens/server_list_screen.cpp"
         "src/screens/server_edit_screen.cpp"
+        "src/screens/settings_screen.cpp"
     INCLUDE_DIRS "include"
     REQUIRES onebit ssh_client sdcard_config nvs_flash input_queue
 )

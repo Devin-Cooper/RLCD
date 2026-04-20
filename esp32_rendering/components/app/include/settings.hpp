@@ -18,8 +18,8 @@ struct Settings {
 /// Load settings from NVS. Returns defaults if NVS read fails.
 Settings loadSettings();
 
-/// Save settings to NVS. Logs warning on failure.
-void saveSettings(const Settings& s);
+/// Save settings to NVS. Returns true on success; false on NVS error.
+bool saveSettings(const Settings& s);
 
 /// Return compile-time default settings.
 Settings defaultSettings();

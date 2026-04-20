@@ -420,7 +420,7 @@ extern "C" void app_main() {
         if (ps.has_font_size) settings.font_size = ps.font_size;
         if (ps.has_scrollback) settings.scrollback_depth = ps.scrollback;
         if (ps.has_dashboard_interval_ms) settings.dashboard_interval_ms = ps.dashboard_interval_ms;
-        app::saveSettings(settings);
+        (void) app::saveSettings(settings);   // boot-time; failure logged by saveSettings itself
     }
     const onebit::BitmapFont& activeFont = fontForSize(settings.font_size);
     ESP_LOGI(TAG, "Font selected OK");

@@ -36,7 +36,9 @@ void TerminalScreen::handleInput(const input::InputEvent& evt,
         evt.button_id == 1) {
         ctx_.currentFontSize = (ctx_.currentFontSize + 1) % 3;
         ctx_.settings.font_size = ctx_.currentFontSize;
-        app::saveSettings(ctx_.settings);
+        if (!app::saveSettings(ctx_.settings)) {
+            ctx_.overlay.showError("Settings save failed", "NVS write error");
+        }
         return;
     }
 
