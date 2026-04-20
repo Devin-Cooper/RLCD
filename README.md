@@ -202,6 +202,36 @@ This repository uses:
 - [ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/get-started/) v5.x or later
 - VS Code with ESP-IDF extension (recommended)
 
+## Test Infrastructure
+
+Two complementary test surfaces:
+
+### Host unit tests (Catch2)
+
+Pure-logic unit tests under `host_test/app/` run without hardware.
+
+~~~bash
+cd host_test
+cmake -S . -B build
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+~~~
+
+### On-device scenarios
+
+See `host_test/scenarios/README.md` for the pytest + pyserial
+harness that drives real firmware over UART via the `test_console`
+REPL. Build firmware with the test overlay:
+
+~~~bash
+cd esp32_rendering
+idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.test" \
+       -p /dev/cu.usbmodem4101 flash
+cd ../host_test/scenarios
+pip install -r requirements.txt
+python -m pytest -v
+~~~
+
 ## Reference Documentation
 
 ### Waveshare Resources
