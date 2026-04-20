@@ -312,7 +312,7 @@ void ConfigManager::persistDashboardTo(const ServerRuntime& s) {
     mkdir("/littlefs/servers", 0755);   // idempotent
     char path[96];
     snprintf(path, sizeof(path), "/littlefs/servers/%s.cmd", s.creds.name);
-    char tmp[96];
+    char tmp[sizeof(path) + 4];   // +4 for ".tmp" — silences -Werror=format-truncation
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE* f = fopen(tmp, "w");
     if (!f) { ESP_LOGW(TAG, "open %s: %d", tmp, errno); return; }
