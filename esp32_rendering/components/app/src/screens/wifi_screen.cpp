@@ -5,6 +5,7 @@
 #include <1bit/render/primitives.hpp>
 #include <cstring>
 #include <cstdio>
+#include <string>
 #include <esp_log.h>
 
 static const char* TAG = "wifi_screen";
@@ -16,6 +17,7 @@ WifiScreen::WifiScreen(ScreenContext& ctx) : ctx_(ctx) {}
 void WifiScreen::onEnter() {
     wifi::ConnectionInfo ci = ctx_.wifiMgr.connectionInfo();
     tab_ = (ci.state == wifi::State::Connected) ? Tab::Known : Tab::Available;
+    refreshKnown();
     onEnterTab(tab_);
 }
 
@@ -25,6 +27,14 @@ void WifiScreen::onEnterTab(Tab t) {
     if (t == Tab::Available && !scan_in_flight_) {
         startScan();
     }
+    if (t == Tab::Known) {
+        refreshKnown();
+    }
+}
+
+void WifiScreen::refreshKnown() {
+    known_count_ = ctx_.wifiMgr.knownNetworks(
+        known_, wifi::WifiManager::MAX_KNOWN_NETWORKS);
 }
 
 void WifiScreen::startScan() {
@@ -58,8 +68,7 @@ void WifiScreen::sanitize(char* dst, const char* src, size_t dst_cap) {
 }
 
 int WifiScreen::visibleCount() const {
-    // Known tab populates at Task 17.
-    return (tab_ == Tab::Available) ? scan_count_ : 0;
+    return (tab_ == Tab::Available) ? scan_count_ : known_count_;
 }
 
 void WifiScreen::handleInput(const input::InputEvent& evt, ScreenStack& stack) {
@@ -99,6 +108,25 @@ void WifiScreen::handleInput(const input::InputEvent& evt, ScreenStack& stack) {
             startScan();
             return;
         }
+        // Shift+D (capital D only): forget with confirm, Known tab only
+        if (evt.data_length == 1 && evt.data[0] == 'D' &&
+            tab_ == Tab::Known && sel_ < known_count_) {
+            char ssid_copy[33];
+            std::strncpy(ssid_copy, known_[sel_].ssid, sizeof(ssid_copy) - 1);
+            ssid_copy[sizeof(ssid_copy) - 1] = '\0';
+
+            char body[64];
+            snprintf(body, sizeof(body), "Forget %s?", ssid_copy);
+            ctx_.overlay.showConfirm("Confirm", body,
+                [this, ssid_copy = std::string(ssid_copy)](bool yes) {
+                    if (!yes) return;
+                    ctx_.wifiMgr.forgetNetwork(ssid_copy.c_str());
+                    refreshKnown();
+                    if (sel_ >= known_count_) sel_ = std::max(0, known_count_ - 1);
+                    ctx_.overlay.showToast("Forgotten", 1500);
+                });
+            return;
+        }
     }
 
     if (evt.source == input::Source::Button &&
@@ -113,7 +141,16 @@ void WifiScreen::handleInput(const input::InputEvent& evt, ScreenStack& stack) {
 }
 
 void WifiScreen::connectSelected(ScreenStack& stack) {
-    if (tab_ != Tab::Available) return;
+    if (tab_ == Tab::Known) {
+        if (sel_ < 0 || sel_ >= known_count_) return;
+        char pw[65];
+        if (ctx_.wifiMgr.knownPassword(known_[sel_].ssid, pw, sizeof(pw))) {
+            ctx_.wifiMgr.connect(known_[sel_].ssid, pw);
+            ctx_.overlay.showToast("Connecting...", 1500);
+        }
+        return;
+    }
+    // Available tab
     if (sel_ < 0 || sel_ >= scan_count_) return;
 
     const wifi::NetworkInfo& n = scan_[sel_];
@@ -168,12 +205,30 @@ void WifiScreen::render(onebit::IFramebuffer& fb,
             y += font.glyph_height + 2;
         }
     } else {
-        onebit::drawBitmapText(fb, font, 10, y,
-                               "(Known tab arrives in Task 17)", onebit::BLACK);
+        // Known tab
+        if (known_count_ == 0) {
+            onebit::drawBitmapText(fb, font, 10, y,
+                                   "No saved networks.", onebit::BLACK);
+        } else {
+            for (int i = 0; i < known_count_ &&
+                 y + font.glyph_height < fb.height() - 20; ++i) {
+                char line[80];
+                snprintf(line, sizeof(line), "%c %s",
+                         i == sel_ ? '>' : ' ', known_[i].ssid);
+                if (i == sel_) {
+                    onebit::fillRect(fb, 8, y - 1, fb.width() - 16,
+                                     font.glyph_height + 2, onebit::BLACK);
+                    onebit::drawBitmapText(fb, font, 10, y, line, onebit::WHITE);
+                } else {
+                    onebit::drawBitmapText(fb, font, 10, y, line, onebit::BLACK);
+                }
+                y += font.glyph_height + 2;
+            }
+        }
     }
 
     onebit::drawBitmapText(fb, font, 10, fb.height() - font.glyph_height - 4,
-        "Up/Dn pick  Enter connect  r scan  <-/-> tab  Esc back",
+        "Up/Dn  Enter connect  r scan  Shift+D forget  <-/-> tab  Esc back",
         onebit::BLACK);
 }
 

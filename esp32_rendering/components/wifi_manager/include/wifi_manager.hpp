@@ -78,6 +78,13 @@ public:
     /// Remove a network from NVS known list.
     void forgetNetwork(const char* ssid);
 
+    /// Populate `out` with up to `max` valid known networks. Returns count.
+    int knownNetworks(NetworkInfo* out, int max) const;
+
+    /// Returns true if ssid is in known list and writes the saved password
+    /// to `out` (NUL-terminated). Returns false otherwise.
+    bool knownPassword(const char* ssid, char* out, size_t out_cap) const;
+
 private:
     std::atomic<State> state_;
     StateCallback state_cb_;

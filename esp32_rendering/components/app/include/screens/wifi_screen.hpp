@@ -3,6 +3,7 @@
 #include "screen.hpp"
 #include "screen_context.hpp"
 #include "wifi_manager.hpp"
+#include <algorithm>
 
 namespace app {
 
@@ -25,6 +26,10 @@ private:
     wifi::NetworkInfo scan_[wifi::WifiManager::MAX_SCAN_RESULTS];
     int scan_count_ = 0;
     bool scan_in_flight_ = false;
+
+    wifi::NetworkInfo known_[wifi::WifiManager::MAX_KNOWN_NETWORKS];
+    int known_count_ = 0;
+    void refreshKnown();
 
     void startScan();
     void refreshScanResults();

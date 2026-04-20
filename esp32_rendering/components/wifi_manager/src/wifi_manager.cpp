@@ -233,6 +233,27 @@ void WifiManager::forgetNetwork(const char* ssid) {
     }
 }
 
+int WifiManager::knownNetworks(NetworkInfo* out, int max) const {
+    int n = 0;
+    for (int i = 0; i < MAX_KNOWN_NETWORKS && n < max; ++i) {
+        if (!known_networks_[i].valid) continue;
+        std::strncpy(out[n].ssid, known_networks_[i].ssid, sizeof(out[n].ssid) - 1);
+        out[n].ssid[sizeof(out[n].ssid) - 1] = '\0';
+        out[n].rssi = 0;
+        out[n].auth = WIFI_AUTH_WPA2_PSK;   // unknown at this level; default secured
+        ++n;
+    }
+    return n;
+}
+
+bool WifiManager::knownPassword(const char* ssid, char* out, size_t out_cap) const {
+    int idx = findKnownNetwork(ssid);
+    if (idx < 0 || !out || out_cap == 0) return false;
+    std::strncpy(out, known_networks_[idx].password, out_cap - 1);
+    out[out_cap - 1] = '\0';
+    return true;
+}
+
 // --- Private ---
 
 void WifiManager::loadKnownNetworks() {
