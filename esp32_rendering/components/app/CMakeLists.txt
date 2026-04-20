@@ -8,6 +8,7 @@ idf_component_register(
         "src/screen_stack.cpp"
         "src/overlay.cpp"
         "src/text_input.cpp"
+        "src/screens/dashboard_screen.cpp"
     INCLUDE_DIRS "include"
     REQUIRES onebit ssh_client sdcard_config nvs_flash input_queue
 )
