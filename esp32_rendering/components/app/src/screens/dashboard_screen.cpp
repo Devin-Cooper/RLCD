@@ -1,4 +1,5 @@
 #include "screens/dashboard_screen.hpp"
+#include "screens/menu_screen.hpp"
 #include "screen_stack.hpp"
 #include <esp_log.h>
 
@@ -22,12 +23,11 @@ void DashboardScreen::feedSshData(const uint8_t* data, size_t len) {
 
 void DashboardScreen::handleInput(const input::InputEvent& evt,
                                   ScreenStack& stack) {
-    (void)stack;  // Menu open uses openLegacyMenu during 2a/2b; MenuScreen push lands at Task 11.
-    // Button A short → open menu (legacy bridge; replaced at Task 11)
+    // Button A short → push MenuScreen
     if (evt.source == input::Source::Button &&
         evt.type == input::EventType::ButtonShort &&
         evt.button_id == 0) {
-        if (ctx_.openLegacyMenu) ctx_.openLegacyMenu();
+        stack.push(std::make_unique<MenuScreen>(ctx_));
         return;
     }
     // Button B long → switch to next server (existing power-user shortcut).

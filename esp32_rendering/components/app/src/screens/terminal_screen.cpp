@@ -1,4 +1,5 @@
 #include "screens/terminal_screen.hpp"
+#include "screens/menu_screen.hpp"
 #include "screen_stack.hpp"
 #include "settings.hpp"
 #include "overlay.hpp"
@@ -20,13 +21,11 @@ void TerminalScreen::feedSshData(const uint8_t* data, size_t len) {
 
 void TerminalScreen::handleInput(const input::InputEvent& evt,
                                  ScreenStack& stack) {
-    (void)stack;
-    // Button A short → open menu (Amendment B: bridge via legacy Menu
-    // during 2a/2b; replaced with MenuScreen push at Task 11).
+    // Button A short → push MenuScreen
     if (evt.source == input::Source::Button &&
         evt.type == input::EventType::ButtonShort &&
         evt.button_id == 0) {
-        if (ctx_.openLegacyMenu) ctx_.openLegacyMenu();
+        stack.push(std::make_unique<MenuScreen>(ctx_));
         return;
     }
 
@@ -45,10 +44,17 @@ void TerminalScreen::handleInput(const input::InputEvent& evt,
     // Button B long → switch to Dashboard (existing terminal→dashboard
     // semantic). Still handled by main.cpp's legacy dispatch during 2a/2b.
 
-    // Keyboard → SSH passthrough. F1 handling moves in at Task 11
-    // when MenuScreen exists.
+    // Keyboard → SSH passthrough, with F1 (ESC O P) intercepted for menu.
     if (evt.source == input::Source::Keyboard &&
         evt.type == input::EventType::Keypress) {
+        bool isF1 = (evt.data_length == 3 &&
+                     evt.data[0] == 0x1B &&
+                     evt.data[1] == 'O' &&
+                     evt.data[2] == 'P');
+        if (isF1) {
+            stack.push(std::make_unique<MenuScreen>(ctx_));
+            return;
+        }
         ctx_.sshClient.send(evt.data, evt.data_length);
     }
 }
