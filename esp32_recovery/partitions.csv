@@ -1,0 +1,12 @@
+# ESP32-S3-RLCD — factory recovery + single-slot OTA, 16 MB flash.
+# nvs/otadata/phy_init offsets+sizes are BYTE-IDENTICAL to the previous
+# dual-OTA layout so existing NVS contents (wifi_creds, servers,
+# app_settings) survive the re-partition via ./flash.sh.
+# Name,      Type,  SubType, Offset,   Size,     Flags
+nvs,         data,  nvs,     0x9000,   0x6000,
+otadata,     data,  ota,     0x10000,  0x2000,
+phy_init,    data,  phy,     0x12000,  0x1000,
+factory,     app,   factory, 0x20000,  0x80000,
+ota_0,       app,   ota_0,   0xA0000,  0xA00000,
+littlefs,    data,  spiffs,  0xAA0000, 0x400000,
+coredump,    data,  coredump,0xEA0000, 0x100000,
