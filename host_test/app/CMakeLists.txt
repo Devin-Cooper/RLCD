@@ -29,3 +29,14 @@ add_host_test(
         "${RLCD_COMPONENTS}/input_queue/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
 )
+
+add_host_test(
+    NAME test_overlay_manager
+    SOURCES
+        test_overlay_manager.cpp
+        "${APP_DIR}/src/overlay.cpp"
+    INCLUDES
+        "${APP_DIR}/include"
+        "${RLCD_COMPONENTS}/input_queue/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
+)
