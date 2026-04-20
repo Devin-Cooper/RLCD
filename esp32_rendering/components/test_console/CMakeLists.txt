@@ -27,6 +27,7 @@ idf_component_register(
         esp_system
         log
         espcoredump
+        app_update
         vfs
         onebit
         json

@@ -34,7 +34,8 @@ ESP_LOGx output can't tear a marker line.
 ## Command groups
 
 - `commands_runtime.cpp` — ping, uptime, log level, reboot, crash,
-  coredump check/read/erase.
+  coredump check/read/erase,
+  ota-info → running partition metadata + otadata state + app version/sha.
 - `commands_introspect.cpp` — stack (screen-stack walk via RTTI),
   heap, tasklist, wifi/ssh/ble status, migration result, fb dump
   (PGM P5 framebuffer over base64).

@@ -7,6 +7,8 @@
 #include "esp_timer.h"
 #include "esp_core_dump.h"
 #include "esp_partition.h"
+#include "esp_ota_ops.h"
+#include "esp_app_desc.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -125,6 +127,40 @@ static int cmd_coredump_erase(int, char**) {
     return 0;
 }
 
+// --- ota-info ---
+static int cmd_ota_info(int argc, char** argv) {
+    (void)argc; (void)argv;
+    const esp_partition_t* running = esp_ota_get_running_partition();
+    if (!running) { err(1, "no running partition"); return 1; }
+
+    esp_ota_img_states_t state = ESP_OTA_IMG_UNDEFINED;
+    const char* state_str = "n/a";
+    esp_err_t se = esp_ota_get_state_partition(running, &state);
+    if (se == ESP_OK) {
+        switch (state) {
+            case ESP_OTA_IMG_NEW:            state_str = "NEW"; break;
+            case ESP_OTA_IMG_PENDING_VERIFY: state_str = "PENDING"; break;
+            case ESP_OTA_IMG_VALID:          state_str = "VALID"; break;
+            case ESP_OTA_IMG_INVALID:        state_str = "INVALID"; break;
+            case ESP_OTA_IMG_ABORTED:        state_str = "ABORTED"; break;
+            case ESP_OTA_IMG_UNDEFINED:
+            default:                          state_str = "UNDEFINED"; break;
+        }
+    }
+    // se == ESP_ERR_NOT_SUPPORTED when running from factory — state_str stays "n/a"
+
+    const esp_app_desc_t* desc = esp_app_get_description();
+    char sha_hex[17] = {};
+    for (int i = 0; i < 8; ++i) {
+        snprintf(sha_hex + i*2, 3, "%02x", desc->app_elf_sha256[i]);
+    }
+
+    ok("running_label=%s subtype=%d size=%u state=%s version=%s sha=%s",
+       running->label, (int)running->subtype, (unsigned)running->size,
+       state_str, desc->version, sha_hex);
+    return 0;
+}
+
 void registerRuntimeCommands() {
     // Field order: command, help, hint, func, argtable, func_w_context, context
     const esp_console_cmd_t cmds[] = {
@@ -136,6 +172,7 @@ void registerRuntimeCommands() {
         {"coredump-check",  "coredump check — present or not",     nullptr, cmd_coredump_check, nullptr, nullptr, nullptr},
         {"coredump-read",   "coredump read — base64 stream",       nullptr, cmd_coredump_read,  nullptr, nullptr, nullptr},
         {"coredump-erase",  "coredump erase",                      nullptr, cmd_coredump_erase, nullptr, nullptr, nullptr},
+        {"ota-info",        "Running partition + otadata state + app version/sha", nullptr, cmd_ota_info, nullptr, nullptr, nullptr},
     };
     for (const auto& c : cmds) esp_console_cmd_register(&c);
 }
