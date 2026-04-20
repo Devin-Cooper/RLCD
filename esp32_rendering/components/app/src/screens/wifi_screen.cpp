@@ -111,16 +111,18 @@ void WifiScreen::handleInput(const input::InputEvent& evt, ScreenStack& stack) {
         // Shift+D (capital D only): forget with confirm, Known tab only
         if (evt.data_length == 1 && evt.data[0] == 'D' &&
             tab_ == Tab::Known && sel_ < known_count_) {
-            char ssid_copy[33];
-            std::strncpy(ssid_copy, known_[sel_].ssid, sizeof(ssid_copy) - 1);
-            ssid_copy[sizeof(ssid_copy) - 1] = '\0';
+            char raw_ssid[33];
+            std::strncpy(raw_ssid, known_[sel_].ssid, sizeof(raw_ssid) - 1);
+            raw_ssid[sizeof(raw_ssid) - 1] = '\0';
+
+            std::string forgotten_ssid(raw_ssid);
 
             char body[64];
-            snprintf(body, sizeof(body), "Forget %s?", ssid_copy);
+            snprintf(body, sizeof(body), "Forget %s?", raw_ssid);
             ctx_.overlay.showConfirm("Confirm", body,
-                [this, ssid_copy = std::string(ssid_copy)](bool yes) {
+                [this, forgotten_ssid](bool yes) {
                     if (!yes) return;
-                    ctx_.wifiMgr.forgetNetwork(ssid_copy.c_str());
+                    ctx_.wifiMgr.forgetNetwork(forgotten_ssid.c_str());
                     refreshKnown();
                     if (sel_ >= known_count_) sel_ = std::max(0, known_count_ - 1);
                     ctx_.overlay.showToast("Forgotten", 1500);
