@@ -129,3 +129,209 @@ class Device:
     @property
     def log_tail(self) -> list[str]:
         return list(self._log_buf)
+
+    # -----------------------------------------------------------------
+    # Input injection
+    # -----------------------------------------------------------------
+    def button(self, which: str, kind: str = "short") -> None:
+        r = self.send(f"btn {which} {kind}")
+        assert r.ok, r
+
+    def key_press(self, text: str) -> None:
+        r = self.send(f"key-press {text}")
+        assert r.ok, r
+
+    def key_enter(self) -> None:
+        assert self.send("key-enter").ok
+
+    def key_esc(self) -> None:
+        assert self.send("key-esc").ok
+
+    def key_tab(self) -> None:
+        assert self.send("key-tab").ok
+
+    def key_backspace(self) -> None:
+        assert self.send("key-backspace").ok
+
+    def key_arrow(self, direction: str) -> None:
+        assert self.send(f"key-arrow {direction}").ok
+
+    def key_fn(self, n: int) -> None:
+        assert self.send(f"key-fn {n}").ok
+
+    def key_ctrl(self, letter: str) -> None:
+        assert self.send(f"key-ctrl {letter}").ok
+
+    def key_raw(self, hex_bytes: str) -> None:
+        assert self.send(f"key-raw {hex_bytes}").ok
+
+    def system_wifi_state(self, state: str, reason: int = 0) -> None:
+        assert self.send(f"system-wifi-state {state} {reason}").ok
+
+    def system_ble_state(self, state: str) -> None:
+        assert self.send(f"system-ble-state {state}").ok
+
+    def system_wifi_scan_result(self, ssid: str, rssi: int, auth: str = "wpa2") -> None:
+        assert self.send(f"system-wifi-scan-result {ssid} {rssi} {auth}").ok
+
+    def system_wifi_scan_inject(self) -> None:
+        assert self.send("system-wifi-scan-inject").ok
+
+    # -----------------------------------------------------------------
+    # Introspection
+    # -----------------------------------------------------------------
+    def stack(self) -> list[tuple[int, str, bool]]:
+        """Returns list of (depth, typename, is_opaque)."""
+        r = self.send("stack")
+        assert r.ok, r
+        out = []
+        for line in r.data_lines:
+            parts = line.split(" ", 2)
+            out.append((int(parts[0]), parts[1], parts[2] == "opaque"))
+        return out
+
+    def stack_top(self) -> str:
+        s = self.stack()
+        return s[-1][1] if s else ""
+
+    def expect_stack_top(self, name_substr: str, timeout: float = 2.0) -> None:
+        deadline = time.time() + timeout
+        last = None
+        while time.time() < deadline:
+            last = self.stack_top()
+            if name_substr in last:
+                return
+            time.sleep(0.05)
+        raise AssertionError(
+            f"expected stack top containing '{name_substr}', got '{last}'"
+        )
+
+    def heap(self) -> dict[str, int]:
+        r = self.send("heap")
+        assert r.ok, r
+        out = {}
+        for kv in (r.value or "").split():
+            k, _, v = kv.partition("=")
+            out[k] = int(v)
+        return out
+
+    def wifi_status(self) -> dict[str, Any]:
+        r = self.send("wifi-status")
+        assert r.ok, r
+        out: dict[str, Any] = {}
+        for kv in (r.value or "").split():
+            k, _, v = kv.partition("=")
+            out[k] = int(v) if k == "rssi" else v
+        return out
+
+    def ssh_status(self) -> dict[str, str]:
+        r = self.send("ssh-status")
+        assert r.ok, r
+        return dict(kv.split("=", 1) for kv in (r.value or "").split() if "=" in kv)
+
+    def ble_status(self) -> dict[str, str]:
+        r = self.send("ble-status")
+        assert r.ok, r
+        return dict(kv.split("=", 1) for kv in (r.value or "").split() if "=" in kv)
+
+    def migration(self) -> str:
+        r = self.send("migration")
+        assert r.ok, r
+        return (r.value or "").strip()
+
+    # -----------------------------------------------------------------
+    # NVS + domain
+    # -----------------------------------------------------------------
+    def nvs_get(self, ns: str, key: str) -> tuple[str, Any]:
+        r = self.send(f"nvs-get {ns} {key}")
+        assert r.ok, r
+        type_, _, value = (r.value or "").partition(" ")
+        if type_ in ("u8", "u16", "u32"):
+            return (type_, int(value))
+        if type_ == "i32":
+            return (type_, int(value))
+        return (type_, value)
+
+    def nvs_set(self, ns: str, key: str, type_: str, value: Any) -> None:
+        assert self.send(f"nvs-set {ns} {key} {type_} {value}").ok
+
+    def nvs_erase(self, ns: str) -> None:
+        assert self.send(f"nvs-erase {ns}").ok
+
+    def wifi_save(self, ssid: str, password: str) -> None:
+        assert self.send(f"wifi-save {ssid} {password}").ok
+
+    def wifi_forget(self, ssid: str) -> None:
+        assert self.send(f"wifi-forget {ssid}").ok
+
+    def server_upsert(self, creds: dict) -> int:
+        import json, base64
+        b64 = base64.b64encode(json.dumps(creds).encode()).decode()
+        r = self.send(f"server-upsert {b64}")
+        assert r.ok, r
+        return int(r.value or "-1")
+
+    def server_list(self) -> list[dict]:
+        r = self.send("server-list")
+        assert r.ok, r
+        out = []
+        for line in r.data_lines:
+            parts = line.split()
+            if len(parts) >= 4:
+                out.append({
+                    "index": int(parts[0]),
+                    "name": parts[1],
+                    "endpoint": parts[2],
+                    "active": parts[3] == "active",
+                })
+        return out
+
+    def server_delete(self, index: int) -> None:
+        assert self.send(f"server-delete {index}").ok
+
+    def server_set_active(self, index: int) -> None:
+        assert self.send(f"server-set-active {index}").ok
+
+    def settings_set(self, field: str, value: Any) -> None:
+        assert self.send(f"settings-set {field} {value}").ok
+
+    # -----------------------------------------------------------------
+    # Filesystem
+    # -----------------------------------------------------------------
+    def fs_read(self, path: str) -> bytes:
+        import base64
+        r = self.send(f"fs-read {path}", timeout=60.0)
+        assert r.ok, r
+        combined = "".join(r.data_lines).replace(" ", "")
+        return base64.b64decode(combined)
+
+    def fs_write(self, path: str, data: bytes) -> None:
+        import base64
+        r = self.send(f"fs-write-begin {path}")
+        assert r.ok, r
+        token = (r.value or "").strip()
+        CHUNK = 3072  # decoded bytes per chunk
+        for i in range(0, len(data), CHUNK):
+            b64 = base64.b64encode(data[i:i + CHUNK]).decode()
+            r2 = self.send(f"fs-write-chunk {token} {b64}", timeout=10.0)
+            assert r2.ok, r2
+        assert self.send(f"fs-write-commit {token}").ok
+
+    # -----------------------------------------------------------------
+    # Runtime
+    # -----------------------------------------------------------------
+    def ping(self) -> int:
+        r = self.send("ping")
+        assert r.ok, r
+        return int(r.value or "0")
+
+    def reboot(self) -> None:
+        self.send("reboot", timeout=1.0)   # OK fires then reset
+        self.wait_for_boot()
+
+    def crash(self) -> None:
+        try:
+            self.send("crash", timeout=0.5)
+        except TimeoutError:
+            pass   # expected — abort() fires without sending OK
+        self.wait_for_boot()
