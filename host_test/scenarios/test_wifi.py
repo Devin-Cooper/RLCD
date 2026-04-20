@@ -17,10 +17,18 @@ def test_wifi_screen_open_close(fresh_device):
 def test_password_screen_type_submit_wrong_rejects(wifi_device):
     _open_wifi_screen(wifi_device)
 
+    # WifiScreen::onEnter initializes tab to Known when WiFi is already
+    # connected (wifi_screen.cpp:17-22). fresh_device has the real WiFi
+    # connected, so we need to switch to the Available tab before the
+    # scan-injected SecuredNet becomes selectable. Left arrow toggles.
+    import time
+    wifi_device.key_arrow("left")
+    time.sleep(0.1)
+
     # Inject canned scan with one secured AP.
     wifi_device.system_wifi_scan_result("SecuredNet", -60, "wpa2")
     wifi_device.system_wifi_scan_inject()
-    import time; time.sleep(0.2)
+    time.sleep(0.2)
 
     # Enter on secured AP → PasswordScreen pushed.
     wifi_device.key_enter()

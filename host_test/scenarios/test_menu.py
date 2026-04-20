@@ -16,7 +16,14 @@ def test_font_cycle_through_three_sizes(fresh_device):
     fresh_device.key_enter()
     fresh_device.expect_stack_top("TerminalScreen")
 
-    initial = fresh_device.nvs_get("app_settings", "font_size")[1]
+    # fresh_device just wiped app_settings — font_size key may not exist yet.
+    # Firmware loadSettings() falls back to defaultSettings().font_size (=1)
+    # on a missing key without writing back (NVS wear avoidance), so we
+    # anchor initial to 1 when nvs-get returns ERR 3 (key not found).
+    try:
+        initial = fresh_device.nvs_get("app_settings", "font_size")[1]
+    except AssertionError:
+        initial = 1
     for _ in range(3):
         fresh_device.button("b", "short")
         time.sleep(0.2)
