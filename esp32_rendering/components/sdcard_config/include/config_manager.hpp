@@ -49,9 +49,6 @@ struct ServerRuntime {
     bool valid;             // Set to true if parsed successfully
 };
 
-// Legacy alias for call sites not yet migrated. Removed in Task 25 cleanup.
-using ServerConfig = ServerRuntime;
-
 /// Manages multi-server configuration loaded from SD card JSON files.
 /// Imports WiFi credentials to NVS, SSH keys to LittleFS, and scrubs
 /// secrets from the SD card after import.

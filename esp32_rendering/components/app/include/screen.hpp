@@ -11,16 +11,18 @@ class ScreenStack;
 
 /// Abstract base for all app screens.
 ///
-/// Contract:
-///  - An opaque Screen owns every pixel in fb when rendered.
-///  - A transparent Screen must draw into a bounded region only and
-///    MUST NOT call fb.clear().
-///  - Screens MUST NOT call stack.push/pop/replace from render().
-///    ScreenStack asserts a render-phase flag to catch this.
-///  - Screens MUST NOT vTaskDelay for more than one frame (~33ms).
-///  - The only mutation vector is handleInput(evt, stack). Async
-///    callbacks (WiFi/BLE state) post synthetic input events; they
-///    never touch the stack directly.
+/// Screen contract
+/// ---------------
+/// Lifecycle:   onEnter() → (handleInput + render)* → onExit()
+/// Rendering:   opaque screens own every pixel in fb;
+///              transparent screens draw into a bounded region only and
+///              MUST NOT call fb.clear().
+/// Stack mut:   only via handleInput's stack arg. Render MUST NOT push/pop
+///              (ScreenStack asserts via in_render_phase_).
+/// Async:       background callbacks (WiFi/BLE state) post synthetic
+///              InputEvents (Source::System + EventType::*StateChanged)
+///              so Screens stay single-threaded.
+/// Timing:      targetFps() paces the main loop; never vTaskDelay > 1 frame.
 class Screen {
 public:
     virtual ~Screen() = default;
