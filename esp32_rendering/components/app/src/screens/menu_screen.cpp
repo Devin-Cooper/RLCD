@@ -3,6 +3,7 @@
 #include "screens/terminal_screen.hpp"
 #include "screens/about_screen.hpp"
 #include "screens/wifi_screen.hpp"
+#include "screens/server_list_screen.hpp"
 #include "screen_stack.hpp"
 #include "overlay.hpp"
 #include <1bit/render/primitives.hpp>
@@ -84,8 +85,7 @@ void MenuScreen::dispatchSelection(ScreenStack& stack, Item item) {
             stack.replace(std::make_unique<TerminalScreen>(ctx_));
             break;
         case Item::Servers:
-            ESP_LOGI(TAG, "Servers — ServerListScreen deferred to Task 21");
-            ctx_.overlay.showToast("Servers editor: coming soon", 2000);
+            stack.push(std::make_unique<ServerListScreen>(ctx_));
             break;
         case Item::Settings:
             ESP_LOGI(TAG, "Settings — SettingsScreen deferred to Task 23");
