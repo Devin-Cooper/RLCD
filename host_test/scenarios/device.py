@@ -35,15 +35,16 @@ class Device:
         port = port or os.environ.get("TEST_CONSOLE_PORT", self.DEFAULT_PORT)
         baud = baud or int(os.environ.get("TEST_CONSOLE_BAUD", "460800"))
 
-        # Open with auto-reset SUPPRESSED (spec §Device __init__ constraints).
+        # ESP32-S3 built-in USB-JTAG CDC: the old UART-style "drop DTR/RTS to
+        # suppress auto-reset" dance actively triggers the reset it was meant
+        # to prevent — the USB-JTAG peripheral interprets DTR/RTS edges as
+        # reset signals. Leave them at pyserial's defaults after open.
         self.ser = serial.Serial(
             port, baud,
             timeout=0.1,
             dsrdtr=False, rtscts=False,
             exclusive=True,
         )
-        self.ser.setDTR(False)   # GPIO0 — stay high, do not enter bootloader
-        self.ser.setRTS(False)   # EN — stay high, do not reset the chip
 
         self._log_buf: collections.deque[str] = collections.deque(maxlen=500)
         self._marker_lines: collections.deque[str] = collections.deque()
@@ -339,12 +340,56 @@ class Device:
         return int(r.value or "0")
 
     def reboot(self) -> None:
-        self.send("reboot", timeout=1.0)   # OK fires then reset
-        self.wait_for_boot()
+        # USB-JTAG CDC: esp_restart() drops the USB device off the bus.
+        # The host's serial fd becomes invalid until re-enumeration
+        # (~1-3s on macOS). Send the command, close our fd, poll for
+        # the port to come back, reopen, re-spawn the reader thread.
+        try:
+            self.send("reboot", timeout=1.0)
+        except (TimeoutError, OSError):
+            pass
+        self._reopen_through_reset()
 
     def crash(self) -> None:
         try:
             self.send("crash", timeout=0.5)
-        except TimeoutError:
+        except (TimeoutError, OSError):
             pass   # expected — abort() fires without sending OK
+        self._reopen_through_reset()
+
+    def _reopen_through_reset(self) -> None:
+        """Close the serial port, wait for USB re-enumeration, reopen."""
+        port_path = self.ser.port
+        baud = self.ser.baudrate
+        try:
+            self._stop.set()
+            self.ser.close()
+        except Exception:
+            pass
+        # Wait for the device file to disappear then reappear.
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            if not os.path.exists(port_path):
+                break
+            time.sleep(0.05)
+        while time.time() < deadline:
+            if os.path.exists(port_path):
+                break
+            time.sleep(0.05)
+        time.sleep(0.3)   # settle after re-enumeration
+        # Reopen with the same settings.
+        self.ser = serial.Serial(
+            port_path, baud,
+            timeout=0.1,
+            dsrdtr=False, rtscts=False,
+            exclusive=True,
+        )
+        self._log_buf.clear()
+        self._marker_lines.clear()
+        self._crashed = False
+        self._stop = threading.Event()
+        self._reader_thread = threading.Thread(
+            target=self._reader_loop, daemon=True
+        )
+        self._reader_thread.start()
         self.wait_for_boot()

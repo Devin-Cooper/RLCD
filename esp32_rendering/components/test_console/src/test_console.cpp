@@ -6,7 +6,6 @@
 #include "freertos/semphr.h"
 #include "esp_console.h"
 #include "esp_log.h"
-#include "driver/uart.h"
 #include "linenoise/linenoise.h"
 #include "argtable3/argtable3.h"
 
@@ -86,12 +85,11 @@ void init(Context& ctx) {
     repl_config.task_priority = 5;
     repl_config.task_core_id = 0;
 
-    esp_console_dev_uart_config_t uart_cfg =
-        ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
-    uart_cfg.channel = CONFIG_ESP_CONSOLE_UART_NUM;
-    uart_cfg.baud_rate = CONFIG_TEST_CONSOLE_BAUD;
+    esp_console_dev_usb_serial_jtag_config_t usbjtag_cfg =
+        ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT();
 
-    ESP_ERROR_CHECK(esp_console_new_repl_uart(&uart_cfg, &repl_config, &repl));
+    ESP_ERROR_CHECK(esp_console_new_repl_usb_serial_jtag(
+        &usbjtag_cfg, &repl_config, &repl));
 
     esp_console_register_help_command();
     registerRuntimeCommands();
@@ -101,8 +99,7 @@ void init(Context& ctx) {
     registerFsCommands();
 
     ESP_ERROR_CHECK(esp_console_start_repl(repl));
-    ESP_LOGI(TAG, "test_console started on UART%d @ %d baud",
-             (int)CONFIG_ESP_CONSOLE_UART_NUM, (int)CONFIG_TEST_CONSOLE_BAUD);
+    ESP_LOGI(TAG, "test_console started on USB-JTAG CDC");
 #endif
 }
 

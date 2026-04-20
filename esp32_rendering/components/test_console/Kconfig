@@ -3,21 +3,13 @@ menu "Test Console"
         bool "Enable serial test console"
         default n
         help
-            Enables the on-device test REPL accessible over UART0.
-            Adds ~20KB flash. Do NOT enable in production firmware.
+            Enables the on-device test REPL over the S3's built-in
+            USB-JTAG CDC (not UART0 — the ESP32-S3-RLCD board has no
+            external UART bridge). Adds ~20KB flash. Do NOT enable
+            in production firmware.
 
     config TEST_CONSOLE_HISTORY_LEN
         int "Command history size"
         depends on TEST_CONSOLE_ENABLED
         default 32
-
-    config TEST_CONSOLE_BAUD
-        int "Console baud rate"
-        depends on TEST_CONSOLE_ENABLED
-        default 115200
-        help
-            UART0 baud rate. Default 115200 matches the existing log
-            stream. Test builds typically raise to 460800 or 921600 for
-            faster coredump / fb-dump transfers. Host runner must set
-            matching baud via TEST_CONSOLE_BAUD env var.
 endmenu
