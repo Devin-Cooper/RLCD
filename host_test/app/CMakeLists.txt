@@ -40,3 +40,13 @@ add_host_test(
         "${RLCD_COMPONENTS}/input_queue/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
 )
+
+add_host_test(
+    NAME test_text_input
+    SOURCES
+        test_text_input.cpp
+        "${APP_DIR}/src/text_input.cpp"
+    INCLUDES
+        "${APP_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
+)
