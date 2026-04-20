@@ -2,6 +2,7 @@
 
 #ifdef __cplusplus
 
+namespace onebit { class IFramebuffer; }
 namespace app { class ScreenStack; class OverlayManager;
                 class Dashboard; class TerminalMode; struct Settings; }
 namespace wifi    { class WifiManager; }
@@ -12,6 +13,7 @@ namespace ssh     { class SshClient; }
 namespace test_console {
 
 struct Context {
+    onebit::IFramebuffer&  fb;
     app::ScreenStack&      stack;
     app::OverlayManager&   overlay;
     wifi::WifiManager&     wifiMgr;

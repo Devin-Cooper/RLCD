@@ -1,6 +1,8 @@
 #include "test_console_response.hpp"
 #include "test_console_context.hpp"
 
+#include <1bit/core/framebuffer.hpp>
+
 #include "esp_console.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
@@ -143,6 +145,54 @@ static int cmd_migration(int, char**) {
     return 0;
 }
 
+// --- fb-dump (PGM P5 base64) ---
+static int cmd_fb_dump(int, char**) {
+    auto* ctx = getContext();
+    if (!ctx) { err(10, "no context"); return 1; }
+
+    static constexpr int W = 400, H = 300;
+    char header[32];
+    int hdr_len = snprintf(header, sizeof(header), "P5\n%d %d\n255\n", W, H);
+
+    static const char B64[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    auto emit_b64 = [&](const uint8_t* src, size_t n) {
+        char enc[520];
+        size_t j = 0;
+        for (size_t i = 0; i < n; i += 3) {
+            uint32_t v = src[i] << 16;
+            size_t pad = 0;
+            if (i + 1 < n) v |= src[i + 1] << 8; else pad++;
+            if (i + 2 < n) v |= src[i + 2];     else pad++;
+            enc[j++] = B64[(v >> 18) & 0x3f];
+            enc[j++] = B64[(v >> 12) & 0x3f];
+            enc[j++] = pad >= 2 ? '=' : B64[(v >> 6) & 0x3f];
+            enc[j++] = pad >= 1 ? '=' : B64[ v       & 0x3f];
+        }
+        enc[j] = '\0';
+        data("%s", enc);
+    };
+
+    emit_b64(reinterpret_cast<const uint8_t*>(header), (size_t)hdr_len);
+
+    uint8_t buf[384];
+    size_t buf_pos = 0;
+    for (int y = 0; y < H; ++y) {
+        for (int x = 0; x < W; ++x) {
+            buf[buf_pos++] = (ctx->fb.getPixel(x, y) == onebit::BLACK) ? 0x00 : 0xFF;
+            if (buf_pos == sizeof(buf)) {
+                emit_b64(buf, buf_pos);
+                buf_pos = 0;
+            }
+        }
+    }
+    if (buf_pos > 0) emit_b64(buf, buf_pos);
+
+    ok("%d", hdr_len + W * H);
+    return 0;
+}
+
 void registerIntrospectCommands() {
     const esp_console_cmd_t cmds[] = {
         {"stack",       "Dump ScreenStack bottom-up",         nullptr, cmd_stack,       nullptr, nullptr, nullptr},
@@ -152,6 +202,7 @@ void registerIntrospectCommands() {
         {"ssh-status",  "SSH client state",                   nullptr, cmd_ssh_status,  nullptr, nullptr, nullptr},
         {"ble-status",  "BLE HID host state",                 nullptr, cmd_ble_status,  nullptr, nullptr, nullptr},
         {"migration",   "Last migration result",              nullptr, cmd_migration,   nullptr, nullptr, nullptr},
+        {"fb-dump",     "Framebuffer as base64 PGM P5",       nullptr, cmd_fb_dump,     nullptr, nullptr, nullptr},
     };
     for (const auto& c : cmds) esp_console_cmd_register(&c);
 }
