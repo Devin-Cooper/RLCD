@@ -31,4 +31,8 @@ idf_component_register(
         onebit
         json
 )
-target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
+if(CONFIG_TEST_CONSOLE_ENABLED)
+    target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
+else()
+    target_compile_features(${COMPONENT_LIB} INTERFACE cxx_std_17)
+endif()
