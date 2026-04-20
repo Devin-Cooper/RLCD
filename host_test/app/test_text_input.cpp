@@ -7,7 +7,12 @@ using app::TextInputOpts;
 using app::TextInputResult;
 
 static TextInputResult feed(TextInput& ti, const char* s) {
-    return ti.handleKey(reinterpret_cast<const uint8_t*>(s), std::strlen(s));
+    TextInputResult r = TextInputResult::None;
+    for (size_t i = 0; s[i]; ++i) {
+        uint8_t b = static_cast<uint8_t>(s[i]);
+        r = ti.handleKey(&b, 1);
+    }
+    return r;
 }
 
 TEST_CASE("TextInput: append prints chars, length tracks", "[app][text]") {

@@ -21,14 +21,8 @@ void TextInput::clear() {
 TextInputResult TextInput::handleKey(const uint8_t* data, size_t len) {
     if (!data || len == 0) return TextInputResult::None;
 
-    if (len > 1) {
-        TextInputResult result = TextInputResult::None;
-        for (size_t i = 0; i < len; ++i) {
-            TextInputResult r = handleKey(data + i, 1);
-            if (r != TextInputResult::None) result = r;
-        }
-        return result;
-    }
+    // Multi-byte — ignore escape sequences (arrow keys, function keys, etc.).
+    if (len > 1) return TextInputResult::None;
 
     // len == 1
     uint8_t b = data[0];
