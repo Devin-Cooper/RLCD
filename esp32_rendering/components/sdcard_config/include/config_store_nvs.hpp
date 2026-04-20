@@ -19,4 +19,16 @@ int  loadServersFromNvs(ServerRuntime* out, int max);
 void persistActiveIndex(int index);
 int  loadActiveIndex(int max_valid);
 
+/// Run one-shot legacy migration. `servers[0..*count-1]` must hold
+/// SD-loaded identities (if any) on entry. On return:
+/// - `*count` may have grown (PathB seeds a single default)
+/// - `servers[i].creds.password` may have been populated from legacy
+///   ssh_creds NVS namespace
+/// - Legacy namespaces erased on successful PathA/BeltAndSuspenders
+/// - NVS `servers` namespace persisted if any mutation occurred
+/// Returns which branch was taken.
+MigrationResult runLegacyMigration(ServerRuntime* servers,
+                                    int* count,
+                                    int max_servers);
+
 } // namespace sdcard

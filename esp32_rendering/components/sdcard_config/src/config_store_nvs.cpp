@@ -127,4 +127,97 @@ int loadActiveIndex(int max_valid) {
     return idx;
 }
 
+MigrationResult runLegacyMigration(ServerRuntime* servers,
+                                    int* count,
+                                    int max_servers) {
+    if (!servers || !count) return MigrationResult::None;
+    if (*count > max_servers) *count = max_servers;
+
+    // Probe legacy ssh_creds (srv_p_0 is the canary)
+    bool have_ssh_creds = false;
+    {
+        nvs_handle_t h;
+        if (nvs_open("ssh_creds", NVS_READONLY, &h) == ESP_OK) {
+            char pw[64]; size_t len = sizeof(pw);
+            if (nvs_get_str(h, "srv_p_0", pw, &len) == ESP_OK) have_ssh_creds = true;
+            nvs_close(h);
+        }
+    }
+
+    // Probe legacy app_settings.ssh_host
+    char legacy_host[64] = {};
+    char legacy_user[32] = {};
+    uint16_t legacy_port = 22;
+    {
+        nvs_handle_t h;
+        if (nvs_open("app_settings", NVS_READONLY, &h) == ESP_OK) {
+            size_t len = sizeof(legacy_host);
+            nvs_get_str(h, "ssh_host", legacy_host, &len);
+            len = sizeof(legacy_user);
+            nvs_get_str(h, "ssh_user", legacy_user, &len);
+            nvs_get_u16(h, "ssh_port", &legacy_port);
+            nvs_close(h);
+        }
+    }
+    bool have_legacy_host = (legacy_host[0] != '\0');
+
+    // PathA / BeltAndSuspenders: ssh_creds + at least one SD-loaded identity
+    if (have_ssh_creds && *count > 0) {
+        nvs_handle_t h;
+        if (nvs_open("ssh_creds", NVS_READONLY, &h) == ESP_OK) {
+            for (int i = 0; i < *count; ++i) {
+                char pw[64] = {}; size_t len = sizeof(pw);
+                char k[16]; snprintf(k, sizeof(k), "srv_p_%d", i);
+                if (nvs_get_str(h, k, pw, &len) == ESP_OK) {
+                    std::strncpy(servers[i].creds.password, pw,
+                                 sizeof(servers[i].creds.password) - 1);
+                }
+            }
+            nvs_close(h);
+        }
+        persistServersToNvs(servers, *count);
+
+        // Erase legacy ssh_creds
+        if (nvs_open("ssh_creds", NVS_READWRITE, &h) == ESP_OK) {
+            nvs_erase_all(h); nvs_commit(h); nvs_close(h);
+        }
+
+        if (have_legacy_host) {
+            // Belt-and-suspenders: also clear legacy ssh_host fields
+            if (nvs_open("app_settings", NVS_READWRITE, &h) == ESP_OK) {
+                nvs_erase_key(h, "ssh_host");
+                nvs_erase_key(h, "ssh_port");
+                nvs_erase_key(h, "ssh_user");
+                nvs_erase_key(h, "auth_method");
+                nvs_commit(h); nvs_close(h);
+            }
+            return MigrationResult::BeltAndSuspenders;
+        }
+        return MigrationResult::PathA;
+    }
+
+    // PathAHole: ssh_creds present but no SD identities to pair with.
+    // Leave intact for a future boot where SD provides names.
+    if (have_ssh_creds && *count == 0) {
+        return MigrationResult::PathAHole;
+    }
+
+    // PathB: single-server from legacy app_settings.ssh_host
+    if (have_legacy_host) {
+        if (*count >= max_servers) return MigrationResult::None;
+        ServerCreds c{};
+        std::strncpy(c.name, "default", sizeof(c.name) - 1);
+        std::strncpy(c.host, legacy_host, sizeof(c.host) - 1);
+        c.port = legacy_port;
+        std::strncpy(c.username, legacy_user, sizeof(c.username) - 1);
+        servers[*count].creds = c;
+        servers[*count].valid = true;
+        (*count)++;
+        persistServersToNvs(servers, *count);
+        return MigrationResult::PathB;
+    }
+
+    return MigrationResult::None;
+}
+
 } // namespace sdcard

@@ -8,6 +8,14 @@ namespace sdcard {
 static constexpr int MAX_SERVERS = 8;
 static constexpr int MAX_DASHBOARD_COMMANDS = 10;
 
+enum class MigrationResult : uint8_t {
+    None,
+    PathA,               // ssh_creds + SD server identities paired
+    PathAHole,           // ssh_creds present but no SD identities — preserved for next boot
+    PathB,               // Only legacy ssh_host — seed single "default" server
+    BeltAndSuspenders,   // Both ssh_creds+SD AND legacy ssh_host — migrate SD, clear ssh_host
+};
+
 /// Settings parsed from SD card config.json (applied by caller via app::Settings)
 struct ParsedSettings {
     uint8_t font_size;
@@ -81,6 +89,12 @@ public:
     bool deleteServer(int index);
     // setActiveServer already exists — its body also persists to NVS.
 
+    /// Run one-shot legacy migration (delegates to free function in config_store_nvs).
+    MigrationResult migrateLegacyOnce();
+    MigrationResult lastMigration() const { return last_migration_; }
+
+    int invalidJsonCount() const { return invalid_json_count_; }
+
     /// Get parsed device settings from config.json (caller applies to app::Settings)
     const ParsedSettings& parsedSettings() const { return parsed_settings_; }
 
@@ -89,7 +103,12 @@ private:
     int server_count_;
     int active_index_;
     ParsedSettings parsed_settings_;
+    MigrationResult last_migration_ = MigrationResult::None;
+    int invalid_json_count_ = 0;
 
+    int upsertFromSdDir();
+    void persistDashboardTo(const ServerRuntime& s);
+    void loadDashboardFor(ServerRuntime& s);
     bool parseServerJson(const char* path, ServerRuntime& out, int index);
     bool copyFile(const char* src, const char* dst);
     void scrubJsonFile(const char* path);

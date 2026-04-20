@@ -43,6 +43,7 @@
 // SD card config
 #include "sdcard_manager.hpp"
 #include "config_manager.hpp"
+#include "config_store_nvs.hpp"
 
 // onebit library (via EXTRA_COMPONENT_DIRS)
 #include <1bit/core/allocator.hpp>
@@ -132,14 +133,7 @@ static void switchToNextServer(sdcard::ConfigManager* configMgr,
     strncpy(cfg.username, srv.creds.username, sizeof(cfg.username) - 1);
     cfg.use_key_auth = srv.creds.use_key_auth;
     if (!cfg.use_key_auth) {
-        nvs_handle_t handle;
-        if (nvs_open("ssh_creds", NVS_READONLY, &handle) == ESP_OK) {
-            char nvs_key[24];
-            snprintf(nvs_key, sizeof(nvs_key), "srv_p_%d", next);
-            size_t len = sizeof(cfg.password);
-            nvs_get_str(handle, nvs_key, cfg.password, &len);
-            nvs_close(handle);
-        }
+        strncpy(cfg.password, srv.creds.password, sizeof(cfg.password) - 1);
     }
     sshClient.connect(cfg);
     if (srv.dashboard_count > 0) {
@@ -153,15 +147,12 @@ static void switchToNextServer(sdcard::ConfigManager* configMgr,
 // Reconnect to current active server index (no rotation).
 // Used by ServerListScreen Shift+A (Task 21) and any "apply the edit"
 // flow that changes the active server.
-// Note: ssh_creds namespace + srv_p_ key pattern is current runtime;
-// Task 19 migrates to the servers namespace.
 // ============================================================================
 
 static void reconnectActiveServer(sdcard::ConfigManager* configMgr,
                                    ssh::SshClient& sshClient,
                                    app::Dashboard& dashboard) {
     if (configMgr->serverCount() == 0) return;
-    int idx = configMgr->activeServerIndex();
     const auto& srv = configMgr->activeServer();
     sshClient.disconnect();
     ssh::Config cfg = {};
@@ -170,14 +161,7 @@ static void reconnectActiveServer(sdcard::ConfigManager* configMgr,
     strncpy(cfg.username, srv.creds.username, sizeof(cfg.username) - 1);
     cfg.use_key_auth = srv.creds.use_key_auth;
     if (!cfg.use_key_auth) {
-        nvs_handle_t handle;
-        if (nvs_open("ssh_creds", NVS_READONLY, &handle) == ESP_OK) {
-            char nvs_key[24];
-            snprintf(nvs_key, sizeof(nvs_key), "srv_p_%d", idx);
-            size_t len = sizeof(cfg.password);
-            nvs_get_str(handle, nvs_key, cfg.password, &len);
-            nvs_close(handle);
-        }
+        strncpy(cfg.password, srv.creds.password, sizeof(cfg.password) - 1);
     }
     sshClient.connect(cfg);
     if (srv.dashboard_count > 0) {
@@ -612,17 +596,9 @@ extern "C" void app_main() {
             sshCfg.port = srv.creds.port;
             strncpy(sshCfg.username, srv.creds.username, sizeof(sshCfg.username) - 1);
             sshCfg.use_key_auth = srv.creds.use_key_auth;
-            // Load password from NVS if using password auth
+            // Password is now stored directly in ServerCreds (Task 20)
             if (!sshCfg.use_key_auth) {
-                nvs_handle_t handle;
-                if (nvs_open("ssh_creds", NVS_READONLY, &handle) == ESP_OK) {
-                    char nvs_key[24];
-                    snprintf(nvs_key, sizeof(nvs_key), "srv_p_%d",
-                             configMgr->activeServerIndex());
-                    size_t len = sizeof(sshCfg.password);
-                    nvs_get_str(handle, nvs_key, sshCfg.password, &len);
-                    nvs_close(handle);
-                }
+                strncpy(sshCfg.password, srv.creds.password, sizeof(sshCfg.password) - 1);
             }
         } else {
             strncpy(sshCfg.host, settings.ssh_host, sizeof(sshCfg.host) - 1);
@@ -711,6 +687,29 @@ extern "C" void app_main() {
     if (!wifiConnected) {
         ESP_LOGW(TAG, "WiFi not connected — pushing WifiScreen");
         stack.push(std::make_unique<app::WifiScreen>(ctx));
+    }
+
+    // Surface migration result via overlay (toasts / log / error modal).
+    {
+        using MR = sdcard::MigrationResult;
+        switch (configMgr->lastMigration()) {
+            case MR::PathB:
+                overlay.showToast("Migrated legacy server", 2500);
+                break;
+            case MR::BeltAndSuspenders:
+                overlay.showToast("Discarded legacy ssh_host from Settings", 3000);
+                break;
+            case MR::PathAHole:
+                ESP_LOGW(TAG, "Legacy ssh_creds preserved for next-boot migration");
+                break;
+            default: break;
+        }
+        if (configMgr->invalidJsonCount() > 0) {
+            char body[96];
+            snprintf(body, sizeof(body), "%d server file(s) invalid",
+                     configMgr->invalidJsonCount());
+            overlay.showError("SD parse errors", body);
+        }
     }
 
     // Wire SSH data into stream buffer — SSH task pushes, main loop drains

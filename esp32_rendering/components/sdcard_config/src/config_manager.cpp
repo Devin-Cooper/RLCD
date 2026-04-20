@@ -7,6 +7,7 @@
 #include "wifi_manager.hpp"
 
 #include <cctype>
+#include <cerrno>
 #include <cstring>
 #include <cstdio>
 #include <dirent.h>
@@ -27,13 +28,28 @@ ConfigManager::ConfigManager()
 }
 
 int ConfigManager::init(wifi::WifiManager& wifi_mgr) {
+    // 1. Load from NVS first (post-migration steady state)
+    loadFromNvs();
+
+    // 2. Load global SD config (WiFi imports, device settings parse)
     loadGlobalConfig(wifi_mgr);
-    int count = loadServerConfigs();
-    if (count > 0) {
+
+    // 3. SD servers upsert by name
+    int sd_added = upsertFromSdDir();
+    if (sd_added > 0) {
         importKeys();
         scrubSecrets();
     }
-    return count;
+
+    // 4. Migration (runs if legacy present)
+    migrateLegacyOnce();
+
+    // 5. Per-server dashboard commands from LittleFS
+    for (int i = 0; i < server_count_; ++i) {
+        loadDashboardFor(servers_[i]);
+    }
+
+    return server_count_;
 }
 
 // --- Global Config ---
@@ -124,17 +140,17 @@ bool ConfigManager::loadGlobalConfig(wifi::WifiManager& wifi_mgr) {
 
 // --- Server Configs ---
 
-int ConfigManager::loadServerConfigs() {
+int ConfigManager::upsertFromSdDir() {
     DIR* dir = opendir(SD_SERVERS_DIR);
     if (!dir) {
         ESP_LOGW(TAG, "No %s directory", SD_SERVERS_DIR);
         return 0;
     }
-
-    server_count_ = 0;
+    int added = 0;
+    int overflow = 0;
+    invalid_json_count_ = 0;
     struct dirent* entry;
-    while ((entry = readdir(dir)) != nullptr && server_count_ < MAX_SERVERS) {
-        // Only process .json files
+    while ((entry = readdir(dir)) != nullptr) {
         const char* name = entry->d_name;
         size_t len = strlen(name);
         if (len < 6 || strcmp(name + len - 5, ".json") != 0) continue;
@@ -142,19 +158,46 @@ int ConfigManager::loadServerConfigs() {
         char path[288];
         snprintf(path, sizeof(path), "%s/%s", SD_SERVERS_DIR, name);
 
-        if (parseServerJson(path, servers_[server_count_], server_count_)) {
-            servers_[server_count_].valid = true;
-            ESP_LOGI(TAG, "Loaded server: %s (%s:%d)",
-                     servers_[server_count_].creds.name,
-                     servers_[server_count_].creds.host,
-                     servers_[server_count_].creds.port);
-            server_count_++;
+        ServerRuntime tmp{};
+        if (!parseServerJson(path, tmp, 0)) {
+            invalid_json_count_++;
+            continue;
         }
+
+        // Match by name
+        int idx = -1;
+        for (int i = 0; i < server_count_; ++i) {
+            if (std::strncmp(servers_[i].creds.name, tmp.creds.name, 32) == 0) {
+                idx = i; break;
+            }
+        }
+        int written = upsertServer(tmp.creds, idx);
+        if (written < 0) { overflow++; continue; }
+
+        // Copy runtime-only fields
+        servers_[written].dashboard_count = tmp.dashboard_count;
+        std::memcpy(servers_[written].dashboard, tmp.dashboard,
+                    sizeof(tmp.dashboard));
+        std::strncpy(servers_[written].key_file_name, tmp.key_file_name,
+                     sizeof(servers_[written].key_file_name) - 1);
+        added++;
+
+        persistDashboardTo(servers_[written]);
     }
     closedir(dir);
+    if (overflow > 0) {
+        ESP_LOGW(TAG, "SD upsert skipped %d server(s) due to MAX_SERVERS limit",
+                 overflow);
+    }
+    ESP_LOGI(TAG, "SD upsert: added/updated %d server(s), %d invalid",
+             added, invalid_json_count_);
+    return added;
+}
 
-    ESP_LOGI(TAG, "Loaded %d server config(s)", server_count_);
-    return server_count_;
+// Legacy alias — kept for any call-sites not yet migrated to upsertFromSdDir.
+// Remove in Task 25 cleanup.
+int ConfigManager::loadServerConfigs() {
+    return upsertFromSdDir();
 }
 
 bool ConfigManager::parseServerJson(const char* path, ServerRuntime& out, int index) {
@@ -221,17 +264,12 @@ bool ConfigManager::parseServerJson(const char* path, ServerRuntime& out, int in
         out.creds.use_key_auth = true;
     }
 
-    // Password — save to NVS under index-based key; will be scrubbed from SD
+    // Password goes into ServerCreds directly; upsertServer persists it
+    // via the new `servers` NVS namespace.
+    (void)index;
     if ((v = cJSON_GetObjectItem(root, "password")) && cJSON_IsString(v) &&
         strlen(v->valuestring) > 0) {
-        nvs_handle_t handle;
-        if (nvs_open("ssh_creds", NVS_READWRITE, &handle) == ESP_OK) {
-            char nvs_key[16];
-            snprintf(nvs_key, sizeof(nvs_key), "srv_p_%d", index);
-            nvs_set_str(handle, nvs_key, v->valuestring);
-            nvs_commit(handle);
-            nvs_close(handle);
-        }
+        strncpy(out.creds.password, v->valuestring, sizeof(out.creds.password) - 1);
     }
 
     // Dashboard commands
@@ -258,6 +296,54 @@ bool ConfigManager::parseServerJson(const char* path, ServerRuntime& out, int in
 
     cJSON_Delete(root);
     return valid;
+}
+
+// --- Legacy Migration ---
+
+MigrationResult ConfigManager::migrateLegacyOnce() {
+    MigrationResult r = runLegacyMigration(servers_, &server_count_, MAX_SERVERS);
+    last_migration_ = r;
+    return r;
+}
+
+// --- Per-Server Dashboard (LittleFS .cmd files) ---
+
+void ConfigManager::persistDashboardTo(const ServerRuntime& s) {
+    mkdir("/littlefs/servers", 0755);   // idempotent
+    char path[96];
+    snprintf(path, sizeof(path), "/littlefs/servers/%s.cmd", s.creds.name);
+    char tmp[96];
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    FILE* f = fopen(tmp, "w");
+    if (!f) { ESP_LOGW(TAG, "open %s: %d", tmp, errno); return; }
+    for (int i = 0; i < s.dashboard_count; ++i) {
+        fprintf(f, "%s|%s\n", s.dashboard[i].label, s.dashboard[i].command);
+    }
+    fclose(f);
+    rename(tmp, path);
+}
+
+void ConfigManager::loadDashboardFor(ServerRuntime& s) {
+    char path[96];
+    snprintf(path, sizeof(path), "/littlefs/servers/%s.cmd", s.creds.name);
+    FILE* f = fopen(path, "r");
+    if (!f) return;
+    char line[256];
+    s.dashboard_count = 0;
+    while (fgets(line, sizeof(line), f) &&
+           s.dashboard_count < MAX_DASHBOARD_COMMANDS) {
+        char* bar = std::strchr(line, '|');
+        if (!bar) continue;
+        *bar = '\0';
+        char* cmd = bar + 1;
+        char* nl = std::strchr(cmd, '\n'); if (nl) *nl = '\0';
+        std::strncpy(s.dashboard[s.dashboard_count].label, line,
+                     sizeof(s.dashboard[0].label) - 1);
+        std::strncpy(s.dashboard[s.dashboard_count].command, cmd,
+                     sizeof(s.dashboard[0].command) - 1);
+        s.dashboard_count++;
+    }
+    fclose(f);
 }
 
 // --- Key Import ---
