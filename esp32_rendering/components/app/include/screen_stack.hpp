@@ -45,7 +45,7 @@ public:
 
     /// Index accessor — added per plan Amendment I so callers can walk
     /// the stack to find a specific Screen type with dynamic_cast.
-    Screen* at(size_t i) {
+    Screen* at(size_t i) const {
         return i < stack_.size() ? stack_[i].get() : nullptr;
     }
 
