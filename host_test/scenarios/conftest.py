@@ -68,6 +68,17 @@ def fresh_device(device: Device, request) -> Device:
     time.sleep(0.5)
     device.ping()
 
+    # Warmup: post-reboot USB-JTAG CDC enumeration can swallow the first
+    # button event even after ping() returns. Sending one btn + ESC drains
+    # whatever sink the first event falls into, so the test-driven press
+    # lands on a quiescent Dashboard regardless of whether the warmup
+    # itself was swallowed.
+    device.button("a", "short")
+    time.sleep(0.4)
+    if "MenuScreen" in device.stack_top():
+        device.key_esc()
+        time.sleep(0.3)
+
     def finalizer():
         crashed, marker = check_for_crash(device)
         if crashed:
