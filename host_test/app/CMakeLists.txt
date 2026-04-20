@@ -18,3 +18,14 @@ add_host_test(
         "${APP_DIR}/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
 )
+
+add_host_test(
+    NAME test_screen_stack
+    SOURCES
+        test_screen_stack.cpp
+        "${APP_DIR}/src/screen_stack.cpp"
+    INCLUDES
+        "${APP_DIR}/include"
+        "${RLCD_COMPONENTS}/input_queue/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
+)
