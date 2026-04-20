@@ -87,3 +87,32 @@ TEST_CASE("TextInput: Ctrl+R on masked is a no-op to buffer",
     REQUIRE(ti.handleKey(&ctrl_r, 1) == TextInputResult::None);
     REQUIRE(std::strcmp(ti.data(), "hi") == 0);
 }
+
+TEST_CASE("TextInput: DEL (0x7F) is treated as backspace",
+          "[app][text]") {
+    char buf[16];
+    TextInput ti(buf, sizeof(buf));
+    feed(ti, "abc");
+    uint8_t del = 0x7F;
+    ti.handleKey(&del, 1);
+    REQUIRE(std::strcmp(ti.data(), "ab") == 0);
+    REQUIRE(ti.length() == 2);
+}
+
+TEST_CASE("TextInput: multi-byte escape sequences are silently ignored",
+          "[app][text]") {
+    char buf[16];
+    TextInput ti(buf, sizeof(buf));
+    feed(ti, "hi");
+    // ESC [ A (Up arrow) — 3 bytes. Must NOT corrupt buffer (bug fixed in eade6af).
+    const uint8_t up_arrow[] = {0x1B, 0x5B, 0x41};
+    REQUIRE(ti.handleKey(up_arrow, 3) == TextInputResult::None);
+    REQUIRE(ti.length() == 2);
+    REQUIRE(std::strcmp(ti.data(), "hi") == 0);
+
+    // ESC O P (F1) — 3 bytes.
+    const uint8_t f1[] = {0x1B, 0x4F, 0x50};
+    REQUIRE(ti.handleKey(f1, 3) == TextInputResult::None);
+    REQUIRE(ti.length() == 2);
+    REQUIRE(std::strcmp(ti.data(), "hi") == 0);
+}
