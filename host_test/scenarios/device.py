@@ -48,6 +48,7 @@ class Device:
         self._log_buf: collections.deque[str] = collections.deque(maxlen=500)
         self._marker_lines: collections.deque[str] = collections.deque()
         self._marker_cond = threading.Condition()
+        self._crashed = False                     # set True by reader on panic marker
         self._reader_thread = threading.Thread(
             target=self._reader_loop, daemon=True
         )
@@ -75,6 +76,14 @@ class Device:
             while b"\n" in buf:
                 line, buf = buf.split(b"\n", 1)
                 text = line.rstrip(b"\r").decode("utf-8", errors="replace")
+                for m in ("Guru Meditation Error:",
+                          "abort() was called at PC",
+                          "Backtrace:"):
+                    if m in text:
+                        with self._marker_cond:
+                            self._crashed = True
+                            self._marker_cond.notify_all()
+                        break
                 if text.startswith(">>>"):
                     with self._marker_cond:
                         self._marker_lines.append(text)
@@ -92,11 +101,14 @@ class Device:
         data_lines: list[str] = []
         while True:
             with self._marker_cond:
-                while not self._marker_lines:
+                while not self._marker_lines and not self._crashed:
                     remain = deadline - time.time()
                     if remain <= 0:
                         raise TimeoutError(f"command '{cmd}' timed out")
                     self._marker_cond.wait(timeout=min(remain, 1.0))
+                if self._crashed:
+                    from .crash import DeviceCrashError
+                    raise DeviceCrashError(f"device panicked during '{cmd}'")
                 line = self._marker_lines.popleft()
             m = _MARKER_RE.match(line)
             if not m:
@@ -122,6 +134,7 @@ class Device:
                 # Drain any pre-boot marker noise
                 with self._marker_cond:
                     self._marker_lines.clear()
+                    self._crashed = False          # clear after successful reboot
                 return
             time.sleep(0.05)
         raise TimeoutError("device did not report boot within timeout")
