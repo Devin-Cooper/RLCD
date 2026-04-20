@@ -62,6 +62,7 @@ void data(const char* fmt, ...) {
 
 // Forward decls for command groups — registered in later tasks.
 void registerRuntimeCommands();
+void registerIntrospectCommands();
 
 void init(Context& ctx) {
 #if !CONFIG_TEST_CONSOLE_ENABLED
@@ -91,6 +92,7 @@ void init(Context& ctx) {
 
     esp_console_register_help_command();
     registerRuntimeCommands();
+    registerIntrospectCommands();
 
     ESP_ERROR_CHECK(esp_console_start_repl(repl));
     ESP_LOGI(TAG, "test_console started on UART%d @ %d baud",

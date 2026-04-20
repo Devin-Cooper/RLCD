@@ -2,6 +2,7 @@ if(CONFIG_TEST_CONSOLE_ENABLED)
     set(TEST_CONSOLE_SRCS
         "src/test_console.cpp"
         "src/commands_runtime.cpp"
+        "src/commands_introspect.cpp"
     )
 else()
     set(TEST_CONSOLE_SRCS "")
