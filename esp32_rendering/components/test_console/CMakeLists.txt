@@ -5,6 +5,7 @@ if(CONFIG_TEST_CONSOLE_ENABLED)
         "src/commands_introspect.cpp"
         "src/commands_injection.cpp"
         "src/commands_nvs.cpp"
+        "src/commands_fs.cpp"
     )
 else()
     set(TEST_CONSOLE_SRCS "")
