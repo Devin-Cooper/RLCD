@@ -10,6 +10,7 @@ namespace input {
 enum class Source : uint8_t {
     Keyboard,
     Button,
+    System,   // Synthetic events from WiFi/BLE state changes (spec §Async events)
 };
 
 enum class EventType : uint8_t {
@@ -17,6 +18,9 @@ enum class EventType : uint8_t {
     ButtonShort,
     ButtonLong,
     ButtonDouble,
+    WifiStateChanged,   // data[0]=wifi::State, data[1]=wifi_err_reason_t or 0, data_length=2
+    BleStateChanged,    // data[0]=ble_hid::State, data_length=1
+    WifiScanDone,       // data_length = 0 (added per plan Amendment H)
 };
 
 struct InputEvent {
