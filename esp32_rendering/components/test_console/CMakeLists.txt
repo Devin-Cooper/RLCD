@@ -6,6 +6,7 @@ if(CONFIG_TEST_CONSOLE_ENABLED)
         "src/commands_injection.cpp"
         "src/commands_nvs.cpp"
         "src/commands_fs.cpp"
+        "src/commands_fs_write.cpp"
     )
 else()
     set(TEST_CONSOLE_SRCS "")

@@ -12,6 +12,8 @@
 
 namespace test_console {
 
+void registerFsWriteCommands();
+
 static const char B64[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -101,6 +103,7 @@ void registerFsCommands() {
         {"fs-mkdir", "fs-mkdir <path>", nullptr, cmd_fs_mkdir, nullptr, nullptr, nullptr},
     };
     for (const auto& c : cmds) esp_console_cmd_register(&c);
+    registerFsWriteCommands();
 }
 
 } // namespace test_console
