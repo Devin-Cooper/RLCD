@@ -2,6 +2,7 @@
 #include "test_console_context.hpp"
 #include "esp_console.h"
 #include "input_queue.hpp"
+#include "wifi_manager.hpp"
 
 #include <cstring>
 #include <cstdlib>
@@ -186,6 +187,41 @@ static int cmd_system_ble_state(int argc, char** argv) {
     return 0;
 }
 
+// --- system-wifi-scan-result <ssid> <rssi> <auth> ---
+static int cmd_system_wifi_scan_result(int argc, char** argv) {
+    if (argc != 4) { err(1, "usage: system-wifi-scan-result <ssid> <rssi> <auth>"); return 1; }
+    auto* ctx = getContext();
+    if (!ctx) { err(10, "no context"); return 1; }
+
+    wifi::NetworkInfo n{};
+    strncpy(n.ssid, argv[1], sizeof(n.ssid) - 1);
+    n.rssi = (int8_t)atoi(argv[2]);
+    if      (!strcmp(argv[3], "open"))  n.auth = WIFI_AUTH_OPEN;
+    else if (!strcmp(argv[3], "wpa2"))  n.auth = WIFI_AUTH_WPA2_PSK;
+    else if (!strcmp(argv[3], "wpa3"))  n.auth = WIFI_AUTH_WPA3_PSK;
+    else if (!strcmp(argv[3], "wep"))   n.auth = WIFI_AUTH_WEP;
+    else { err(2, "bad auth '%s'", argv[3]); return 1; }
+
+#if CONFIG_TEST_CONSOLE_ENABLED
+    ctx->wifiMgr.pushTestScanResult(n);
+    ok("%s", "");
+#else
+    err(12, "not built with test console");
+#endif
+    return 0;
+}
+
+// --- system-wifi-scan-inject ---
+static int cmd_system_wifi_scan_inject(int, char**) {
+    input::InputEvent ie{};
+    ie.source = input::Source::System;
+    ie.type   = input::EventType::WifiScanDone;
+    ie.data_length = 0;
+    if (!push_event(ie)) { err(4, "queue push failed"); return 1; }
+    ok("%s", "");
+    return 0;
+}
+
 void registerInjectionCommands() {
     const esp_console_cmd_t cmds[] = {
         {"btn",               "btn <a|b> <short|long>",           nullptr, cmd_btn,               nullptr, nullptr, nullptr},
@@ -200,6 +236,8 @@ void registerInjectionCommands() {
         {"key-raw",           "key-raw <hex-bytes> (max 8 bytes)",     nullptr, cmd_key_raw,           nullptr, nullptr, nullptr},
         {"system-wifi-state", "Inject WifiStateChanged event",         nullptr, cmd_system_wifi_state, nullptr, nullptr, nullptr},
         {"system-ble-state",  "Inject BleStateChanged event",          nullptr, cmd_system_ble_state,  nullptr, nullptr, nullptr},
+        {"system-wifi-scan-result", "Append canned scan result",  nullptr, cmd_system_wifi_scan_result, nullptr, nullptr, nullptr},
+        {"system-wifi-scan-inject", "Post WifiScanDone event",    nullptr, cmd_system_wifi_scan_inject, nullptr, nullptr, nullptr},
     };
     for (const auto& c : cmds) esp_console_cmd_register(&c);
 }
