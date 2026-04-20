@@ -15,25 +15,58 @@ def device() -> Device:
     except (TimeoutError, AssertionError):
         rts_reset(d)
         d.wait_for_boot()
+    # Seed WiFi credentials from env so fresh_device reboots still reach
+    # DashboardScreen. Scenarios that need a truly blank device (migration,
+    # first-boot) can erase wifi_creds explicitly.
+    ssid = os.environ.get("TEST_WIFI_SSID")
+    pw = os.environ.get("TEST_WIFI_PASS")
+    if ssid and pw:
+        try:
+            d.wifi_save(ssid, pw)
+        except Exception:
+            pass
     yield d
     d.close()
 
 
-def _erase_nvs_namespaces(d: Device) -> None:
-    for ns in ("servers", "wifi_creds", "app_settings", "ssh_creds"):
+def _erase_app_state(d: Device) -> None:
+    # Preserve wifi_creds across resets — with USB-JTAG being the only
+    # serial path, the device needs network to reach the DashboardScreen
+    # state the scenarios assume. Migration/first-boot tests that need
+    # a blank slate should erase wifi_creds explicitly.
+    for ns in ("servers", "app_settings", "ssh_creds"):
         d.nvs_erase(ns)
 
 
 @pytest.fixture
 def fresh_device(device: Device, request) -> Device:
-    """Reboot, wait for boot, erase servers/wifi_creds/app_settings/ssh_creds.
+    """Reboot, wait for boot, erase servers/app_settings/ssh_creds.
 
-    Legacy ssh_creds is also erased so migration scenarios don't leak
-    state between runs (spec §Why fresh_device erases ssh_creds).
+    wifi_creds is preserved so the device boots to DashboardScreen
+    (see _erase_app_state docstring).
     """
-    _erase_nvs_namespaces(device)
+    _erase_app_state(device)
     device.reboot()
-    _erase_nvs_namespaces(device)
+    _erase_app_state(device)
+    # Wait for WiFi reconnect + WifiScreen auto-pop + DashboardScreen to be
+    # the ONLY screen on the stack. Also drain any leftover events in the
+    # input queue by sending a ping sync point.
+    import time
+    deadline = time.time() + 20.0
+    while time.time() < deadline:
+        try:
+            st = device.wifi_status()
+            stack = device.stack()
+            if (st.get("state") == "connected"
+                    and len(stack) == 1
+                    and "DashboardScreen" in stack[0][1]):
+                break
+        except Exception:
+            pass
+        time.sleep(0.3)
+    # Let pending applyPending() runs settle.
+    time.sleep(0.5)
+    device.ping()
 
     def finalizer():
         crashed, marker = check_for_crash(device)

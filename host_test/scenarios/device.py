@@ -108,7 +108,14 @@ class Device:
                         raise TimeoutError(f"command '{cmd}' timed out")
                     self._marker_cond.wait(timeout=min(remain, 1.0))
                 if self._crashed:
-                    from .crash import DeviceCrashError
+                    # Local import per Amendment C: the scenarios package is
+                    # importable either as 'scenarios' (when pytest runs it
+                    # via pyproject's pythonpath) or directly (scripts that
+                    # prepend host_test/scenarios to sys.path). Try both.
+                    try:
+                        from crash import DeviceCrashError  # type: ignore
+                    except ImportError:
+                        from .crash import DeviceCrashError  # type: ignore
                     raise DeviceCrashError(f"device panicked during '{cmd}'")
                 line = self._marker_lines.popleft()
             m = _MARKER_RE.match(line)
@@ -127,17 +134,24 @@ class Device:
                     ok=False, code=code, value=msg, data_lines=data_lines
                 )
 
-    def wait_for_boot(self, timeout: float = 15.0) -> None:
-        """Block until 'Entering main loop' appears on the log stream."""
+    def wait_for_boot(self, timeout: float = 25.0) -> None:
+        """Wait until the REPL answers 'ping'.
+
+        Boot banner detection is unreliable on USB-JTAG because the ring
+        buffer can scroll past "Entering main loop" before the reader
+        thread catches up. Polling with ping is authoritative: if the
+        REPL answers, the REPL task is alive.
+        """
         deadline = time.time() + timeout
         while time.time() < deadline:
-            if any("Entering main loop" in l for l in self._log_buf):
-                # Drain any pre-boot marker noise
+            try:
+                self.send("ping", timeout=1.5)
                 with self._marker_cond:
                     self._marker_lines.clear()
-                    self._crashed = False          # clear after successful reboot
+                    self._crashed = False
                 return
-            time.sleep(0.05)
+            except (TimeoutError, OSError):
+                time.sleep(0.3)
         raise TimeoutError("device did not report boot within timeout")
 
     @property
