@@ -1,6 +1,7 @@
 #include "screens/menu_screen.hpp"
 #include "screens/dashboard_screen.hpp"
 #include "screens/terminal_screen.hpp"
+#include "screens/about_screen.hpp"
 #include "screen_stack.hpp"
 #include "overlay.hpp"
 #include <1bit/render/primitives.hpp>
@@ -94,8 +95,7 @@ void MenuScreen::dispatchSelection(ScreenStack& stack, Item item) {
             ctx_.overlay.showToast("WiFi setup: coming soon", 2000);
             break;
         case Item::About:
-            ESP_LOGI(TAG, "About — AboutScreen deferred to Task 13");
-            ctx_.overlay.showToast("RLCD Terminal v1.0", 2500);
+            stack.push(std::make_unique<AboutScreen>(ctx_));
             break;
         default:
             break;
