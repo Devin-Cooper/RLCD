@@ -345,6 +345,33 @@ class Device:
             assert r2.ok, r2
         assert self.send(f"fs-write-commit {token}").ok
 
+    def fs_ls(self, path: str) -> list[tuple[str, int]]:
+        r = self.send(f"fs-ls {path}")
+        if not r.ok and r.code == 2:
+            # cmd_fs_ls hardcodes err(2) for opendir failure → treat as empty.
+            return []
+        assert r.ok, r
+        out: list[tuple[str, int]] = []
+        for line in r.data_lines:
+            parts = line.split()
+            if len(parts) >= 2:
+                try:
+                    out.append((parts[0], int(parts[1])))
+                except ValueError:
+                    out.append((parts[0], -1))
+        return out
+
+    def fs_rm(self, path: str) -> None:
+        r = self.send(f"fs-rm {path}")
+        assert r.ok, r
+
+    def sd_clear_servers(self) -> None:
+        """Remove *.json from /sdcard/servers/ (keep SSH key files)."""
+        entries = self.fs_ls("/sdcard/servers")
+        for name, _ in entries:
+            if name.endswith(".json"):
+                self.fs_rm(f"/sdcard/servers/{name}")
+
     # -----------------------------------------------------------------
     # Runtime
     # -----------------------------------------------------------------

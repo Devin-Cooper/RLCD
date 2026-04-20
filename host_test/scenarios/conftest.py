@@ -34,8 +34,15 @@ def _erase_app_state(d: Device) -> None:
     # serial path, the device needs network to reach the DashboardScreen
     # state the scenarios assume. Migration/first-boot tests that need
     # a blank slate should erase wifi_creds explicitly.
+    #
+    # Also wipe /sdcard/servers/*.json so SD-loaded servers don't bleed
+    # across resets (non-JSON files like SSH keys are preserved).
     for ns in ("servers", "app_settings", "ssh_creds"):
         d.nvs_erase(ns)
+    try:
+        d.sd_clear_servers()
+    except (AssertionError, TimeoutError):
+        pass  # dev boards without SD cards are still runnable
 
 
 @pytest.fixture
