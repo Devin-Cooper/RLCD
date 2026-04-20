@@ -35,10 +35,9 @@ struct ScreenContext {
     TerminalMode&          terminalMode;
     uint8_t&               currentFontSize;
 
-    // Plan Amendment B: bridge the legacy Menu class during the 2a/2b
-    // transition window (Tasks 10-13). Cleared in Task 14 when
-    // AppMode + the legacy Menu are deleted.
-    std::function<void()>  openLegacyMenu;
+    // Plan Amendment K: rotate to the next server (Btn B long in Dashboard).
+    // Populated in main.cpp at Task 14.
+    std::function<void()>  switchToNextServer;
 
     // Plan Amendment K: reconnect SSH to the current active server.
     // Populated in main.cpp at Task 14; used by ServerListScreen Shift+A

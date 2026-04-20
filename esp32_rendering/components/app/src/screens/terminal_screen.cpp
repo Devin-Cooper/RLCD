@@ -1,4 +1,5 @@
 #include "screens/terminal_screen.hpp"
+#include "screens/dashboard_screen.hpp"
 #include "screens/menu_screen.hpp"
 #include "screen_stack.hpp"
 #include "settings.hpp"
@@ -35,14 +36,17 @@ void TerminalScreen::handleInput(const input::InputEvent& evt,
         evt.button_id == 1) {
         ctx_.currentFontSize = (ctx_.currentFontSize + 1) % 3;
         ctx_.settings.font_size = ctx_.currentFontSize;
-        // main.cpp owns the setFont call via its legacy dispatch path
-        // during 2a/2b; Task 14 moves that here.
         app::saveSettings(ctx_.settings);
         return;
     }
 
-    // Button B long → switch to Dashboard (existing terminal→dashboard
-    // semantic). Still handled by main.cpp's legacy dispatch during 2a/2b.
+    // Button B long → switch to Dashboard (preserves legacy semantic).
+    if (evt.source == input::Source::Button &&
+        evt.type == input::EventType::ButtonLong &&
+        evt.button_id == 1) {
+        stack.replace(std::make_unique<DashboardScreen>(ctx_));
+        return;
+    }
 
     // Keyboard → SSH passthrough, with F1 (ESC O P) intercepted for menu.
     if (evt.source == input::Source::Keyboard &&

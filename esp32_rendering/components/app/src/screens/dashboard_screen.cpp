@@ -30,9 +30,14 @@ void DashboardScreen::handleInput(const input::InputEvent& evt,
         stack.push(std::make_unique<MenuScreen>(ctx_));
         return;
     }
+
     // Button B long → switch to next server (existing power-user shortcut).
-    // Still handled by main.cpp's legacy dispatch until Task 14 rewires
-    // via ctx_.switchToActiveServer (populated at Task 14).
+    if (evt.source == input::Source::Button &&
+        evt.type == input::EventType::ButtonLong &&
+        evt.button_id == 1) {
+        if (ctx_.switchToNextServer) ctx_.switchToNextServer();
+        return;
+    }
 }
 
 void DashboardScreen::render(onebit::IFramebuffer& fb,
