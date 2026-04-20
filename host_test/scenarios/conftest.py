@@ -68,3 +68,7 @@ def one_server_device(fresh_device: Device) -> Device:
         "password": "p",
     })
     return fresh_device
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "slow: real-time-sensitive tests (BLE timeouts, etc.)")
