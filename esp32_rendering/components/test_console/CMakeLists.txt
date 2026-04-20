@@ -4,6 +4,7 @@ if(CONFIG_TEST_CONSOLE_ENABLED)
         "src/commands_runtime.cpp"
         "src/commands_introspect.cpp"
         "src/commands_injection.cpp"
+        "src/commands_nvs.cpp"
     )
 else()
     set(TEST_CONSOLE_SRCS "")
@@ -26,5 +27,6 @@ idf_component_register(
         espcoredump
         vfs
         onebit
+        json
 )
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)

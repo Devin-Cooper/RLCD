@@ -64,6 +64,7 @@ void data(const char* fmt, ...) {
 void registerRuntimeCommands();
 void registerIntrospectCommands();
 void registerInjectionCommands();
+void registerNvsCommands();
 
 void init(Context& ctx) {
 #if !CONFIG_TEST_CONSOLE_ENABLED
@@ -95,6 +96,7 @@ void init(Context& ctx) {
     registerRuntimeCommands();
     registerIntrospectCommands();
     registerInjectionCommands();
+    registerNvsCommands();
 
     ESP_ERROR_CHECK(esp_console_start_repl(repl));
     ESP_LOGI(TAG, "test_console started on UART%d @ %d baud",
