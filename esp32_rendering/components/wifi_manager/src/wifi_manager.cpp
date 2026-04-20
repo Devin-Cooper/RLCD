@@ -1,4 +1,5 @@
 #include "wifi_manager.hpp"
+#include "input_queue.hpp"
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -165,19 +166,17 @@ ConnectionInfo WifiManager::connectionInfo() const {
 }
 
 void WifiManager::saveNetwork(const char* ssid, const char* password) {
-    // Check if already known
     int idx = findKnownNetwork(ssid);
+    bool overwriting_oldest = false;
     if (idx < 0) {
-        // Find empty slot
         for (int i = 0; i < MAX_KNOWN_NETWORKS; i++) {
-            if (!known_networks_[i].valid) {
-                idx = i;
-                break;
-            }
+            if (!known_networks_[i].valid) { idx = i; break; }
         }
         if (idx < 0) {
-            // Overwrite oldest (slot 0)
+            // All 8 slots full — overwrite slot 0 (oldest). UI layer is
+            // notified via slot_full_cb_ below.
             idx = 0;
+            overwriting_oldest = true;
         }
     }
 
@@ -187,22 +186,35 @@ void WifiManager::saveNetwork(const char* ssid, const char* password) {
                  sizeof(known_networks_[idx].password) - 1);
     known_networks_[idx].valid = true;
 
-    // Persist to NVS
     nvs_handle_t handle;
-    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK) {
-        char key_ssid[16], key_pass[16];
-        snprintf(key_ssid, sizeof(key_ssid), "ssid_%d", idx);
-        snprintf(key_pass, sizeof(key_pass), "pass_%d", idx);
-        nvs_set_str(handle, key_ssid, ssid);
-        nvs_set_str(handle, key_pass, password);
-        nvs_commit(handle);
-        nvs_close(handle);
-        ESP_LOGI(TAG, "Saved network '%s' at slot %d", ssid, idx);
+    esp_err_t e = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "nvs_open wifi_creds rw: %s", esp_err_to_name(e));
+        if (save_error_cb_) save_error_cb_(save_error_ctx_);
+        return;
+    }
+    char key_ssid[16], key_pass[16];
+    snprintf(key_ssid, sizeof(key_ssid), "ssid_%d", idx);
+    snprintf(key_pass, sizeof(key_pass), "pass_%d", idx);
+    nvs_set_str(handle, key_ssid, ssid);
+    nvs_set_str(handle, key_pass, password);
+    e = nvs_commit(handle);
+    nvs_close(handle);
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "nvs_commit wifi_creds: %s", esp_err_to_name(e));
+        if (save_error_cb_) save_error_cb_(save_error_ctx_);
+        return;
     }
 
+    ESP_LOGI(TAG, "Saved network '%s' at slot %d%s",
+             ssid, idx, overwriting_oldest ? " (overwrote oldest)" : "");
+
     known_count_ = 0;
-    for (int i = 0; i < MAX_KNOWN_NETWORKS; i++) {
+    for (int i = 0; i < MAX_KNOWN_NETWORKS; i++)
         if (known_networks_[i].valid) known_count_++;
+
+    if (overwriting_oldest && slot_full_cb_) {
+        slot_full_cb_(slot_full_ctx_);
     }
 }
 
@@ -230,6 +242,27 @@ void WifiManager::forgetNetwork(const char* ssid) {
     for (int i = 0; i < MAX_KNOWN_NETWORKS; i++) {
         if (known_networks_[i].valid) known_count_++;
     }
+}
+
+int WifiManager::knownNetworks(NetworkInfo* out, int max) const {
+    int n = 0;
+    for (int i = 0; i < MAX_KNOWN_NETWORKS && n < max; ++i) {
+        if (!known_networks_[i].valid) continue;
+        std::strncpy(out[n].ssid, known_networks_[i].ssid, sizeof(out[n].ssid) - 1);
+        out[n].ssid[sizeof(out[n].ssid) - 1] = '\0';
+        out[n].rssi = 0;
+        out[n].auth = WIFI_AUTH_WPA2_PSK;   // unknown at this level; default secured
+        ++n;
+    }
+    return n;
+}
+
+bool WifiManager::knownPassword(const char* ssid, char* out, size_t out_cap) const {
+    int idx = findKnownNetwork(ssid);
+    if (idx < 0 || !out || out_cap == 0) return false;
+    std::strncpy(out, known_networks_[idx].password, out_cap - 1);
+    out[out_cap - 1] = '\0';
+    return true;
 }
 
 // --- Private ---
@@ -307,6 +340,14 @@ void WifiManager::handleWifiEvent(int32_t id, void* data) {
     case WIFI_EVENT_STA_CONNECTED:
         ESP_LOGI(TAG, "Connected to WiFi (waiting for IP)");
         break;
+    case WIFI_EVENT_SCAN_DONE: {
+        input::InputEvent ie{};
+        ie.source = input::Source::System;
+        ie.type   = input::EventType::WifiScanDone;
+        ie.data_length = 0;
+        input::globalInputQueue().pushOrDrop(ie);
+        break;
+    }
     default:
         break;
     }

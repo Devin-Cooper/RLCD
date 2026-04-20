@@ -29,13 +29,22 @@
 
 // Application layer
 #include "settings.hpp"
-#include "menu.hpp"
 #include "dashboard.hpp"
 #include "terminal_mode.hpp"
+#include "screen.hpp"
+#include "screen_stack.hpp"
+#include "screen_context.hpp"
+#include "overlay.hpp"
+#include "font_for_size.hpp"
+#include "screens/dashboard_screen.hpp"
+#include "screens/terminal_screen.hpp"
+#include "screens/pairing_screen.hpp"
+#include "screens/wifi_screen.hpp"
 
 // SD card config
 #include "sdcard_manager.hpp"
 #include "config_manager.hpp"
+#include "config_store_nvs.hpp"
 
 // onebit library (via EXTRA_COMPONENT_DIRS)
 #include <1bit/core/allocator.hpp>
@@ -50,12 +59,19 @@
 #include "rendering/framebuffer.hpp"
 
 static const char* TAG = "main";
+using app::fontForSize;
 
 // ============================================================================
 // SSH data stream buffer — SSH task writes, main loop reads
 // ============================================================================
 static StreamBufferHandle_t sshDataStream = nullptr;
 static constexpr size_t SSH_STREAM_SIZE = 8192;
+
+// ============================================================================
+// WiFi connected atomic — bridged into the onStateChange lambda via a
+// file-scope pointer so the captureless callback can update it.
+// ============================================================================
+static std::atomic<bool>* s_wifi_connected = nullptr;
 
 // ============================================================================
 // Framebuffer adapter: onebit::IFramebuffer <-> rendering::IFramebuffer
@@ -95,46 +111,13 @@ private:
     onebit::IFramebuffer& src_;
 };
 
-// ============================================================================
-// Application mode
-// ============================================================================
-
-enum class AppMode : uint8_t {
-    Dashboard,
-    Terminal,
-    NetworkSelect,
-    Error,
-    Pairing,
-};
-
-// Forward declarations for helpers defined lower in this file but used by
-// the dispatch helpers just below.
-static const onebit::BitmapFont& fontForSize(uint8_t size);
+// Forward declarations for helpers defined lower in this file.
 static void showStatus(onebit::IFramebuffer& fb, st7305::Display& display,
                        const char* line1, const char* line2 = nullptr);
 
 // ============================================================================
-// Input dispatch state (passed-by-reference to dispatchInputEvent / helpers)
-// ============================================================================
-
-struct DispatchState {
-    AppMode& currentMode;
-    app::Menu& menu;
-    app::Dashboard& dashboard;
-    app::TerminalMode& terminalMode;
-    sdcard::ConfigManager* configMgr;
-    ssh::SshClient& sshClient;
-    ble_hid::BleHidHost& bleHost;
-    wifi::WifiManager& wifiMgr;
-    app::Settings& settings;
-    uint8_t& currentFontSize;
-    onebit::IFramebuffer& fb;
-    st7305::Display& display;
-};
-
-// ============================================================================
-// Server rotation (shared by Button-B-long menu confirm and Keyboard-Enter
-// menu confirm paths — dedup per Spec 05).
+// Server rotation — shared by DashboardScreen Btn B long (wired via
+// ctx.switchToNextServer) and any future menu "Servers" confirm paths.
 // ============================================================================
 
 static void switchToNextServer(sdcard::ConfigManager* configMgr,
@@ -146,183 +129,47 @@ static void switchToNextServer(sdcard::ConfigManager* configMgr,
     const auto& srv = configMgr->activeServer();
     sshClient.disconnect();
     ssh::Config cfg = {};
-    strncpy(cfg.host, srv.host, sizeof(cfg.host) - 1);
-    cfg.port = srv.port;
-    strncpy(cfg.username, srv.username, sizeof(cfg.username) - 1);
-    cfg.use_key_auth = srv.use_key_auth;
+    strncpy(cfg.host, srv.creds.host, sizeof(cfg.host) - 1);
+    cfg.port = srv.creds.port;
+    strncpy(cfg.username, srv.creds.username, sizeof(cfg.username) - 1);
+    cfg.use_key_auth = srv.creds.use_key_auth;
     if (!cfg.use_key_auth) {
-        nvs_handle_t handle;
-        if (nvs_open("ssh_creds", NVS_READONLY, &handle) == ESP_OK) {
-            char nvs_key[24];
-            snprintf(nvs_key, sizeof(nvs_key), "srv_p_%d", next);
-            size_t len = sizeof(cfg.password);
-            nvs_get_str(handle, nvs_key, cfg.password, &len);
-            nvs_close(handle);
-        }
+        strncpy(cfg.password, srv.creds.password, sizeof(cfg.password) - 1);
     }
     sshClient.connect(cfg);
     if (srv.dashboard_count > 0) {
         dashboard.updateCommands(srv.dashboard, srv.dashboard_count);
     }
-    dashboard.setServerName(srv.name[0] ? srv.name : srv.host);
-    ESP_LOGI(TAG, "Switched to server: %s", srv.name);
+    dashboard.setServerName(srv.creds.name[0] ? srv.creds.name : srv.creds.host);
+    ESP_LOGI(TAG, "Switched to server: %s", srv.creds.name);
 }
 
 // ============================================================================
-// Menu-selection handler (shared by Button-B-long + Keyboard-Enter paths).
+// Reconnect to current active server index (no rotation).
+// Used by ServerListScreen Shift+A (Task 21) and any "apply the edit"
+// flow that changes the active server.
 // ============================================================================
 
-static void handleMenuSelection(app::Menu::Item sel, DispatchState& s) {
-    switch (sel) {
-        case app::Menu::Item::Dashboard:
-            s.currentMode = AppMode::Dashboard;
-            break;
-        case app::Menu::Item::Terminal:
-            s.currentMode = AppMode::Terminal;
-            break;
-        case app::Menu::Item::Servers:
-            switchToNextServer(s.configMgr, s.sshClient, s.dashboard);
-            break;
-        case app::Menu::Item::Settings:
-            // TODO: settings editor screen
-            break;
-        case app::Menu::Item::WiFi:
-            s.currentMode = AppMode::NetworkSelect;
-            break;
-        case app::Menu::Item::About:
-            showStatus(s.fb, s.display, "RLCD Terminal v1.0",
-                       "github.com/Devin-Cooper/RLCD");
-            vTaskDelay(pdMS_TO_TICKS(2000));
-            break;
-        default:
-            break;
+static void reconnectActiveServer(sdcard::ConfigManager* configMgr,
+                                   ssh::SshClient& sshClient,
+                                   app::Dashboard& dashboard) {
+    if (configMgr->serverCount() == 0) return;
+    const auto& srv = configMgr->activeServer();
+    sshClient.disconnect();
+    ssh::Config cfg = {};
+    strncpy(cfg.host, srv.creds.host, sizeof(cfg.host) - 1);
+    cfg.port = srv.creds.port;
+    strncpy(cfg.username, srv.creds.username, sizeof(cfg.username) - 1);
+    cfg.use_key_auth = srv.creds.use_key_auth;
+    if (!cfg.use_key_auth) {
+        strncpy(cfg.password, srv.creds.password, sizeof(cfg.password) - 1);
     }
-}
-
-// ============================================================================
-// Input dispatcher — single source of truth for input → mode routing.
-// Called once per queued InputEvent; extracted from main loop for clarity
-// and to eliminate the ~200-line inline branch chain.
-// ============================================================================
-
-static void dispatchInputEvent(const input::InputEvent& evt, DispatchState& s) {
-    // --- Button A short press: pure open/close toggle (never confirm) ---
-    if (evt.source == input::Source::Button &&
-        evt.type == input::EventType::ButtonShort &&
-        evt.button_id == 0) {
-        if (s.menu.isOpen()) {
-            ESP_LOGI(TAG, "menu close");
-            s.menu.close();
-        } else {
-            ESP_LOGI(TAG, "menu open");
-            s.menu.open();
-        }
-        return;
+    sshClient.connect(cfg);
+    if (srv.dashboard_count > 0) {
+        dashboard.updateCommands(srv.dashboard, srv.dashboard_count);
     }
-
-    // --- Button A long press: BLE pairing ---
-    if (evt.source == input::Source::Button &&
-        evt.type == input::EventType::ButtonLong &&
-        evt.button_id == 0) {
-        ESP_LOGI(TAG, "BLE pairing mode triggered");
-        s.currentMode = AppMode::Pairing;
-        s.bleHost.startPairing(30);
-        return;
-    }
-
-    // --- Button B short press: menu nav down / font cycle / retry ---
-    if (evt.source == input::Source::Button &&
-        evt.type == input::EventType::ButtonShort &&
-        evt.button_id == 1) {
-        if (s.menu.isOpen()) {
-            s.menu.moveDown();
-        } else if (s.currentMode == AppMode::Terminal) {
-            s.currentFontSize = (s.currentFontSize + 1) % 3;
-            s.settings.font_size = s.currentFontSize;
-            s.terminalMode.setFont(fontForSize(s.currentFontSize));
-            app::saveSettings(s.settings);
-        } else if (s.currentMode == AppMode::Error ||
-                   s.currentMode == AppMode::NetworkSelect) {
-            s.wifiMgr.autoConnect();
-            s.currentMode = AppMode::Dashboard;
-        }
-        return;
-    }
-
-    // --- Button B long press: menu confirm OR terminal→dashboard swap ---
-    if (evt.source == input::Source::Button &&
-        evt.type == input::EventType::ButtonLong &&
-        evt.button_id == 1) {
-        if (s.menu.isOpen()) {
-            app::Menu::Item sel = s.menu.confirm();
-            s.menu.close();
-            ESP_LOGI(TAG, "menu confirm (btn B long): %d", static_cast<int>(sel));
-            handleMenuSelection(sel, s);
-        } else if (s.currentMode == AppMode::Terminal) {
-            s.currentMode = AppMode::Dashboard;
-            ESP_LOGI(TAG, "Returned to dashboard");
-        }
-        return;
-    }
-
-    // --- Keyboard input: menu nav / confirm / close / SSH passthrough ---
-    if (evt.source == input::Source::Keyboard &&
-        evt.type == input::EventType::Keypress) {
-        ESP_LOGI(TAG, "[dispatch] kbd len=%d b0=%02x mode=%d menu_open=%d ssh_state=%d",
-                 evt.data_length,
-                 evt.data_length > 0 ? evt.data[0] : 0,
-                 static_cast<int>(s.currentMode),
-                 s.menu.isOpen() ? 1 : 0,
-                 static_cast<int>(s.sshClient.state()));
-        if (s.menu.isOpen()) {
-            // Arrow keys
-            if (evt.data_length == 3 &&
-                evt.data[0] == 0x1B && evt.data[1] == '[') {
-                if (evt.data[2] == 'A') s.menu.moveUp();
-                if (evt.data[2] == 'B') s.menu.moveDown();
-            }
-            // Enter confirms
-            if (evt.data_length == 1 && evt.data[0] == '\r') {
-                app::Menu::Item sel = s.menu.confirm();
-                s.menu.close();
-                ESP_LOGI(TAG, "menu confirm (kbd): %d", static_cast<int>(sel));
-                handleMenuSelection(sel, s);
-            }
-            // Escape closes
-            if (evt.data_length == 1 && evt.data[0] == 0x1B) {
-                ESP_LOGI(TAG, "menu close (esc)");
-                s.menu.close();
-            }
-            return;
-        }
-
-        // Menu closed: F1 (ESC O P) opens menu in Terminal/Dashboard;
-        // everything else passes through to SSH in Terminal mode only.
-        bool isF1 = (evt.data_length == 3 &&
-                     evt.data[0] == 0x1B &&
-                     evt.data[1] == 'O' &&
-                     evt.data[2] == 'P');
-        if (isF1 && (s.currentMode == AppMode::Terminal ||
-                     s.currentMode == AppMode::Dashboard)) {
-            ESP_LOGI(TAG, "menu open (F1)");
-            s.menu.open();
-        } else if (s.currentMode == AppMode::Terminal &&
-                   s.sshClient.state() == ssh::State::Connected) {
-            s.sshClient.send(evt.data, evt.data_length);
-        }
-    }
-}
-
-// ============================================================================
-// Font table — indexed by Settings::font_size (0/1/2)
-// ============================================================================
-
-static const onebit::BitmapFont& fontForSize(uint8_t size) {
-    switch (size) {
-        case 0: return onebit::fonts::TERM_5X7;
-        case 2: return onebit::fonts::TERM_8X12;
-        default: return onebit::fonts::TERM_6X9;
-    }
+    dashboard.setServerName(srv.creds.name[0] ? srv.creds.name : srv.creds.host);
+    ESP_LOGI(TAG, "Reconnected to active server: %s", srv.creds.name);
 }
 
 // ============================================================================
@@ -562,7 +409,7 @@ extern "C" void app_main() {
         if (ps.has_font_size) settings.font_size = ps.font_size;
         if (ps.has_scrollback) settings.scrollback_depth = ps.scrollback;
         if (ps.has_dashboard_interval_ms) settings.dashboard_interval_ms = ps.dashboard_interval_ms;
-        app::saveSettings(settings);
+        (void) app::saveSettings(settings);   // boot-time; failure logged by saveSettings itself
     }
     const onebit::BitmapFont& activeFont = fontForSize(settings.font_size);
     ESP_LOGI(TAG, "Font selected OK");
@@ -577,12 +424,23 @@ extern "C" void app_main() {
     bleHost.init();
     ESP_LOGI(TAG, "BLE init returned");
 
-    // BLE state change callback — log and detect pairing success
+    // BLE state change callback — log and post synthetic BleStateChanged
+    // event so PairingScreen (and any future listeners) can react
+    // single-threaded via Screen::handleInput. Must stay BEFORE autoReconnect.
     bleHost.onStateChange([](ble_hid::State state, void*) {
-        const char* names[] = {"Disabled", "Scanning", "Connecting", "Connected", "Disconnected"};
+        const char* names[] = {"Disabled", "Scanning", "Connecting",
+                               "Connected", "Disconnected"};
         int idx = static_cast<int>(state);
         ESP_LOGI("ble_hid", "State changed: %s (%d)",
                  (idx >= 0 && idx <= 4) ? names[idx] : "unknown", idx);
+        // Post synthetic event so PairingScreen (and any future listeners)
+        // can react single-threaded via Screen::handleInput.
+        input::InputEvent ie{};
+        ie.source = input::Source::System;
+        ie.type   = input::EventType::BleStateChanged;
+        ie.data[0] = static_cast<uint8_t>(state);
+        ie.data_length = 1;
+        input::globalInputQueue().pushOrDrop(ie);
     }, nullptr);
 
     // Bridge BLE key events into the unified input queue
@@ -649,10 +507,23 @@ extern "C" void app_main() {
     }
 
     std::atomic<bool> wifiConnected{false};
-    wifiMgr.onStateChange([](wifi::State state, void* ctx) {
-        auto* flag = static_cast<std::atomic<bool>*>(ctx);
-        flag->store(state == wifi::State::Connected);
-    }, &wifiConnected);
+
+    // WiFi state change callback — updates wifiConnected atomic AND posts
+    // a synthetic WifiStateChanged event so screens react single-threaded.
+    // Must stay BEFORE wifiMgr.autoConnect() so the first transition is
+    // not lost. Amendment C.
+    s_wifi_connected = &wifiConnected;
+    wifiMgr.onStateChange([](wifi::State state, void*) {
+        if (s_wifi_connected)
+            s_wifi_connected->store(state == wifi::State::Connected);
+        input::InputEvent ie{};
+        ie.source = input::Source::System;
+        ie.type   = input::EventType::WifiStateChanged;
+        ie.data[0] = static_cast<uint8_t>(state);
+        ie.data[1] = 0;   // reason — threaded in Task 16/Amendment L
+        ie.data_length = 2;
+        input::globalInputQueue().pushOrDrop(ie);
+    }, nullptr);
 
     // Debug: dump stored WiFi credentials
     {
@@ -678,8 +549,6 @@ extern "C" void app_main() {
             nvs_close(h);
         } else {
             ESP_LOGW(TAG, "No wifi_creds NVS namespace found");
-            showStatus(fb, display, "No WiFi credentials", "Check SD card config");
-            vTaskDelay(pdMS_TO_TICKS(2000));
         }
     }
 
@@ -694,13 +563,13 @@ extern "C" void app_main() {
     // ------------------------------------------------------------------
     // Step 6/7: Post-WiFi routing
     // ------------------------------------------------------------------
-    AppMode currentMode = AppMode::Dashboard;
     ssh::SshClient sshClient;
     std::atomic<bool> sshConnected{false};
 
     // Create SSH data stream buffer for SSH task -> main loop data flow
     sshDataStream = xStreamBufferCreate(SSH_STREAM_SIZE, 1);
 
+    ssh::Config sshCfg{};
     if (wifiConnected) {
         ESP_LOGI(TAG, "WiFi connected");
 
@@ -708,24 +577,15 @@ extern "C" void app_main() {
         startNtpSync();
 
         // SSH connect — use SD card server config if available, else NVS settings
-        ssh::Config sshCfg{};
         if (hasServers) {
             const auto& srv = configMgr->activeServer();
-            strncpy(sshCfg.host, srv.host, sizeof(sshCfg.host) - 1);
-            sshCfg.port = srv.port;
-            strncpy(sshCfg.username, srv.username, sizeof(sshCfg.username) - 1);
-            sshCfg.use_key_auth = srv.use_key_auth;
-            // Load password from NVS if using password auth
+            strncpy(sshCfg.host, srv.creds.host, sizeof(sshCfg.host) - 1);
+            sshCfg.port = srv.creds.port;
+            strncpy(sshCfg.username, srv.creds.username, sizeof(sshCfg.username) - 1);
+            sshCfg.use_key_auth = srv.creds.use_key_auth;
+            // Password is now stored directly in ServerCreds (Task 20)
             if (!sshCfg.use_key_auth) {
-                nvs_handle_t handle;
-                if (nvs_open("ssh_creds", NVS_READONLY, &handle) == ESP_OK) {
-                    char nvs_key[24];
-                    snprintf(nvs_key, sizeof(nvs_key), "srv_p_%d",
-                             configMgr->activeServerIndex());
-                    size_t len = sizeof(sshCfg.password);
-                    nvs_get_str(handle, nvs_key, sshCfg.password, &len);
-                    nvs_close(handle);
-                }
+                strncpy(sshCfg.password, srv.creds.password, sizeof(sshCfg.password) - 1);
             }
         } else {
             strncpy(sshCfg.host, settings.ssh_host, sizeof(sshCfg.host) - 1);
@@ -755,28 +615,20 @@ extern "C" void app_main() {
             }
 
             if (!sshConnected) {
-                // Step 8: SSH failed — show error
-                showStatus(fb, display, "SSH connection failed",
-                           "Press A for settings, B to retry");
-                currentMode = AppMode::Error;
+                // Step 8: SSH failed — overlay will show error after stack is live
             } else {
-                currentMode = AppMode::Dashboard;
+                ESP_LOGI(TAG, "SSH connected");
             }
         } else {
             ESP_LOGW(TAG, "No SSH host configured — entering dashboard offline");
-            currentMode = AppMode::Dashboard;
         }
     } else {
-        ESP_LOGW(TAG, "WiFi not connected — network select");
-        showStatus(fb, display, "WiFi not connected",
-                   "Press A to scan networks");
-        currentMode = AppMode::NetworkSelect;
+        ESP_LOGW(TAG, "WiFi not connected — user must configure via menu");
     }
 
     // ------------------------------------------------------------------
     // Initialize application-layer components
     // ------------------------------------------------------------------
-    app::Menu menu;
     app::Dashboard dashboard;
     dashboard.init(settings);
 
@@ -787,11 +639,76 @@ extern "C" void app_main() {
             dashboard.updateCommands(srv.dashboard, srv.dashboard_count);
         }
         // Show server name (or host) in dashboard title bar
-        dashboard.setServerName(srv.name[0] ? srv.name : srv.host);
+        dashboard.setServerName(srv.creds.name[0] ? srv.creds.name : srv.creds.host);
     }
 
     app::TerminalMode terminalMode(fb, activeFont);
     uint8_t currentFontSize = settings.font_size;
+
+    // ------------------------------------------------------------------
+    // ScreenStack + OverlayManager + ScreenContext
+    // ------------------------------------------------------------------
+    app::ScreenStack stack;
+    app::OverlayManager overlay;
+
+    app::ScreenContext ctx{
+        fb, display, sshClient, wifiMgr, *configMgr, bleHost, settings,
+        stack, overlay, dashboard, terminalMode, currentFontSize
+    };
+
+    // Amendment K: wire switchToNextServer and switchToActiveServer into ctx.
+    ctx.switchToNextServer = [&]() {
+        switchToNextServer(configMgr.get(), sshClient, dashboard);
+    };
+    ctx.switchToActiveServer = [&]() {
+        reconnectActiveServer(configMgr.get(), sshClient, dashboard);
+    };
+
+    stack.push(std::make_unique<app::DashboardScreen>(ctx));
+
+    // Wire WifiManager error callbacks now that overlay is in scope.
+    wifiMgr.onSaveError([](void* ctx) {
+        auto* ov = static_cast<app::OverlayManager*>(ctx);
+        ov->showError("WiFi save failed", "NVS write error");
+    }, &overlay);
+    wifiMgr.onSlotFull([](void* ctx) {
+        auto* ov = static_cast<app::OverlayManager*>(ctx);
+        ov->showToast("WiFi slot full — overwrote oldest", 3000);
+    }, &overlay);
+
+    // Post-stack-init: show deferred boot errors via overlay now that it's live.
+    if (wifiConnected && sshCfg.host[0] != '\0' && !sshConnected) {
+        overlay.showError("SSH failed",
+                          sshCfg.host[0] ? sshCfg.host : "no host configured");
+    }
+    if (!wifiConnected) {
+        ESP_LOGW(TAG, "WiFi not connected — pushing WifiScreen");
+        stack.push(std::make_unique<app::WifiScreen>(ctx));
+    }
+
+    // Surface migration result via overlay (toasts / log / error modal).
+    // Note: we can't use 'MR' as an alias — xtensa specreg.h #defines MR=32.
+    {
+        using MigRes = sdcard::MigrationResult;
+        switch (configMgr->lastMigration()) {
+            case MigRes::PathB:
+                overlay.showToast("Migrated legacy server", 2500);
+                break;
+            case MigRes::BeltAndSuspenders:
+                overlay.showToast("Discarded legacy ssh_host from Settings", 3000);
+                break;
+            case MigRes::PathAHole:
+                ESP_LOGW(TAG, "Legacy ssh_creds preserved for next-boot migration");
+                break;
+            default: break;
+        }
+        if (configMgr->invalidJsonCount() > 0) {
+            char body[96];
+            snprintf(body, sizeof(body), "%d server file(s) invalid",
+                     configMgr->invalidJsonCount());
+            overlay.showError("SD parse errors", body);
+        }
+    }
 
     // Wire SSH data into stream buffer — SSH task pushes, main loop drains
     sshClient.onData([](const uint8_t* data, size_t len, void* ctx) {
@@ -829,7 +746,7 @@ extern "C" void app_main() {
     FramebufferAdapter prevAdapter(prevFb);
     bool hasPrevFrame = prevFb.buffer() != nullptr;
 
-    ESP_LOGI(TAG, "Entering main loop — mode=%d", static_cast<int>(currentMode));
+    ESP_LOGI(TAG, "Entering main loop");
 
     // Drop-counter watchdog state (Spec 05): rate-limit the warning so
     // sustained backpressure doesn't flood the log.
@@ -844,6 +761,8 @@ extern "C" void app_main() {
         int64_t frameStart = esp_timer_get_time();
         int64_t now_ms = frameStart / 1000;
 
+        overlay.tick(frameStart);
+
         // Log pushOrDrop drops when count advances (at most 1 Hz).
         {
             uint32_t cur = input::globalInputQueue().droppedCount();
@@ -856,121 +775,82 @@ extern "C" void app_main() {
         }
 
         // ----------------------------------------------------------
-        // Process input events (dispatcher extracted to dispatchInputEvent)
+        // Process input events — fully stack-driven (Task 14).
         // ----------------------------------------------------------
-        DispatchState dispatch{
-            currentMode, menu, dashboard, terminalMode,
-            configMgr.get(), sshClient, bleHost, wifiMgr,
-            settings, currentFontSize,
-            fb, display
-        };
         input::InputEvent evt;
         while (input::globalInputQueue().pop(evt)) {
-            dispatchInputEvent(evt, dispatch);
+            // Global shortcut: Btn A long → clear to base + push PairingScreen.
+            // No-op if PairingScreen is already top (prevents re-entry).
+            if (evt.source == input::Source::Button &&
+                evt.type == input::EventType::ButtonLong &&
+                evt.button_id == 0 &&
+                dynamic_cast<app::PairingScreen*>(stack.top()) == nullptr) {
+                stack.clearToBaseAndPush(std::make_unique<app::PairingScreen>(ctx));
+                continue;
+            }
+            // Amendment D: System events (WiFi/BLE state) bypass the overlay so
+            // modals never swallow backend state transitions.
+            if (evt.source == input::Source::System) {
+                stack.top()->handleInput(evt, stack);
+                continue;
+            }
+            if (!overlay.handleInput(evt)) {
+                stack.top()->handleInput(evt, stack);
+            }
         }
+        stack.applyPending();
 
         // ----------------------------------------------------------
-        // Drain SSH data stream buffer and route to active mode
+        // SSH data drain — route to the active primary-view screen.
+        // Walk the stack for the active primary screen, skipping
+        // transparent overlays like MenuScreen.
         // ----------------------------------------------------------
         if (sshDataStream) {
             uint8_t sshBuf[1024];
             size_t received = xStreamBufferReceive(sshDataStream, sshBuf,
-                                                    sizeof(sshBuf), 0);
+                                                   sizeof(sshBuf), 0);
             if (received > 0) {
-                if (currentMode == AppMode::Terminal) {
-                    terminalMode.feedData(sshBuf, received);
-                } else if (currentMode == AppMode::Dashboard) {
-                    dashboard.feedData(sshBuf, received);
+                app::DashboardScreen* ds = nullptr;
+                app::TerminalScreen*  ts = nullptr;
+                for (size_t i = stack.depth(); i-- > 0; ) {
+                    app::Screen* s = stack.at(i);
+                    if (!ds) ds = dynamic_cast<app::DashboardScreen*>(s);
+                    if (!ts) ts = dynamic_cast<app::TerminalScreen*>(s);
+                    if (ds || ts) break;
                 }
+                if (ts) ts->feedSshData(sshBuf, received);
+                else if (ds) ds->feedSshData(sshBuf, received);
             }
         }
 
         // ----------------------------------------------------------
-        // SSH disconnect detection — show error and offer reconnect
+        // SSH disconnect detection — show toast and offer reconnect
         // ----------------------------------------------------------
         if (sshConnected.load() &&
             sshClient.state() != ssh::State::Connected &&
             sshClient.state() != ssh::State::Connecting &&
             sshClient.state() != ssh::State::Authenticating) {
             sshConnected.store(false);
-            showStatus(fb, display, "SSH disconnected",
-                       "Press B to reconnect");
-            currentMode = AppMode::Error;
+            overlay.showToast("SSH disconnected — press B to reconnect", 3000);
         }
 
         // ----------------------------------------------------------
-        // Render active mode
+        // Per-frame update for Dashboard if it's on the stack.
         // ----------------------------------------------------------
-        switch (currentMode) {
-            case AppMode::Dashboard:
-                dashboard.update(sshClient, now_ms);
-                dashboard.render(fb, fontForSize(currentFontSize));
-                break;
-
-            case AppMode::Terminal:
-                terminalMode.render();
-                break;
-
-            case AppMode::NetworkSelect:
-                // Minimal: show current WiFi info and prompt
-                {
-                    fb.clear(onebit::WHITE);
-                    const auto& f = fontForSize(currentFontSize);
-                    wifi::ConnectionInfo ci = wifiMgr.connectionInfo();
-                    char buf[64];
-                    snprintf(buf, sizeof(buf), "WiFi: %s",
-                             ci.state == wifi::State::Connected ? ci.ssid : "disconnected");
-                    onebit::drawBitmapText(fb, f, 10, 10, buf, onebit::BLACK);
-                    onebit::drawBitmapText(fb, f, 10, 26,
-                                           "Press B to scan, A for menu",
-                                           onebit::BLACK);
-                }
-                break;
-
-            case AppMode::Error:
-                // Static — already rendered, just wait for input
-                break;
-
-            case AppMode::Pairing:
-                {
-                    fb.clear(onebit::WHITE);
-                    const auto& f = fontForSize(currentFontSize);
-                    onebit::drawBitmapText(fb, f, 10, 10, "BLE Pairing Mode",
-                                           onebit::BLACK);
-                    onebit::drawBitmapText(fb, f, 10, 30,
-                                           "Put keyboard in pairing mode",
-                                           onebit::BLACK);
-
-                    const char* state_str = "Scanning...";
-                    auto ble_state = bleHost.state();
-                    if (ble_state == ble_hid::State::Connecting)
-                        state_str = "Connecting...";
-                    else if (ble_state == ble_hid::State::Connected) {
-                        state_str = "Connected!";
-                        // Auto-return to dashboard after connection
-                        currentMode = AppMode::Dashboard;
-                        ESP_LOGI(TAG, "BLE keyboard connected — returning to dashboard");
-                    } else if (ble_state == ble_hid::State::Disconnected) {
-                        state_str = "Timeout — no keyboard found";
-                        // Return to dashboard after timeout
-                        currentMode = AppMode::Dashboard;
-                    }
-                    onebit::drawBitmapText(fb, f, 10, 50, state_str,
-                                           onebit::BLACK);
-
-                    char dbg[48];
-                    snprintf(dbg, sizeof(dbg), "State: %d", static_cast<int>(ble_state));
-                    onebit::drawBitmapText(fb, f, 10, 70, dbg, onebit::BLACK);
-                }
-                break;
+        {
+            app::DashboardScreen* ds = nullptr;
+            for (size_t i = stack.depth(); i-- > 0; ) {
+                ds = dynamic_cast<app::DashboardScreen*>(stack.at(i));
+                if (ds) break;
+            }
+            if (ds) ds->tickUpdate(now_ms);
         }
 
         // ----------------------------------------------------------
-        // Menu overlay (rendered on top of current mode)
+        // Render — fully stack-driven
         // ----------------------------------------------------------
-        if (menu.isOpen()) {
-            menu.render(fb, fontForSize(currentFontSize));
-        }
+        stack.renderAll(fb, fontForSize(currentFontSize));
+        overlay.render(fb, fontForSize(currentFontSize));
 
         // ----------------------------------------------------------
         // Display update (dirty-region optimized)
@@ -990,9 +870,9 @@ extern "C" void app_main() {
         // ----------------------------------------------------------
 
         // ----------------------------------------------------------
-        // Frame pacing: ~10 FPS for dashboard, ~30 FPS for terminal
+        // Frame pacing: driven by the top screen's targetFps()
         // ----------------------------------------------------------
-        int64_t targetUs = (currentMode == AppMode::Terminal) ? 33333 : 100000;
+        int64_t targetUs = 1000000 / stack.top()->targetFps();
         int64_t elapsed = esp_timer_get_time() - frameStart;
         int64_t sleepUs = targetUs - elapsed;
         if (sleepUs > 1000) {

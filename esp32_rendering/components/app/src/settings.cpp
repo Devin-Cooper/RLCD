@@ -37,17 +37,7 @@ Settings loadSettings() {
 
     nvs_get_u16(handle, "scrollback", &s.scrollback_depth);
 
-    size_t len = sizeof(s.ssh_host);
-    nvs_get_str(handle, "ssh_host", s.ssh_host, &len);
-
-    nvs_get_u16(handle, "ssh_port", &s.ssh_port);
-
-    len = sizeof(s.ssh_user);
-    nvs_get_str(handle, "ssh_user", s.ssh_user, &len);
-
     nvs_get_u16(handle, "dash_interval", &s.dashboard_interval_ms);
-
-    nvs_get_u8(handle, "auth_method", &s.auth_method);
 
     nvs_close(handle);
 
@@ -56,37 +46,32 @@ Settings loadSettings() {
         s.font_size = 1;
     }
 
-    ESP_LOGI(TAG, "Loaded settings: font=%d host=%s port=%d user=%s interval=%dms auth=%d",
-             s.font_size, s.ssh_host, s.ssh_port, s.ssh_user,
-             s.dashboard_interval_ms, s.auth_method);
+    ESP_LOGI(TAG, "Loaded settings: font=%d scrollback=%d interval=%dms",
+             s.font_size, s.scrollback_depth, s.dashboard_interval_ms);
 
     return s;
 }
 
-void saveSettings(const Settings& s) {
+bool saveSettings(const Settings& s) {
     nvs_handle_t handle;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "NVS open for write failed: %s", esp_err_to_name(err));
-        return;
+        return false;
     }
-
-    nvs_set_u8(handle, "font_size", s.font_size);
-    nvs_set_u16(handle, "scrollback", s.scrollback_depth);
-    nvs_set_str(handle, "ssh_host", s.ssh_host);
-    nvs_set_u16(handle, "ssh_port", s.ssh_port);
-    nvs_set_str(handle, "ssh_user", s.ssh_user);
+    nvs_set_u8 (handle, "font_size",     s.font_size);
+    nvs_set_u16(handle, "scrollback",    s.scrollback_depth);
     nvs_set_u16(handle, "dash_interval", s.dashboard_interval_ms);
-    nvs_set_u8(handle, "auth_method", s.auth_method);
+    // Legacy ssh_* fields are no longer written (migrated to new servers NVS namespace).
 
     err = nvs_commit(handle);
+    nvs_close(handle);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "NVS commit failed: %s", esp_err_to_name(err));
-    } else {
-        ESP_LOGI(TAG, "Settings saved");
+        return false;
     }
-
-    nvs_close(handle);
+    ESP_LOGI(TAG, "Settings saved");
+    return true;
 }
 
 } // namespace app

@@ -8,6 +8,14 @@ namespace sdcard {
 static constexpr int MAX_SERVERS = 8;
 static constexpr int MAX_DASHBOARD_COMMANDS = 10;
 
+enum class MigrationResult : uint8_t {
+    None,
+    PathA,               // ssh_creds + SD server identities paired
+    PathAHole,           // ssh_creds present but no SD identities — preserved for next boot
+    PathB,               // Only legacy ssh_host — seed single "default" server
+    BeltAndSuspenders,   // Both ssh_creds+SD AND legacy ssh_host — migrate SD, clear ssh_host
+};
+
 /// Settings parsed from SD card config.json (applied by caller via app::Settings)
 struct ParsedSettings {
     uint8_t font_size;
@@ -23,16 +31,21 @@ struct DashboardCommand {
     char command[128];
 };
 
-struct ServerConfig {
+struct ServerCreds {
     char name[32];
     char host[64];
     uint16_t port;
     char username[32];
-    char key_path[64];      // LittleFS path after import
-    char key_file_name[64]; // Source key filename from SD card JSON
+    char password[64];      // NVS-destined (not written by parseServerJson yet; Task 19)
     bool use_key_auth;
+    char key_path[64];      // LittleFS path after import
+};
+
+struct ServerRuntime {
+    ServerCreds creds;
     DashboardCommand dashboard[MAX_DASHBOARD_COMMANDS];
     int dashboard_count;
+    char key_file_name[64]; // Source key filename from SD card JSON (for re-import)
     bool valid;             // Set to true if parsed successfully
 };
 
@@ -61,21 +74,39 @@ public:
     void scrubSecrets();
 
     int serverCount() const { return server_count_; }
-    const ServerConfig& getServer(int index) const;
+    const ServerRuntime& getServer(int index) const;
     int activeServerIndex() const { return active_index_; }
     void setActiveServer(int index);
-    const ServerConfig& activeServer() const;
+    const ServerRuntime& activeServer() const;
+
+    // NVS store (delegates to config_store_nvs.cpp for host-testability).
+    int loadFromNvs();
+    bool persistToNvs();
+    int upsertServer(const ServerCreds& creds, int index = -1);
+    bool deleteServer(int index);
+    // setActiveServer already exists — its body also persists to NVS.
+
+    /// Run one-shot legacy migration (delegates to free function in config_store_nvs).
+    MigrationResult migrateLegacyOnce();
+    MigrationResult lastMigration() const { return last_migration_; }
+
+    int invalidJsonCount() const { return invalid_json_count_; }
 
     /// Get parsed device settings from config.json (caller applies to app::Settings)
     const ParsedSettings& parsedSettings() const { return parsed_settings_; }
 
 private:
-    ServerConfig servers_[MAX_SERVERS];
+    ServerRuntime servers_[MAX_SERVERS];
     int server_count_;
     int active_index_;
     ParsedSettings parsed_settings_;
+    MigrationResult last_migration_ = MigrationResult::None;
+    int invalid_json_count_ = 0;
 
-    bool parseServerJson(const char* path, ServerConfig& out, int index);
+    int upsertFromSdDir();
+    void persistDashboardTo(const ServerRuntime& s);
+    void loadDashboardFor(ServerRuntime& s);
+    bool parseServerJson(const char* path, ServerRuntime& out, int index);
     bool copyFile(const char* src, const char* dst);
     void scrubJsonFile(const char* path);
     void scrubGlobalConfig();

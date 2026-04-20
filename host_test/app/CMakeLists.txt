@@ -10,11 +10,55 @@ add_host_test(
 )
 
 add_host_test(
-    NAME test_menu_navigation
+    NAME test_screen_stack
     SOURCES
-        test_menu_navigation.cpp
-        "${APP_DIR}/src/menu.cpp"
+        test_screen_stack.cpp
+        "${APP_DIR}/src/screen_stack.cpp"
     INCLUDES
         "${APP_DIR}/include"
+        "${RLCD_COMPONENTS}/input_queue/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
+)
+
+add_host_test(
+    NAME test_overlay_manager
+    SOURCES
+        test_overlay_manager.cpp
+        "${APP_DIR}/src/overlay.cpp"
+    INCLUDES
+        "${APP_DIR}/include"
+        "${RLCD_COMPONENTS}/input_queue/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
+)
+
+add_host_test(
+    NAME test_text_input
+    SOURCES
+        test_text_input.cpp
+        "${APP_DIR}/src/text_input.cpp"
+    INCLUDES
+        "${APP_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
+)
+
+add_host_test(
+    NAME test_server_creds_store
+    SOURCES
+        test_server_creds_store.cpp
+        "${RLCD_COMPONENTS}/sdcard_config/src/config_store_nvs.cpp"
+    INCLUDES
+        "${RLCD_COMPONENTS}/sdcard_config/include"
+        "${RLCD_COMPONENTS}/wifi_manager/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
+)
+
+add_host_test(
+    NAME test_server_migration
+    SOURCES
+        test_server_migration.cpp
+        "${RLCD_COMPONENTS}/sdcard_config/src/config_store_nvs.cpp"
+    INCLUDES
+        "${RLCD_COMPONENTS}/sdcard_config/include"
+        "${RLCD_COMPONENTS}/wifi_manager/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
 )

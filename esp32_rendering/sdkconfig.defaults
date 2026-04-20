@@ -10,6 +10,9 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 # Performance optimization
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 
+# Enable RTTI for dynamic_cast (required by Task 10 dynamic casts in main.cpp)
+CONFIG_COMPILER_CXX_RTTI=y
+
 # --- PSRAM Configuration (8MB Octal) ---
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
