@@ -55,7 +55,7 @@ The firmware is tuned for the ESP32-S3's specific hardware profile:
 ```
 Core 0 (Protocol)           Core 1 (Application)
 WiFi Driver (P:23)          Display/SPI DMA (P:12)
-BLE Controller (P:23)       SSH/libssh2 (P:10)
+BLE Controller (P:23)       SSH/libssh (P:10)
 lwIP TCP/IP (P:18)          ANSI Parser (P:8)
 BLE HID Input (P:9)         Dashboard Poll (P:5)
 ```
@@ -97,7 +97,7 @@ idf.py -p /dev/ttyUSB0 flash monitor
 2. **Pair a BLE keyboard** -- long-press Button A to enter pairing mode (30s timeout)
 3. **Connect WiFi** -- the device auto-connects to networks saved in NVS or in `/sdcard/wifi.json`. Adding a new network from the UI is not implemented.
 4. **Configure SSH** -- drop a JSON file into `/sdcard/servers/` with `{name, host, port, username, dashboard[]}`, then pick it from the Servers menu. (In-app Settings editor is not yet implemented.)
-5. **Authenticate** -- password on first connect; upload Ed25519 keys to `/littlefs/ssh_ed25519` for key auth
+5. **Authenticate** -- password on first connect; for key auth, set `key_path` in the server JSON pointing to a LittleFS-resident Ed25519 PEM private key
 
 #### Dashboard Configuration
 
@@ -182,7 +182,7 @@ RLCD/
 │   │   ├── st7305/             # ST7305 reflective LCD driver (SPI + DMA)
 │   │   ├── rendering/          # Graphics primitives (clock face, shapes)
 │   │   ├── wifi_manager/       # WiFi lifecycle, NVS credentials, auto-connect
-│   │   ├── ssh_client/         # libssh2_esp SSH with optimized cipher suites
+│   │   ├── ssh_client/         # libssh SSH with optimized cipher suites
 │   │   ├── ble_hid/            # NimBLE BLE keyboard HID host
 │   │   ├── input_queue/        # Unified FreeRTOS event queue
 │   │   ├── app/                # Menu, dashboard, terminal mode, settings

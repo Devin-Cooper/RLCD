@@ -36,7 +36,7 @@ esp32_rendering/
 │   ├── rendering/              # Legacy rendering primitives (superseded by onebit)
 │   ├── sdcard_config/          # SD card FAT mount + JSON server config parser
 │   ├── sensors/                # RTC (PCF85063), SHTC3, battery
-│   ├── ssh_client/             # libssh2 wrapper + TOFU host key store
+│   ├── ssh_client/             # libssh wrapper + TOFU host key store
 │   ├── st7305/                 # ST7305 1-bit SPI display driver
 │   └── wifi_manager/           # WiFi STA lifecycle + NVS credential storage
 ```
@@ -98,7 +98,7 @@ Coredumps are enabled (ELF format, CRC32-checked, up to 64 tasks) and written to
 2. Long-press Button A to enter BLE pairing mode (30 s window).
 3. Pair a BLE keyboard from its own "add device" flow.
 4. Via the on-screen menu or keyboard shortcut, open Servers and pick an SD-card-defined server, or edit credentials from the menu.
-5. Authenticate — password on first connect. To use key auth, copy an Ed25519 private key to `/littlefs/ssh_ed25519` (upload via a later tooling story).
+5. Authenticate — password on first connect. To use key auth, copy an Ed25519 PEM private key into LittleFS and set `key_path` in the server JSON to its absolute path (upload via a later tooling story).
 
 ### Server config file format
 
