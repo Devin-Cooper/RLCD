@@ -11,6 +11,7 @@ public:
         Dashboard = 0,
         Terminal,
         Servers,
+        SshKeys,
         Settings,
         WiFi,
         About,

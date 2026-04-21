@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
 #include "wifi_manager.hpp"
 
 namespace sdcard {
@@ -91,6 +92,13 @@ public:
     /// Get parsed device settings from config.json (caller applies to app::Settings)
     const ParsedSettings& parsedSettings() const { return parsed_settings_; }
 
+    /// Indices of servers that loaded with use_key_auth=true but empty
+    /// ssh_key_id. Populated after load. Drained by ServerListScreen::onEnter
+    /// (one-Toast-per-boot per server); cleared by markRepicked() on picker
+    /// success. Runtime-only state; no NVS.
+    const std::vector<int>& needsRepickIndices() const { return needs_repick_; }
+    void markRepicked(int index);
+
 private:
     ServerRuntime servers_[MAX_SERVERS];
     int server_count_;
@@ -98,6 +106,7 @@ private:
     ParsedSettings parsed_settings_;
     MigrationResult last_migration_ = MigrationResult::None;
     int invalid_json_count_ = 0;
+    std::vector<int> needs_repick_;
 
     int upsertFromSdDir();
     void persistDashboardTo(const ServerRuntime& s);

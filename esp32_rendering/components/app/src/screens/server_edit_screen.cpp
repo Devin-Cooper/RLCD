@@ -2,6 +2,8 @@
 #include "screen_stack.hpp"
 #include "overlay.hpp"
 #include "config_manager.hpp"
+#include "ssh_keys.hpp"
+#include "ssh_key_types.hpp"
 #include <1bit/render/primitives.hpp>
 #include <cstring>
 #include <cstdlib>
@@ -48,7 +50,19 @@ void ServerEditScreen::saveAndPop(ScreenStack& stack) {
     if (c.port == 0) c.port = 22;
     std::strncpy(c.username, user_, sizeof(c.username) - 1);
     std::strncpy(c.password, pw_, sizeof(c.password) - 1);
-    c.use_key_auth = false;
+    // Preserve existing ssh_key_id + use_key_auth when editing an existing
+    // server — the picker is the only thing that can change them. A prior
+    // version unconditionally reset use_key_auth=false, which silently
+    // downgraded every edit of a key-auth server back to password-auth.
+    if (index_ >= 0 && index_ < ctx_.configMgr.serverCount()) {
+        const auto& existing = ctx_.configMgr.getServer(index_).creds;
+        c.use_key_auth = existing.use_key_auth;
+        std::strncpy(c.ssh_key_id, existing.ssh_key_id,
+                     sizeof(c.ssh_key_id) - 1);
+    } else {
+        c.use_key_auth = false;
+        c.ssh_key_id[0] = '\0';
+    }
 
     int written = ctx_.configMgr.upsertServer(c, index_ < 0 ? -1 : index_);
     if (written < 0) {
@@ -82,12 +96,15 @@ void ServerEditScreen::handleInput(const input::InputEvent& evt,
     if (evt.source != input::Source::Keyboard ||
         evt.type   != input::EventType::Keypress) return;
 
+    // Focus slots: 0..4 = text fields, 5 = Key row, 6 = Save, 7 = Cancel.
+    constexpr int kFocusCount = 8;
+
     if (evt.data_length == 1 && evt.data[0] == '\t') {
-        focus_ = (focus_ + 1) % 7; return;
+        focus_ = (focus_ + 1) % kFocusCount; return;
     }
     if (evt.data_length == 3 && evt.data[0] == 0x1B && evt.data[1] == '[') {
-        if (evt.data[2] == 'A') focus_ = (focus_ - 1 + 7) % 7;
-        if (evt.data[2] == 'B') focus_ = (focus_ + 1) % 7;
+        if (evt.data[2] == 'A') focus_ = (focus_ - 1 + kFocusCount) % kFocusCount;
+        if (evt.data[2] == 'B') focus_ = (focus_ + 1) % kFocusCount;
         return;
     }
 
@@ -96,19 +113,30 @@ void ServerEditScreen::handleInput(const input::InputEvent& evt,
     }
 
     if (focus_ == 5 && evt.data_length == 1 && evt.data[0] == '\r') {
-        saveAndPop(stack); return;
+        // Phase 13 swaps this stub for a push of SshKeyListScreen in Picker
+        // mode with a callback that writes ssh_key_id + use_key_auth back
+        // to the current server via ConfigManager + calls markRepicked().
+        ctx_.overlay.showToast("Key picker (Phase 13)", 1500);
+        return;
     }
     if (focus_ == 6 && evt.data_length == 1 && evt.data[0] == '\r') {
+        saveAndPop(stack); return;
+    }
+    if (focus_ == 7 && evt.data_length == 1 && evt.data[0] == '\r') {
         cancelWithConfirm(stack); return;
     }
 
-    // Active field
-    TextInput& ti = activeField();
-    TextInputResult r = ti.handleKey(evt.data, evt.data_length);
-    if (r == TextInputResult::Submit) {
-        focus_ = (focus_ + 1) % 7;
+    // Only forward keystrokes to the TextInput layer when focus is on a
+    // field (0..4). The Key/Save/Cancel rows don't have a TextInput and
+    // shouldn't mark the screen dirty on random keypresses.
+    if (focus_ >= 0 && focus_ <= 4) {
+        TextInput& ti = activeField();
+        TextInputResult r = ti.handleKey(evt.data, evt.data_length);
+        if (r == TextInputResult::Submit) {
+            focus_ = (focus_ + 1) % kFocusCount;
+        }
+        dirty_ = true;
     }
-    dirty_ = true;
 }
 
 void ServerEditScreen::render(onebit::IFramebuffer& fb,
@@ -135,6 +163,29 @@ void ServerEditScreen::render(onebit::IFramebuffer& fb,
         y += font.glyph_height + 6;
     }
 
+    // Key row: resolve ssh_key_id via KeyStore, fall back to "(password)".
+    const char* key_display = "(password)";
+    if (index_ >= 0 && index_ < ctx_.configMgr.serverCount()) {
+        const auto& existing = ctx_.configMgr.getServer(index_).creds;
+        if (existing.use_key_auth && existing.ssh_key_id[0] != '\0') {
+            auto parsed = ssh_keys::KeyId::parse(existing.ssh_key_id);
+            if (parsed) {
+                const auto* meta = ctx_.keyStore.find(*parsed);
+                key_display = meta ? meta->name : "(missing)";
+            } else {
+                key_display = "(invalid)";
+            }
+        }
+    }
+    {
+        char marker = (focus_ == 5) ? '>' : ' ';
+        char line[16];
+        snprintf(line, sizeof(line), "%c %s", marker, "Key:      ");
+        onebit::drawBitmapText(fb, font, 8, y, line, onebit::BLACK);
+        onebit::drawBitmapText(fb, font, 100, y, key_display, onebit::BLACK);
+        y += font.glyph_height + 6;
+    }
+
     y += 8;
     const char* save = "[ Save ]";
     const char* cancel = "[ Cancel ]";
@@ -148,8 +199,8 @@ void ServerEditScreen::render(onebit::IFramebuffer& fb,
             onebit::drawBitmapText(fb, font, x, y, txt, onebit::BLACK);
         }
     };
-    drawBtn(20, save, focus_ == 5);
-    drawBtn(140, cancel, focus_ == 6);
+    drawBtn(20, save, focus_ == 6);
+    drawBtn(140, cancel, focus_ == 7);
 
     onebit::drawBitmapText(fb, font, 10, fb.height() - font.glyph_height - 4,
         "Tab next  Up/Dn nav  Ctrl+R reveal pw  Esc cancel", onebit::BLACK);

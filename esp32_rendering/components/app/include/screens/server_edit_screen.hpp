@@ -20,7 +20,7 @@ private:
     ScreenContext& ctx_;
     int index_;
     bool dirty_ = false;
-    int focus_ = 0;  // 0..4 fields; 5 = Save; 6 = Cancel
+    int focus_ = 0;  // 0..4 fields; 5 = Key; 6 = Save; 7 = Cancel
 
     char name_[32] = {};
     char host_[64] = {};

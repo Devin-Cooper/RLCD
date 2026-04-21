@@ -675,7 +675,7 @@ extern "C" void app_main() {
     app::OverlayManager overlay;
 
     app::ScreenContext ctx{
-        fb, display, sshClient, wifiMgr, *configMgr, bleHost, settings,
+        fb, display, sshClient, wifiMgr, *configMgr, keyStore, bleHost, settings,
         stack, overlay, dashboard, terminalMode, currentFontSize
     };
 

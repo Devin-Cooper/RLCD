@@ -6,6 +6,7 @@
 #include "cJSON.h"
 #include "wifi_manager.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cerrno>
 #include <cstring>
@@ -483,9 +484,23 @@ void ConfigManager::setActiveServer(int index) {
 }
 
 int ConfigManager::loadFromNvs() {
+    needs_repick_.clear();
     server_count_ = loadServersFromNvs(servers_, MAX_SERVERS);
     active_index_ = loadActiveIndex(server_count_);
+    // Track servers that claim key-auth but have no ssh_key_id — UI layer
+    // surfaces a Toast on ServerListScreen entry so the user re-picks.
+    for (int i = 0; i < server_count_; ++i) {
+        if (servers_[i].creds.use_key_auth &&
+            servers_[i].creds.ssh_key_id[0] == '\0') {
+            needs_repick_.push_back(i);
+        }
+    }
     return server_count_;
+}
+
+void ConfigManager::markRepicked(int index) {
+    auto it = std::find(needs_repick_.begin(), needs_repick_.end(), index);
+    if (it != needs_repick_.end()) needs_repick_.erase(it);
 }
 
 bool ConfigManager::persistToNvs() {

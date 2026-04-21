@@ -19,6 +19,7 @@ const char* MenuScreen::itemLabel(int index) {
         case Item::Dashboard: return "Dashboard";
         case Item::Terminal:  return "Terminal";
         case Item::Servers:   return "Servers";
+        case Item::SshKeys:   return "SSH Keys";
         case Item::Settings:  return "Settings";
         case Item::WiFi:      return "WiFi";
         case Item::About:     return "About";
@@ -92,6 +93,12 @@ void MenuScreen::dispatchSelection(ScreenStack& stack, Item item) {
             break;
         case Item::Servers:
             stack.replace(std::make_unique<ServerListScreen>(ctx_));
+            break;
+        case Item::SshKeys:
+            // Phase 13 swaps this stub for
+            //   stack.replace(std::make_unique<SshKeyListScreen>(ctx_,
+            //                 SshKeyListScreen::Mode::Browse));
+            ctx_.overlay.showToast("SSH Keys (Phase 13)", 1500);
             break;
         case Item::Settings:
             stack.replace(std::make_unique<SettingsScreen>(ctx_));

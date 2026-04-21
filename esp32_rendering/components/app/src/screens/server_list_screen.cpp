@@ -14,6 +14,20 @@ ServerListScreen::ServerListScreen(ScreenContext& ctx) : ctx_(ctx) {}
 
 void ServerListScreen::onEnter() {
     sel_ = 0;
+    // Spec Decision 10: surface one Toast per affected server per boot for
+    // any server that loaded with use_key_auth=true but empty ssh_key_id.
+    // ConfigManager owns the list; a local Set prevents re-showing when the
+    // user navigates away and back within the same boot. The list is cleared
+    // only by ConfigManager::markRepicked() on picker success (Phase 13).
+    const auto& indices = ctx_.configMgr.needsRepickIndices();
+    for (int idx : indices) {
+        if (idx < 0 || idx >= ctx_.configMgr.serverCount()) continue;
+        if (!shown_repick_indices_.insert(idx).second) continue;
+        const char* name = ctx_.configMgr.getServer(idx).creds.name;
+        char msg[96];
+        std::snprintf(msg, sizeof(msg), "Re-select SSH key for '%s'", name);
+        ctx_.overlay.showToast(msg, 3000);
+    }
 }
 
 int ServerListScreen::rowCount() const {
