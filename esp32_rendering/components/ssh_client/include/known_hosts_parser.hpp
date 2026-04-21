@@ -1,6 +1,25 @@
 #pragma once
-// Populated in Phase 10 with a pure-C++ parser lifted from ssh_client.cpp
-// for host unit testing. Until then the header is an empty placeholder so
-// that components/ssh_client/CMakeLists.txt can list the .cpp in SRCS
-// without breaking the component build.
-namespace ssh {}
+
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace ssh {
+
+struct KnownHostsEntry {
+    std::string host;
+    std::string key_type;
+    std::string blob_b64;
+    std::string comment;
+    bool is_hashed;
+};
+
+/// Parse one line. Returns nullopt on blank lines, comment lines, or malformed ones.
+std::optional<KnownHostsEntry> parse_known_hosts_entry(std::string_view line);
+
+/// Parse a whole file body.
+std::vector<KnownHostsEntry> parse_known_hosts_file(std::string_view contents);
+
+} // namespace ssh
