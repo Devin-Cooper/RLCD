@@ -3,6 +3,9 @@
 
 #include "esp_console.h"
 #include "esp_log.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "ssh_client.hpp"
 
 #include <cerrno>
@@ -154,6 +157,39 @@ static int cmd_ssh_known_hosts_erase(int, char**) {
     return 1;
 }
 
+// ssh-bench <seconds>: stream bytes over the active SSH channel to measure
+// AES-CTR throughput. Caller is responsible for having an active connection
+// AND for having sent a remote "cat > /dev/null\n" first so the bytes get
+// drained (not echoed back, which would be O(n) ANSI-parsing overhead).
+static int cmd_ssh_bench(int argc, char** argv) {
+    if (argc != 2) { err(1, "usage: ssh-bench <seconds>"); return 1; }
+    auto* ctx = getContext();
+    if (!ctx) { err(10, "no context"); return 1; }
+    if (ctx->sshClient.state() != ssh::State::Connected) {
+        err(12, "not connected");
+        return 1;
+    }
+    int seconds = atoi(argv[1]);
+    if (seconds <= 0 || seconds > 60) { err(1, "seconds must be 1..60"); return 1; }
+
+    uint8_t junk[1024];
+    for (size_t i = 0; i < sizeof(junk); ++i) junk[i] = (uint8_t)(i & 0xFF);
+
+    int64_t t0 = esp_timer_get_time();
+    int64_t deadline = t0 + (int64_t)seconds * 1000000LL;
+    size_t sent = 0;
+    while (esp_timer_get_time() < deadline) {
+        ctx->sshClient.send(junk, sizeof(junk));
+        sent += sizeof(junk);
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    int64_t dt_us = esp_timer_get_time() - t0;
+    uint64_t mbps_x1000 = (uint64_t)sent * 1000000ULL * 1000ULL / (uint64_t)dt_us / (1024ULL * 1024ULL);
+    ok("sent=%zu dt_us=%lld mb_per_s_x1000=%llu",
+       sent, (long long)dt_us, (unsigned long long)mbps_x1000);
+    return 0;
+}
+
 void registerSshCommands() {
     const esp_console_cmd_t cmds[] = {
         {"ssh-connect",           "ssh-connect <host> <port> <user> <password-b64|_> [<key_path>]",
@@ -168,6 +204,8 @@ void registerSshCommands() {
          nullptr, cmd_ssh_known_hosts_list,  nullptr, nullptr, nullptr},
         {"ssh-known-hosts-erase", "ssh-known-hosts-erase \xE2\x80\x94 rm /littlefs/known_hosts",
          nullptr, cmd_ssh_known_hosts_erase, nullptr, nullptr, nullptr},
+        {"ssh-bench",             "ssh-bench <seconds> \xE2\x80\x94 stream bytes; report MB/s",
+         nullptr, cmd_ssh_bench,             nullptr, nullptr, nullptr},
     };
     for (const auto& c : cmds) esp_console_cmd_register(&c);
 }
