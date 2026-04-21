@@ -19,8 +19,8 @@ struct Config {
     uint16_t port;          // default 22
     char username[32];
     char password[64];      // empty if using key auth
-    bool use_key_auth;      // true → authenticate with key_path (PEM); false → password
-    char key_path[64];      // absolute LittleFS path to PEM private key; empty when !use_key_auth
+    bool use_key_auth;      // true → authenticate via ssh_key_id lookup in KeyStore; false → password
+    char ssh_key_id[33];    // 32 hex chars + null; KeyStore::path_for resolves to PEM path
 };
 
 using DataCallback = void(*)(const uint8_t* data, size_t len, void* ctx);
@@ -136,3 +136,12 @@ private:
 };
 
 } // namespace ssh
+
+/// Install the callback that resolves ssh_key_id → PEM path on disk.
+/// Called once at boot from main after KeyStore is constructed.
+/// The callback must be set BEFORE any connect() call happens.
+/// Declared at global scope with C linkage so the name doesn't land in
+/// namespace ssh{}; the symbol is what main.cpp invokes after constructing
+/// the KeyStore.
+extern "C" void ssh_client_set_resolve_key_path(
+    bool (*fn)(const char* id, char* out, size_t cap));

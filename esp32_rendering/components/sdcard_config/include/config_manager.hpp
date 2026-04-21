@@ -38,7 +38,7 @@ struct ServerCreds {
     char username[32];
     char password[64];      // NVS-destined (not written by parseServerJson yet; Task 19)
     bool use_key_auth;
-    char key_path[64];      // LittleFS path after import
+    char ssh_key_id[33];    // 32 hex chars + null; empty when !use_key_auth
 };
 
 struct ServerRuntime {
@@ -66,9 +66,6 @@ public:
 
     /// Scan /sdcard/servers/*.json — parse each into servers_ array.
     int loadServerConfigs();
-
-    /// Copy SSH key files from SD to LittleFS.
-    void importKeys();
 
     /// Blank passwords and delete key files from SD card.
     void scrubSecrets();
@@ -107,7 +104,6 @@ private:
     void persistDashboardTo(const ServerRuntime& s);
     void loadDashboardFor(ServerRuntime& s);
     bool parseServerJson(const char* path, ServerRuntime& out, int index);
-    bool copyFile(const char* src, const char* dst);
     void scrubJsonFile(const char* path);
     void scrubGlobalConfig();
 };

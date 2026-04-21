@@ -6,7 +6,7 @@ namespace sdcard {
 /// NVS persistence helpers extracted for host-testability (no cJSON dep).
 /// Use the `servers` NVS namespace with dense indexing; keys:
 ///   count (u8)
-///   n_<i>, h_<i>, u_<i>, pw_<i>, kp_<i>  (str)
+///   n_<i>, h_<i>, u_<i>, pw_<i>, ki_<i>  (str)
 ///   p_<i>  (u16, port)
 ///   ka_<i> (u8, use_key_auth)
 

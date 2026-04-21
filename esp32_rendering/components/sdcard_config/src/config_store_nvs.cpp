@@ -72,7 +72,7 @@ bool persistServersToNvs(const ServerRuntime* servers, int count) {
         nvsSetStr(h, "u",  i, c.username);
         nvsSetStr(h, "pw", i, c.password);
         nvsSetU8 (h, "ka", i, c.use_key_auth ? 1 : 0);
-        nvsSetStr(h, "kp", i, c.key_path);
+        nvsSetStr(h, "ki", i, c.ssh_key_id);
     }
     e = nvs_commit(h);
     nvs_close(h);
@@ -102,7 +102,7 @@ int loadServersFromNvs(ServerRuntime* out, int max) {
         uint8_t ka = 0;
         nvsGetU8 (h, "ka", i, &ka);
         c.use_key_auth = (ka != 0);
-        nvsGetStr(h, "kp", i, c.key_path, sizeof(c.key_path));
+        nvsGetStr(h, "ki", i, c.ssh_key_id, sizeof(c.ssh_key_id));
         out[i].valid = (c.name[0] != '\0' && c.host[0] != '\0');
     }
     nvs_close(h);

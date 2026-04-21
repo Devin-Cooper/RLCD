@@ -16,7 +16,6 @@
 static const char* TAG = "config_mgr";
 static const char* SD_CONFIG_PATH = "/sdcard/config.json";
 static const char* SD_SERVERS_DIR = "/sdcard/servers";
-static const char* KEYS_DIR = "/littlefs/keys";
 
 namespace sdcard {
 
@@ -37,7 +36,6 @@ int ConfigManager::init(wifi::WifiManager& wifi_mgr) {
     // 3. SD servers upsert by name
     int sd_added = upsertFromSdDir();
     if (sd_added > 0) {
-        importKeys();
         scrubSecrets();
     }
 
@@ -248,21 +246,9 @@ bool ConfigManager::parseServerJson(const char* path, ServerRuntime& out, int in
     if ((v = cJSON_GetObjectItem(root, "auth_method")) && cJSON_IsString(v))
         out.creds.use_key_auth = (strcmp(v->valuestring, "key") == 0);
 
-    // Key file — store the filename for importKeys() to process
-    if ((v = cJSON_GetObjectItem(root, "key_file")) && cJSON_IsString(v) &&
-        strlen(v->valuestring) > 0) {
-        strncpy(out.key_file_name, v->valuestring, sizeof(out.key_file_name) - 1);
-        // Build sanitized LittleFS target path (replace non-alnum with '_')
-        char safe_name[32];
-        strncpy(safe_name, out.creds.name, sizeof(safe_name) - 1);
-        safe_name[sizeof(safe_name) - 1] = '\0';
-        for (int j = 0; safe_name[j]; j++) {
-            if (!isalnum(static_cast<unsigned char>(safe_name[j])))
-                safe_name[j] = '_';
-        }
-        snprintf(out.creds.key_path, sizeof(out.creds.key_path), "/littlefs/keys/%s", safe_name);
-        out.creds.use_key_auth = true;
-    }
+    // Key assignment happens via UI (SshKeyListScreen picker).
+    out.creds.use_key_auth = true;
+    out.creds.ssh_key_id[0] = '\0';
 
     // Password goes into ServerCreds directly; upsertServer persists it
     // via the new `servers` NVS namespace.
@@ -344,54 +330,6 @@ void ConfigManager::loadDashboardFor(ServerRuntime& s) {
         s.dashboard_count++;
     }
     fclose(f);
-}
-
-// --- Key Import ---
-
-void ConfigManager::importKeys() {
-    // Ensure keys directory exists
-    mkdir(KEYS_DIR, 0755);
-
-    for (int i = 0; i < server_count_; i++) {
-        if (!servers_[i].creds.use_key_auth || servers_[i].key_file_name[0] == '\0') continue;
-
-        // Build source path from stored key_file_name
-        char src_path[288];
-        snprintf(src_path, sizeof(src_path), "%s/%s",
-                 SD_SERVERS_DIR, servers_[i].key_file_name);
-
-        if (copyFile(src_path, servers_[i].creds.key_path)) {
-            ESP_LOGI(TAG, "Imported key for %s -> %s",
-                     servers_[i].creds.name, servers_[i].creds.key_path);
-        } else {
-            ESP_LOGW(TAG, "Failed to import key for %s from %s",
-                     servers_[i].creds.name, src_path);
-            // Fall back to password auth if key import fails
-            servers_[i].creds.use_key_auth = false;
-            servers_[i].creds.key_path[0] = '\0';
-        }
-    }
-}
-
-bool ConfigManager::copyFile(const char* src, const char* dst) {
-    FILE* in = fopen(src, "rb");
-    if (!in) return false;
-
-    FILE* out = fopen(dst, "wb");
-    if (!out) {
-        fclose(in);
-        return false;
-    }
-
-    char buf[512];
-    size_t n;
-    while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
-        fwrite(buf, 1, n, out);
-    }
-
-    fclose(in);
-    fclose(out);
-    return true;
 }
 
 // --- Secret Scrubbing ---

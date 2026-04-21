@@ -98,7 +98,7 @@ Coredumps are enabled (ELF format, CRC32-checked, up to 64 tasks) and written to
 2. Long-press Button A to enter BLE pairing mode (30 s window).
 3. Pair a BLE keyboard from its own "add device" flow.
 4. Via the on-screen menu or keyboard shortcut, open Servers and pick an SD-card-defined server, or edit credentials from the menu.
-5. Authenticate — password on first connect. To use key auth, copy an Ed25519 PEM private key into LittleFS and set `key_path` in the server JSON to its absolute path (upload via a later tooling story).
+5. Authenticate — password on first connect. To use key auth, generate or import an Ed25519 key via the on-device key manager (SshKeyListScreen) and assign it to the server from the server-edit screen.
 
 ### Server config file format
 

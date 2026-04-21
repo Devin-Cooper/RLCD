@@ -25,6 +25,27 @@
 
 static const char* TAG = "ssh_client";
 
+namespace {
+
+// Resolves a 32-char hex ssh_key_id to a LittleFS private-key path.
+// Installed at boot by main.cpp via ssh_client_set_resolve_key_path, which
+// closes over a KeyStore& — avoids a hard #include "ssh_keys.hpp" here and
+// preserves the one-way dependency rule (ssh_keys REQUIRES ssh_client, not
+// the other way round).
+bool (*g_resolve_key_path)(const char* id, char* out, size_t cap) = nullptr;
+
+} // anonymous namespace
+
+extern "C" void ssh_client_set_resolve_key_path(
+    bool (*fn)(const char* id, char* out, size_t cap)) {
+    g_resolve_key_path = fn;
+}
+
+extern "C" bool ssh_client_resolve_key_path(const char* id, char* out, size_t cap) {
+    if (!g_resolve_key_path) return false;
+    return g_resolve_key_path(id, out, cap);
+}
+
 static constexpr int SSH_TASK_STACK = 16384;
 static constexpr int SSH_TASK_PRIORITY = 10;
 static constexpr int SSH_TASK_CORE = 1;
@@ -314,18 +335,28 @@ bool SshClient::doAuthenticate() {
     ssh_set_blocking(sess, 1);
 
     if (config_.use_key_auth) {
-        if (config_.key_path[0] == '\0') {
-            const char* m = "use_key_auth=true but key_path is empty";
+        if (config_.ssh_key_id[0] == '\0') {
+            const char* m = "use_key_auth=true but ssh_key_id is empty";
             strncpy(last_error_message_, m, sizeof(last_error_message_) - 1);
             setState(State::Error, m);
             teardown();
             return false;
         }
+        char priv_path[96];
+        if (!ssh_client_resolve_key_path(config_.ssh_key_id, priv_path, sizeof(priv_path))) {
+            char msg[128];
+            snprintf(msg, sizeof(msg), "Private key id not in store: %s", config_.ssh_key_id);
+            ESP_LOGE(TAG, "%s", msg);
+            strncpy(last_error_message_, msg, sizeof(last_error_message_) - 1);
+            setState(State::Error, msg);
+            teardown();
+            return false;
+        }
         ssh_key pkey = nullptr;
-        int rc = ssh_pki_import_privkey_file(config_.key_path, nullptr, nullptr, nullptr, &pkey);
+        int rc = ssh_pki_import_privkey_file(priv_path, nullptr, nullptr, nullptr, &pkey);
         if (rc != SSH_OK || pkey == nullptr) {
             char msg[128];
-            snprintf(msg, sizeof(msg), "Private key unreadable: %s", config_.key_path);
+            snprintf(msg, sizeof(msg), "Private key unreadable: %s", priv_path);
             ESP_LOGE(TAG, "%s (rc=%d)", msg, rc);
             strncpy(last_error_message_, msg, sizeof(last_error_message_) - 1);
             setState(State::Error, msg);

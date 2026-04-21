@@ -76,6 +76,10 @@ static constexpr size_t SSH_STREAM_SIZE = 8192;
 // ============================================================================
 static std::atomic<bool>* s_wifi_connected = nullptr;
 
+// Phase 11: resolver callback glue for ssh_client <-> ssh_keys. Set once at
+// boot BEFORE keyStore.init(); see app_main.
+static ssh_keys::KeyStore* g_key_store_for_resolver = nullptr;
+
 // ============================================================================
 // Framebuffer adapter: onebit::IFramebuffer <-> rendering::IFramebuffer
 // Both use packed 1-bit rows (MSB-first), identical binary layout at 400x300.
@@ -137,7 +141,7 @@ static void switchToNextServer(sdcard::ConfigManager* configMgr,
     strncpy(cfg.username, srv.creds.username, sizeof(cfg.username) - 1);
     cfg.use_key_auth = srv.creds.use_key_auth;
     if (cfg.use_key_auth) {
-        strncpy(cfg.key_path, srv.creds.key_path, sizeof(cfg.key_path) - 1);
+        strncpy(cfg.ssh_key_id, srv.creds.ssh_key_id, sizeof(cfg.ssh_key_id) - 1);
     } else {
         strncpy(cfg.password, srv.creds.password, sizeof(cfg.password) - 1);
     }
@@ -167,7 +171,7 @@ static void reconnectActiveServer(sdcard::ConfigManager* configMgr,
     strncpy(cfg.username, srv.creds.username, sizeof(cfg.username) - 1);
     cfg.use_key_auth = srv.creds.use_key_auth;
     if (cfg.use_key_auth) {
-        strncpy(cfg.key_path, srv.creds.key_path, sizeof(cfg.key_path) - 1);
+        strncpy(cfg.ssh_key_id, srv.creds.ssh_key_id, sizeof(cfg.ssh_key_id) - 1);
     } else {
         strncpy(cfg.password, srv.creds.password, sizeof(cfg.password) - 1);
     }
@@ -572,6 +576,14 @@ extern "C" void app_main() {
     // ------------------------------------------------------------------
     ssh::SshClient sshClient;
     ssh_keys::KeyStore keyStore;
+    g_key_store_for_resolver = &keyStore;
+    ssh_client_set_resolve_key_path(
+        [](const char* id, char* out, size_t cap) -> bool {
+            return g_key_store_for_resolver
+                ? g_key_store_for_resolver->path_for(id, out, cap)
+                : false;
+        }
+    );
     keyStore.init();
     std::atomic<bool> sshConnected{false};
 
@@ -592,9 +604,9 @@ extern "C" void app_main() {
             sshCfg.port = srv.creds.port;
             strncpy(sshCfg.username, srv.creds.username, sizeof(sshCfg.username) - 1);
             sshCfg.use_key_auth = srv.creds.use_key_auth;
-            // Password and key_path both live on ServerCreds; copy the one in use.
+            // Password and ssh_key_id both live on ServerCreds; copy the one in use.
             if (sshCfg.use_key_auth) {
-                strncpy(sshCfg.key_path, srv.creds.key_path, sizeof(sshCfg.key_path) - 1);
+                strncpy(sshCfg.ssh_key_id, srv.creds.ssh_key_id, sizeof(sshCfg.ssh_key_id) - 1);
             } else {
                 strncpy(sshCfg.password, srv.creds.password, sizeof(sshCfg.password) - 1);
             }

@@ -17,8 +17,8 @@
 
 namespace test_console {
 
-// --- ssh-connect <host> <port> <user> <password-b64> [<key_path>] ---
-// If a 5th arg is given, we use it as key_path and pass use_key_auth=true.
+// --- ssh-connect <host> <port> <user> <password-b64> [<ssh_key_id>] ---
+// If a 5th arg is given, we use it as ssh_key_id and pass use_key_auth=true.
 // Otherwise password-b64 is decoded and we use password auth.
 //
 // Password is base64-encoded so special characters don't fight the REPL tokenizer.
@@ -54,7 +54,7 @@ static int b64_to_buf(const char* in, char* out, size_t out_cap) {
 
 static int cmd_ssh_connect(int argc, char** argv) {
     if (argc != 5 && argc != 6) {
-        err(1, "usage: ssh-connect <host> <port> <user> <password-b64|_> [<key_path>]");
+        err(1, "usage: ssh-connect <host> <port> <user> <password-b64|_> [<ssh_key_id>]");
         return 1;
     }
     auto* ctx = getContext();
@@ -67,7 +67,7 @@ static int cmd_ssh_connect(int argc, char** argv) {
 
     if (argc == 6 && argv[5][0]) {
         cfg.use_key_auth = true;
-        strncpy(cfg.key_path, argv[5], sizeof(cfg.key_path) - 1);
+        strncpy(cfg.ssh_key_id, argv[5], sizeof(cfg.ssh_key_id) - 1);
     } else if (strcmp(argv[4], "_") != 0) {
         if (b64_to_buf(argv[4], cfg.password, sizeof(cfg.password)) < 0) {
             err(2, "base64 decode failed");
@@ -192,7 +192,7 @@ static int cmd_ssh_bench(int argc, char** argv) {
 
 void registerSshCommands() {
     const esp_console_cmd_t cmds[] = {
-        {"ssh-connect",           "ssh-connect <host> <port> <user> <password-b64|_> [<key_path>]",
+        {"ssh-connect",           "ssh-connect <host> <port> <user> <password-b64|_> [<ssh_key_id>]",
          nullptr, cmd_ssh_connect,           nullptr, nullptr, nullptr},
         {"ssh-disconnect",        "ssh-disconnect",
          nullptr, cmd_ssh_disconnect,        nullptr, nullptr, nullptr},
