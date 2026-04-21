@@ -148,6 +148,28 @@ def _find_free_port() -> int:
         return s.getsockname()[1]
 
 
+def _lan_ip() -> str:
+    """Best-effort discover the host's LAN IP reachable by other devices.
+
+    Uses the trick of opening a UDP socket with a routable target —
+    this populates getsockname() with the interface the kernel would
+    route through, without actually sending any packets.
+
+    Falls back to 127.0.0.1 if discovery fails; the scenarios will
+    skip or error out clearly in that case.
+    """
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # The IP below doesn't need to be reachable — the kernel just
+        # picks an outgoing interface to "route" toward it.
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+
 def _sshd_binary() -> str | None:
     for cand in (os.environ.get("SSHD_PATH"), "/usr/sbin/sshd", "/usr/local/sbin/sshd", "/opt/homebrew/sbin/sshd"):
         if cand and os.path.exists(cand):
@@ -189,9 +211,10 @@ def loopback_sshd():
 
     port = _find_free_port()
     test_user = os.environ.get("USER") or "nobody"
+    lan_ip = _lan_ip()
     sshd_config.write_text(
         f"Port {port}\n"
-        f"ListenAddress 127.0.0.1\n"
+        f"ListenAddress 0.0.0.0\n"
         f"HostKey {hostkey}\n"
         f"AuthorizedKeysFile {authorized_keys}\n"
         f"PasswordAuthentication yes\n"
@@ -243,6 +266,7 @@ def loopback_sshd():
         pytest.skip(f"sshd did not bind port {port}; likely privileges: {stderr}")
 
     yield {
+        "host": lan_ip,
         "port": port,
         "user": test_user,
         "password": "not-actually-used-unless-local-account-accepts-it",
