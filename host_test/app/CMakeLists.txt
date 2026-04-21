@@ -99,3 +99,15 @@ add_host_test(
         "${RLCD_COMPONENTS}/ssh_keys/include"
         "${RLCD_COMPONENTS}/ssh_keys/src"
 )
+
+add_host_test(
+    NAME test_ssh_keys_codec
+    SOURCES
+        test_ssh_keys_codec.cpp
+        "${RLCD_COMPONENTS}/ssh_keys/src/key_codec_host.cpp"
+    INCLUDES
+        "${RLCD_COMPONENTS}/ssh_keys/include"
+)
+# Needs OpenSSL for SHA-256 + base64 on host.
+find_package(OpenSSL REQUIRED)
+target_link_libraries(test_ssh_keys_codec PRIVATE OpenSSL::Crypto)
