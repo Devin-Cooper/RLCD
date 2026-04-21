@@ -120,3 +120,16 @@ CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=64
 # --- FAT Filesystem (SD Card) ---
 CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_MAX_LFN=255
+
+# --- libssh (in-tree components/libssh/) ---
+# Pin ECDSA + Curve25519 (used by libssh's host-key and KEX negotiation).
+# Both default to 'y' in current ESP-IDF; pinning guards against future changes.
+CONFIG_MBEDTLS_ECDSA_C=y
+CONFIG_MBEDTLS_ECP_DP_CURVE25519_ENABLED=y
+
+# libssh uses pthread internally.
+CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=4096
+
+# Larger TCP receive buffer for interactive SSH redraws.
+CONFIG_LWIP_SO_RCVBUF=y
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384
