@@ -300,8 +300,74 @@ bool SshClient::verifyHostKey() {
 }
 
 bool SshClient::doAuthenticate() {
-    // Stubbed — real body in Task 3.3.
-    setState(State::Error, "doAuthenticate not yet implemented");
+    setState(State::Authenticating);
+    auto* sess = static_cast<ssh_session>(session_);
+    ssh_set_blocking(sess, 1);
+
+    if (config_.use_key_auth) {
+        if (config_.key_path[0] == '\0') {
+            const char* m = "use_key_auth=true but key_path is empty";
+            strncpy(last_error_message_, m, sizeof(last_error_message_) - 1);
+            setState(State::Error, m);
+            teardown();
+            return false;
+        }
+        ssh_key pkey = nullptr;
+        int rc = ssh_pki_import_privkey_file(config_.key_path, nullptr, nullptr, nullptr, &pkey);
+        if (rc != SSH_OK || pkey == nullptr) {
+            char msg[128];
+            snprintf(msg, sizeof(msg), "Private key unreadable: %s", config_.key_path);
+            ESP_LOGE(TAG, "%s (rc=%d)", msg, rc);
+            strncpy(last_error_message_, msg, sizeof(last_error_message_) - 1);
+            setState(State::Error, msg);
+            teardown();
+            return false;
+        }
+        rc = ssh_userauth_publickey(sess, nullptr, pkey);
+        ssh_key_free(pkey);
+        if (rc == SSH_AUTH_SUCCESS) {
+            ESP_LOGI(TAG, "Key auth successful for %s", config_.username);
+            std::memset(config_.password, 0, sizeof(config_.password));
+            return true;
+        }
+        const char* detail = ssh_get_error(sess);
+        char msg[128];
+        snprintf(msg, sizeof(msg), "Key authentication rejected: %s",
+                 detail ? detail : "(no detail)");
+        ESP_LOGE(TAG, "%s (rc=%d)", msg, rc);
+        strncpy(last_error_message_, msg, sizeof(last_error_message_) - 1);
+        setState(State::Error, msg);
+        teardown();
+        return false;
+    }
+
+    // Password auth — no auto-fallback from key auth.
+    if (config_.password[0] == '\0') {
+        const char* m = "use_key_auth=false and password is empty";
+        strncpy(last_error_message_, m, sizeof(last_error_message_) - 1);
+        setState(State::Error, m);
+        teardown();
+        return false;
+    }
+    int rc = ssh_userauth_password(sess, nullptr, config_.password);
+    std::memset(config_.password, 0, sizeof(config_.password));
+    if (rc == SSH_AUTH_SUCCESS) {
+        ESP_LOGI(TAG, "Password auth successful for %s", config_.username);
+        return true;
+    }
+    const char* detail = ssh_get_error(sess);
+    char msg[128];
+    if (rc == SSH_AUTH_DENIED) {
+        snprintf(msg, sizeof(msg), "Password authentication rejected");
+    } else if (rc == SSH_AUTH_PARTIAL) {
+        snprintf(msg, sizeof(msg), "Password accepted but further auth required");
+    } else {
+        snprintf(msg, sizeof(msg), "Auth error: %s", detail ? detail : "(no detail)");
+    }
+    ESP_LOGE(TAG, "%s (rc=%d)", msg, rc);
+    strncpy(last_error_message_, msg, sizeof(last_error_message_) - 1);
+    setState(State::Error, msg);
+    teardown();
     return false;
 }
 
