@@ -120,3 +120,14 @@ add_host_test(
     INCLUDES
         "${RLCD_COMPONENTS}/ssh_keys/include"
 )
+
+add_host_test(
+    NAME test_ssh_keys_qr_encode
+    SOURCES
+        test_ssh_keys_qr_encode.cpp
+        "${RLCD_COMPONENTS}/ssh_keys/src/third_party/qrcodegen.c"
+    INCLUDES
+        "${RLCD_COMPONENTS}/ssh_keys/src/third_party"
+    DEFINES
+        FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+)
