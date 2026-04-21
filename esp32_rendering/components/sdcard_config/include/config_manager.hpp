@@ -45,7 +45,6 @@ struct ServerRuntime {
     ServerCreds creds;
     DashboardCommand dashboard[MAX_DASHBOARD_COMMANDS];
     int dashboard_count;
-    char key_file_name[64]; // Source key filename from SD card JSON (for re-import)
     bool valid;             // Set to true if parsed successfully
 };
 

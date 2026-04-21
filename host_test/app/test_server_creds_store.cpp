@@ -16,7 +16,9 @@ TEST_CASE("ServerStore: persist + load roundtrip", "[config][nvs]") {
     servers[0].creds.port = 2222;
     std::strncpy(servers[0].creds.username, "dev", sizeof(servers[0].creds.username));
     std::strncpy(servers[0].creds.password, "s3cret", sizeof(servers[0].creds.password));
-    servers[0].creds.use_key_auth = false;
+    servers[0].creds.use_key_auth = true;
+    std::strncpy(servers[0].creds.ssh_key_id, "deadbeefcafebabe0123456789abcdef",
+                 sizeof(servers[0].creds.ssh_key_id));
     servers[0].valid = true;
 
     std::strncpy(servers[1].creds.name, "staging", sizeof(servers[1].creds.name));
@@ -32,6 +34,9 @@ TEST_CASE("ServerStore: persist + load roundtrip", "[config][nvs]") {
     REQUIRE(std::strcmp(loaded[0].creds.name, "prod") == 0);
     REQUIRE(loaded[0].creds.port == 2222);
     REQUIRE(std::strcmp(loaded[0].creds.password, "s3cret") == 0);
+    REQUIRE(loaded[0].creds.use_key_auth);
+    REQUIRE(std::strcmp(loaded[0].creds.ssh_key_id,
+                        "deadbeefcafebabe0123456789abcdef") == 0);
     REQUIRE(loaded[0].valid);
     REQUIRE(std::strcmp(loaded[1].creds.name, "staging") == 0);
 }

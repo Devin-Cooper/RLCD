@@ -176,8 +176,6 @@ int ConfigManager::upsertFromSdDir() {
         servers_[written].dashboard_count = tmp.dashboard_count;
         std::memcpy(servers_[written].dashboard, tmp.dashboard,
                     sizeof(tmp.dashboard));
-        std::strncpy(servers_[written].key_file_name, tmp.key_file_name,
-                     sizeof(servers_[written].key_file_name) - 1);
         added++;
 
         persistDashboardTo(servers_[written]);
@@ -246,8 +244,8 @@ bool ConfigManager::parseServerJson(const char* path, ServerRuntime& out, int in
     if ((v = cJSON_GetObjectItem(root, "auth_method")) && cJSON_IsString(v))
         out.creds.use_key_auth = (strcmp(v->valuestring, "key") == 0);
 
-    // Key assignment happens via UI (SshKeyListScreen picker).
-    out.creds.use_key_auth = true;
+    // Key assignment happens via UI (SshKeyListScreen picker); no ssh_key_id
+    // persists through SD-card JSON parsing.
     out.creds.ssh_key_id[0] = '\0';
 
     // Password goes into ServerCreds directly; upsertServer persists it

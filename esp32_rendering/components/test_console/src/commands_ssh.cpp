@@ -17,9 +17,11 @@
 
 namespace test_console {
 
-// --- ssh-connect <host> <port> <user> <password-b64> [<ssh_key_id>] ---
-// If a 5th arg is given, we use it as ssh_key_id and pass use_key_auth=true.
-// Otherwise password-b64 is decoded and we use password auth.
+// --- ssh-connect <host> <port> <user> <password-b64|_> [<ssh_key_id>] ---
+// Positional args: [use_key_auth is implicit from arg 5 presence].
+// If a 5th arg is given, we use it as ssh_key_id (32 hex chars) and pass
+// use_key_auth=true. Otherwise password-b64 is decoded and we use password
+// auth (pass "_" to skip password).
 //
 // Password is base64-encoded so special characters don't fight the REPL tokenizer.
 static int b64_to_buf(const char* in, char* out, size_t out_cap) {
@@ -54,7 +56,7 @@ static int b64_to_buf(const char* in, char* out, size_t out_cap) {
 
 static int cmd_ssh_connect(int argc, char** argv) {
     if (argc != 5 && argc != 6) {
-        err(1, "usage: ssh-connect <host> <port> <user> <password-b64|_> [<ssh_key_id>]");
+        err(1, "usage: ssh-connect <host> <port> <user> <password-b64|_> [<ssh_key_id (32 hex chars)>]");
         return 1;
     }
     auto* ctx = getContext();
@@ -67,6 +69,19 @@ static int cmd_ssh_connect(int argc, char** argv) {
 
     if (argc == 6 && argv[5][0]) {
         cfg.use_key_auth = true;
+        // Arg 5 must be a 32-char lowercase hex ssh_key_id (matches KeyId::hex()).
+        size_t idn = strlen(argv[5]);
+        if (idn != 32) {
+            test_console::err(3, "ssh_key_id must be 32 hex chars (got %zu)", idn);
+            return 3;
+        }
+        for (size_t i = 0; i < 32; ++i) {
+            char c = argv[5][i];
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+                test_console::err(3, "ssh_key_id must be hex (bad char at %zu)", i);
+                return 3;
+            }
+        }
         strncpy(cfg.ssh_key_id, argv[5], sizeof(cfg.ssh_key_id) - 1);
     } else if (strcmp(argv[4], "_") != 0) {
         if (b64_to_buf(argv[4], cfg.password, sizeof(cfg.password)) < 0) {
@@ -192,7 +207,7 @@ static int cmd_ssh_bench(int argc, char** argv) {
 
 void registerSshCommands() {
     const esp_console_cmd_t cmds[] = {
-        {"ssh-connect",           "ssh-connect <host> <port> <user> <password-b64|_> [<ssh_key_id>]",
+        {"ssh-connect",           "ssh-connect <host> <port> <user> <password-b64|_> [<ssh_key_id (32 hex chars)>]",
          nullptr, cmd_ssh_connect,           nullptr, nullptr, nullptr},
         {"ssh-disconnect",        "ssh-disconnect",
          nullptr, cmd_ssh_disconnect,        nullptr, nullptr, nullptr},
