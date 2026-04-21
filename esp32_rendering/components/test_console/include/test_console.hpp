@@ -8,7 +8,8 @@ namespace app { class ScreenStack; class OverlayManager;
 namespace wifi    { class WifiManager; }
 namespace sdcard  { class ConfigManager; }
 namespace ble_hid { class BleHidHost; }
-namespace ssh     { class SshClient; }
+namespace ssh      { class SshClient; }
+namespace ssh_keys { class KeyStore; }
 
 namespace test_console {
 
@@ -20,6 +21,7 @@ struct Context {
     sdcard::ConfigManager& configMgr;
     ble_hid::BleHidHost&   bleHost;
     ssh::SshClient&        sshClient;
+    ssh_keys::KeyStore&    keyStore;
     app::Settings&         settings;
 };
 

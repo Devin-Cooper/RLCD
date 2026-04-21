@@ -23,6 +23,7 @@ idf_component_register(
         wifi_manager
         ble_hid
         ssh_client
+        ssh_keys
         sdcard_config
         nvs_flash
         esp_system

@@ -24,6 +24,7 @@
 // Connectivity
 #include "wifi_manager.hpp"
 #include "ssh_client.hpp"
+#include "ssh_keys.hpp"
 #include "ble_hid.hpp"
 #include "input_queue.hpp"
 
@@ -570,6 +571,8 @@ extern "C" void app_main() {
     // Step 6/7: Post-WiFi routing
     // ------------------------------------------------------------------
     ssh::SshClient sshClient;
+    ssh_keys::KeyStore keyStore;
+    keyStore.init();
     std::atomic<bool> sshConnected{false};
 
     // Create SSH data stream buffer for SSH task -> main loop data flow
@@ -720,7 +723,7 @@ extern "C" void app_main() {
 
 #if CONFIG_TEST_CONSOLE_ENABLED
     static test_console::Context tctx{
-        fb, stack, overlay, wifiMgr, *configMgr, bleHost, sshClient, settings
+        fb, stack, overlay, wifiMgr, *configMgr, bleHost, sshClient, keyStore, settings
     };
     test_console::init(tctx);
 #endif

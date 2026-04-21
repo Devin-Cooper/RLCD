@@ -66,6 +66,11 @@ void registerInjectionCommands();
 void registerNvsCommands();
 void registerFsCommands();
 void registerSshCommands();
+} // namespace test_console
+
+namespace ssh_keys { void registerSshKeysCommands(); }
+
+namespace test_console {
 
 void init(Context& ctx) {
 #if !CONFIG_TEST_CONSOLE_ENABLED
@@ -99,6 +104,7 @@ void init(Context& ctx) {
     registerNvsCommands();
     registerFsCommands();
     registerSshCommands();
+    ssh_keys::registerSshKeysCommands();
 
     ESP_ERROR_CHECK(esp_console_start_repl(repl));
     ESP_LOGI(TAG, "test_console started on USB-JTAG CDC");

@@ -30,6 +30,9 @@ idf_component_register(
         onebit
         esp_system
         log
+    PRIV_REQUIRES
+        console
+        test_console
 )
 
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
