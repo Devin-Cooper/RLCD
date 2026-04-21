@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <dirent.h>
 #include <unistd.h>
 
 namespace test_console {
@@ -127,6 +128,27 @@ static int cmd_ssh_known_hosts_erase(int, char**) {
     if (rc == 0 || errno == ENOENT) {
         ok("%s", "erased");
         return 0;
+    }
+    // Defensive: legacy pre-swap format kept known_hosts as a directory.
+    // If unlink reports EISDIR, recursively remove contents and rmdir it.
+    if (errno == EISDIR) {
+        DIR* d = opendir("/littlefs/known_hosts");
+        if (d) {
+            struct dirent* e;
+            char path[512];
+            while ((e = readdir(d)) != nullptr) {
+                if (e->d_name[0] == '.') continue;
+                snprintf(path, sizeof(path), "/littlefs/known_hosts/%s", e->d_name);
+                unlink(path);
+            }
+            closedir(d);
+        }
+        if (rmdir("/littlefs/known_hosts") == 0 || errno == ENOENT) {
+            ok("%s", "erased (was directory)");
+            return 0;
+        }
+        err(3, "rmdir: %d", errno);
+        return 1;
     }
     err(3, "unlink: %d", errno);
     return 1;

@@ -116,6 +116,10 @@ SshClient::SshClient()
       shutdown_requested_(false),
       task_exited_(false) {
     std::memset(&config_, 0, sizeof(config_));
+    // Cleanup any stale pre-swap known_hosts on first boot after the swap.
+    // Safe to call at every construction — NVS sentinel makes it a one-shot.
+    libssh_port_init();
+    run_known_hosts_migration_once();
 }
 
 SshClient::~SshClient() {
