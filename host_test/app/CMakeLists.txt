@@ -70,3 +70,12 @@ add_host_test(
     INCLUDES
         "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
 )
+
+add_host_test(
+    NAME test_known_hosts_parser
+    SOURCES
+        test_known_hosts_parser.cpp
+        "${RLCD_COMPONENTS}/ssh_client/src/known_hosts_parser.cpp"
+    INCLUDES
+        "${RLCD_COMPONENTS}/ssh_client/include"
+)
