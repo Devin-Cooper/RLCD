@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import time
+
 import pytest
 
 from .crash import DeviceCrashError, check_for_crash, extract_coredump, rts_reset
@@ -130,3 +132,125 @@ def one_server_device(fresh_device: Device) -> Device:
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "slow: real-time-sensitive tests (BLE timeouts, etc.)")
+
+
+import contextlib
+import shutil
+import socket
+import subprocess
+import tempfile
+import pathlib
+
+
+def _find_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _sshd_binary() -> str | None:
+    for cand in (os.environ.get("SSHD_PATH"), "/usr/sbin/sshd", "/usr/local/sbin/sshd", "/opt/homebrew/sbin/sshd"):
+        if cand and os.path.exists(cand):
+            return cand
+    return None
+
+
+@pytest.fixture
+def loopback_sshd():
+    """Spawn a local OpenSSH sshd on 127.0.0.1:ephemeral for SSH scenarios.
+
+    On systems where sshd cannot be started without root (typical on macOS
+    with the vendor sshd), the fixture skip()s the test rather than failing.
+
+    Yields:
+        {port, user, password, hostkey_path, authorized_keys_path}
+    """
+    sshd = _sshd_binary()
+    if not sshd:
+        pytest.skip("no usable sshd; set SSHD_PATH or install OpenSSH server")
+
+    tmpdir = tempfile.mkdtemp(prefix="rlcd-sshd-")
+    tmpdir_p = pathlib.Path(tmpdir)
+    authorized_keys = tmpdir_p / "authorized_keys"
+    hostkey = tmpdir_p / "ssh_host_ed25519_key"
+    sshd_config = tmpdir_p / "sshd_config"
+    pid_file = tmpdir_p / "sshd.pid"
+
+    try:
+        subprocess.check_call([
+            "ssh-keygen", "-q", "-t", "ed25519", "-f", str(hostkey), "-N", ""
+        ])
+        os.chmod(hostkey, 0o600)
+        authorized_keys.touch()
+        os.chmod(authorized_keys, 0o600)
+    except (subprocess.CalledProcessError, OSError) as e:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        pytest.skip(f"could not set up sshd host key: {e}")
+
+    port = _find_free_port()
+    test_user = os.environ.get("USER") or "nobody"
+    sshd_config.write_text(
+        f"Port {port}\n"
+        f"ListenAddress 127.0.0.1\n"
+        f"HostKey {hostkey}\n"
+        f"AuthorizedKeysFile {authorized_keys}\n"
+        f"PasswordAuthentication yes\n"
+        f"PubkeyAuthentication yes\n"
+        f"PermitRootLogin no\n"
+        f"UsePAM no\n"
+        f"PrintMotd no\n"
+        f"PrintLastLog no\n"
+        f"StrictModes no\n"
+        f"PidFile {pid_file}\n"
+        f"LogLevel QUIET\n"
+    )
+
+    try:
+        sshd_proc = subprocess.Popen(
+            [sshd, "-f", str(sshd_config), "-D"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as e:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        pytest.skip(f"sshd spawn failed: {e}")
+
+    # Wait up to 2s for port to be listening.
+    deadline = time.time() + 2.0
+    ready = False
+    while time.time() < deadline:
+        if sshd_proc.poll() is not None:
+            break  # sshd exited early — likely privilege error
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                ready = True
+                break
+        except OSError:
+            time.sleep(0.05)
+
+    if not ready:
+        stderr = ""
+        try:
+            _, stderr_b = sshd_proc.communicate(timeout=0.5)
+            stderr = stderr_b.decode(errors="replace")[:500]
+        except Exception:
+            pass
+        try:
+            sshd_proc.terminate()
+        except Exception:
+            pass
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        pytest.skip(f"sshd did not bind port {port}; likely privileges: {stderr}")
+
+    yield {
+        "port": port,
+        "user": test_user,
+        "password": "not-actually-used-unless-local-account-accepts-it",
+        "hostkey_path": str(hostkey),
+        "authorized_keys_path": str(authorized_keys),
+    }
+
+    with contextlib.suppress(Exception):
+        sshd_proc.terminate()
+        sshd_proc.wait(timeout=2)
+    shutil.rmtree(tmpdir, ignore_errors=True)
