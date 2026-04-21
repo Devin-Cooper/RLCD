@@ -80,6 +80,28 @@ public:
     /// If mismatch: calls state callback with Error + warning message.
     bool verifyHostKey();
 
+    /// One-shot exec channel for SSH key enrollment.
+    ///
+    /// Opens a session using Config.use_key_auth + Config.password OR Config.ssh_key_id,
+    /// runs a fixed command, optionally streams stdin bytes, closes stdin,
+    /// waits up to timeout_ms for completion, returns exit code via out_exit_code.
+    ///
+    /// Synchronous: returns only after the session is torn down. Runs inline on
+    /// the calling task.
+    ///
+    /// Returns 0 on clean exit (out_exit_code populated; 0 = remote success);
+    /// returns -1 on SSH-level failure (out_err filled, out_exit_code untouched).
+    ///
+    /// This API is separate from connect()/send() and does NOT touch the
+    /// interactive-shell state machine. Safe to call in any order relative
+    /// to connect()/disconnect() — it uses its own local session handles.
+    int execOneshot(const Config& cfg,
+                    const char* command,
+                    const uint8_t* stdin_bytes, size_t stdin_len,
+                    int timeout_ms,
+                    int* out_exit_code,
+                    char* out_err, size_t out_err_cap);
+
     // Snapshots populated at State::Connected; empty strings otherwise.
     // Consumed by test_console ssh-info.
     const char* lastCipherIn()  const { return last_cipher_in_; }

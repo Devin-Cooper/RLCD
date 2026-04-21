@@ -607,4 +607,125 @@ void SshClient::setState(State s, const char* msg) {
     }
 }
 
+int SshClient::execOneshot(const Config& cfg,
+                           const char* command,
+                           const uint8_t* stdin_bytes, size_t stdin_len,
+                           int timeout_ms,
+                           int* out_exit_code,
+                           char* out_err, size_t out_err_cap) {
+    // Local state only; does NOT touch session_/channel_ member variables.
+    int sockfd = -1;
+    ssh_session sess = nullptr;
+    ssh_channel ch = nullptr;
+    auto cleanup = [&]() {
+        if (ch) { ssh_channel_close(ch); ssh_channel_free(ch); }
+        if (sess) { ssh_disconnect(sess); ssh_free(sess); }
+        if (sockfd >= 0) close(sockfd);
+    };
+    auto err_ret = [&](const char* msg) -> int {
+        if (out_err && out_err_cap > 0) {
+            std::strncpy(out_err, msg, out_err_cap - 1);
+            out_err[out_err_cap - 1] = '\0';
+        }
+        cleanup();
+        return -1;
+    };
+
+    // TCP connect
+    struct addrinfo hints = {};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    char port_str[8];
+    std::snprintf(port_str, sizeof(port_str), "%d", cfg.port ? cfg.port : 22);
+    struct addrinfo* res = nullptr;
+    if (getaddrinfo(cfg.host, port_str, &hints, &res) != 0 || !res)
+        return err_ret("dns");
+    sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (sockfd < 0) { freeaddrinfo(res); return err_ret("socket"); }
+    if (::connect(sockfd, res->ai_addr, res->ai_addrlen) < 0) {
+        freeaddrinfo(res); return err_ret("connect");
+    }
+    freeaddrinfo(res);
+
+    sess = ssh_new();
+    if (!sess) return err_ret("ssh_new");
+    int port = cfg.port ? cfg.port : 22;
+    ssh_options_set(sess, SSH_OPTIONS_HOST, cfg.host);
+    ssh_options_set(sess, SSH_OPTIONS_PORT, &port);
+    ssh_options_set(sess, SSH_OPTIONS_USER, cfg.username);
+    ssh_options_set(sess, SSH_OPTIONS_FD, &sockfd);
+    ssh_options_set(sess, SSH_OPTIONS_KNOWNHOSTS, "/littlefs/known_hosts");
+
+    ssh_set_blocking(sess, 1);
+    if (ssh_connect(sess) != SSH_OK) return err_ret(ssh_get_error(sess));
+
+    // Authenticate
+    if (cfg.use_key_auth) {
+        char priv_path[96];
+        if (!ssh_client_resolve_key_path(cfg.ssh_key_id, priv_path, sizeof(priv_path)))
+            return err_ret("key_path");
+        ssh_key pkey = nullptr;
+        if (ssh_pki_import_privkey_file(priv_path, nullptr, nullptr, nullptr, &pkey) != SSH_OK)
+            return err_ret("pki_import");
+        int rc = ssh_userauth_publickey(sess, nullptr, pkey);
+        ssh_key_free(pkey);
+        if (rc != SSH_AUTH_SUCCESS) return err_ret("userauth_pubkey");
+    } else {
+        if (ssh_userauth_password(sess, nullptr, cfg.password) != SSH_AUTH_SUCCESS)
+            return err_ret("userauth_password");
+    }
+
+    // Open exec channel
+    ch = ssh_channel_new(sess);
+    if (!ch) return err_ret("channel_new");
+    if (ssh_channel_open_session(ch) != SSH_OK) return err_ret("channel_open");
+    if (ssh_channel_request_exec(ch, command) != SSH_OK) return err_ret("exec_request");
+
+    // Stream stdin
+    if (stdin_bytes && stdin_len > 0) {
+        int written = ssh_channel_write(ch, stdin_bytes, stdin_len);
+        if (written < 0 || (size_t)written != stdin_len) return err_ret("stdin_write");
+    }
+    ssh_channel_send_eof(ch);
+
+    // Poll for remote-side completion. libssh 0.11 signature:
+    //   int ssh_channel_get_exit_state(ssh_channel, uint32_t *pexit_code,
+    //                                  char **pexit_signal, int *pcore_dumped);
+    // Returns SSH_OK when exit info is available, SSH_AGAIN when not yet.
+    // Drain any stdout/stderr inside the loop so libssh's inbound buffer
+    // doesn't fill and block the remote write side.
+    int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000LL;
+    uint32_t exit_code = 0;
+    char* exit_signal = nullptr;
+    int core_dumped = 0;
+    int rc = SSH_AGAIN;
+    while (esp_timer_get_time() < deadline) {
+        char drain[256];
+        ssh_channel_read_nonblocking(ch, drain, sizeof(drain), 0);
+        ssh_channel_read_nonblocking(ch, drain, sizeof(drain), 1);
+        rc = ssh_channel_get_exit_state(ch, &exit_code, &exit_signal, &core_dumped);
+        if (rc == SSH_OK) break;
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    if (rc != SSH_OK) {
+        if (exit_signal) ssh_string_free_char(exit_signal);
+        if (out_err && out_err_cap > 0) {
+            std::snprintf(out_err, out_err_cap, "exit state timeout");
+        }
+        cleanup();
+        return -1;
+    }
+    if (exit_signal) {
+        if (out_err && out_err_cap > 0) {
+            std::snprintf(out_err, out_err_cap, "remote killed by signal %s", exit_signal);
+        }
+        ssh_string_free_char(exit_signal);
+        cleanup();
+        return -1;
+    }
+    if (out_exit_code) *out_exit_code = (int)exit_code;
+    cleanup();
+    return 0;
+}
+
 } // namespace ssh
