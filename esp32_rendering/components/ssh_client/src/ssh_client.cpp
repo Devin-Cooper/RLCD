@@ -432,7 +432,21 @@ exit_loop:
     ESP_LOGD(TAG, "tx=%zuB rx=%zuB", total_tx, total_rx);
 }
 
-void SshClient::configureCipherSuites() { /* TODO Task 3.5 */ }
+void SshClient::configureCipherSuites() {
+    auto* sess = static_cast<ssh_session>(session_);
+    ssh_options_set(sess, SSH_OPTIONS_CIPHERS_C_S,
+        "aes128-ctr,aes256-ctr,chacha20-poly1305@openssh.com");
+    ssh_options_set(sess, SSH_OPTIONS_CIPHERS_S_C,
+        "aes128-ctr,aes256-ctr,chacha20-poly1305@openssh.com");
+    ssh_options_set(sess, SSH_OPTIONS_KEY_EXCHANGE,
+        "curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256");
+    ssh_options_set(sess, SSH_OPTIONS_HOSTKEYS,
+        "ssh-ed25519,ecdsa-sha2-nistp256,rsa-sha2-512,rsa-sha2-256");
+    ssh_options_set(sess, SSH_OPTIONS_HMAC_C_S,
+        "hmac-sha2-256,hmac-sha2-512");
+    ssh_options_set(sess, SSH_OPTIONS_HMAC_S_C,
+        "hmac-sha2-256,hmac-sha2-512");
+}
 
 bool SshClient::doConnect() {
     setState(State::Connecting);
@@ -529,8 +543,16 @@ void SshClient::sshTask(void* param) {
                      self->openShell(80, 24);
 
     if (connected) {
+        auto* sess = static_cast<ssh_session>(self->session_);
+        const char* cipher_in  = ssh_get_cipher_in(sess);
+        const char* cipher_out = ssh_get_cipher_out(sess);
+        if (cipher_in)  strncpy(self->last_cipher_in_,  cipher_in,  sizeof(self->last_cipher_in_)  - 1);
+        if (cipher_out) strncpy(self->last_cipher_out_, cipher_out, sizeof(self->last_cipher_out_) - 1);
         self->setState(State::Connected);
-        // Connection-info snapshot for ssh-info consumers — populated in Task 3.5.
+        ESP_LOGI(TAG, "connected; cipher_in=%s cipher_out=%s host-key-type=%s fp=%s",
+                 self->last_cipher_in_, self->last_cipher_out_,
+                 self->last_hostkey_type_, self->last_fingerprint_);
+        ESP_LOGI(TAG, "auth method=%s", self->config_.use_key_auth ? "publickey" : "password");
         self->ioLoop();
     }
     // else: fail() already emitted Error and torn down.
