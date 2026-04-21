@@ -111,3 +111,12 @@ add_host_test(
 # Needs OpenSSL for SHA-256 + base64 on host.
 find_package(OpenSSL REQUIRED)
 target_link_libraries(test_ssh_keys_codec PRIVATE OpenSSL::Crypto)
+
+add_host_test(
+    NAME test_ssh_keys_select_qr_scale
+    SOURCES
+        test_ssh_keys_select_qr_scale.cpp
+        "${RLCD_COMPONENTS}/ssh_keys/src/select_qr_scale.cpp"
+    INCLUDES
+        "${RLCD_COMPONENTS}/ssh_keys/include"
+)

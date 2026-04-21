@@ -10,6 +10,7 @@ idf_component_register(
         "src/key_gen.cpp"
         "src/export_text.cpp"
         "src/export_qr.cpp"
+        "src/select_qr_scale.cpp"
         "src/export_sd.cpp"
         "src/export_repl.cpp"
         "src/export_enroll.cpp"
@@ -26,6 +27,7 @@ idf_component_register(
         wifi_manager
         ssh_client
         sdcard_config
+        onebit
         esp_system
         log
 )
