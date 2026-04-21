@@ -222,9 +222,11 @@ and writes all four regions (bootloader + partition table + factory +
 main) per-offset, preserving NVS so WiFi credentials survive. See
 [MIGRATION-factory-ota.md](MIGRATION-factory-ota.md).
 
-**Dev inner loop:** `idf.py -C esp32_rendering -p /dev/cu.usbmodem4101 flash`
-writes only the main slot (0xA0000). Recovery and partition table are
-untouched.
+**Dev inner loop:** `./dev-flash.sh [port] [test]` rewrites only the
+main slot at 0xA0000. Recovery, partition table, and NVS are
+untouched. **Do NOT use `idf.py -C esp32_rendering flash`** — ESP-IDF
+defaults its app offset to the first app partition (factory, 0x20000)
+and would overwrite the recovery firmware.
 
 **Force recovery boot:** hold button A (GPIO 18) at reset for ≥5 s. The
 bootloader erases otadata and boots factory on the next cycle — useful

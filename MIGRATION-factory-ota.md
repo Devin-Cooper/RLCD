@@ -112,23 +112,28 @@ d.close()
 Normal iteration on main firmware:
 
 ```bash
-idf.py -C esp32_rendering -p /dev/cu.usbmodem4101 flash
+./dev-flash.sh                    # production config
+./dev-flash.sh /dev/cu.usbmodem4101 test   # test-console overlay
 ```
 
-This writes only the main app at 0xA0000. Partition table, bootloader,
-and factory recovery stay exactly as `flash.sh` left them.
+This builds main and writes ONLY ota_0 at 0xA0000 via esptool directly.
+Partition table, bootloader, factory recovery, and NVS are untouched.
+
+**DO NOT use `idf.py -C esp32_rendering flash`** for dev iteration:
+ESP-IDF picks the first app partition for its flash offset, which is
+`factory` at 0x20000, so `idf.py flash` would **overwrite the recovery
+firmware** with main. `dev-flash.sh` bypasses this by driving esptool
+at 0xA0000.
 
 Iterating on recovery itself (rare):
 
 ```bash
 idf.py -C esp32_recovery -p /dev/cu.usbmodem4101 flash
-# but see caveat below
 ```
 
-Caveat: `idf.py -C esp32_recovery flash` will write the recovery binary
-at 0x20000 — correct — but will ALSO rewrite the partition table and
-bootloader from recovery's build. Those match main's by design, so no
-harm unless you've diverged them.
+Unlike the main case, the recovery project's `idf.py flash` DOES target
+0x20000 (the factory slot) because recovery is the first app partition
+in the table. Safe for recovery-side changes.
 
 ## Troubleshooting
 
@@ -164,3 +169,34 @@ d.close()
 **Want to force recovery boot** — hold button A at reset for 5+
 seconds. The bootloader erases otadata and boots factory on the next
 cycle. Useful for "my ota_0 marked-valid but it's broken anyway."
+
+Equivalent from the host (no physical access to button A):
+
+```bash
+esptool --chip esp32s3 -p /dev/cu.usbmodem4101 --after hard_reset \
+    erase_region 0x10000 0x2000
+```
+
+Erases the otadata partition; next boot falls through to factory.
+
+## Verified on hardware
+
+The full flow was verified on an ESP32-S3-RLCD-4.2 dev board:
+
+- `./flash.sh` writes 512 KB recovery + 1.35 MB main + partition
+  table; NVS (WiFi creds) survives.
+- Cold boot reaches ota_0 → DashboardScreen → `boot_validator_task`
+  transitions otadata state `PENDING` → `VALID` within its 30 s window
+  (1 s in test builds).
+- `ota-info` from main's test_console reports the current otadata
+  state from ota_0.
+- Recovery REPL: `ping`, `info`, `reboot-ota`, `erase-nvs --yes`,
+  `coredump-dump` all respond correctly.
+- `reboot-ota` from recovery returns the device to main.
+- `erase_region 0x10000 0x2000` forces factory boot on the next cycle;
+  recovery's `info` reports `running_label=factory state=n/a`.
+- 14/14 scenario tests pass against the new layout.
+
+Recovery binary ends at 237 KB / 512 KB (45% of the factory slot).
+Main ends at 1.35 MB / 10 MB (14% of the ota_0 slot) — 3.3× more
+room for feature growth than the prior dual-OTA layout.

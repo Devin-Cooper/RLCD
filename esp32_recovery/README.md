@@ -49,8 +49,10 @@ idf.py -C esp32_recovery build
 idf.py -C esp32_recovery -p /dev/cu.usbmodem4101 flash
 ```
 
-Standalone flash writes to 0x20000 (factory slot), the matching
-bootloader, and the partition table. Main app in ota_0 is untouched.
+Unlike main (see `dev-flash.sh`), recovery's `idf.py flash` works as
+expected because recovery is the first app partition in the table —
+ESP-IDF writes the binary at 0x20000 and the bootloader/partition
+table match what's already on flash. Main app in ota_0 is untouched.
 
 ## Not included (deliberate)
 
