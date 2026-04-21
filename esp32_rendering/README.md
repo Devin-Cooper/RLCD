@@ -10,7 +10,7 @@ ESP-IDF firmware for the Waveshare ESP32-S3-RLCD-4.2 board. Turns the board into
 
 - **Terminal mode** — VT100/xterm emulator rendering vim, htop, and other TUI apps on the 400x300 1-bit ST7305 display. Three font sizes (5x7 / 6x9 / 8x12).
 - **Dashboard mode** — curated server stats (CPU, memory, disk, GPU, Docker, screen sessions) refreshed on an interval; commands are user-defined.
-- **SSH client** — libssh2 with hardware-accelerated AES-128-CTR (~7.5 MB/s), Ed25519 or password auth, TOFU host-key verification.
+- **SSH client** — libssh 0.11.4 (vendored in-tree as `components/libssh/`) with hardware-accelerated AES-128-CTR, Ed25519 / ECDSA P-256 / RSA-SHA2 auth, TOFU host key verification.
 - **BLE HID host** — NimBLE central-role HID keyboard host with bonded-device auto-reconnect and full keycode translation (arrows, F-keys, Ctrl combos).
 - **WiFi** — STA auto-connect to known networks ranked by signal strength.
 - **SD-card multi-server config** — drop JSON files into `/sdcard/servers/` to register servers; the menu lets you switch between them live.

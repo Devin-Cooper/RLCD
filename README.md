@@ -28,7 +28,7 @@ ESP-IDF firmware that turns the board into a self-contained SSH terminal and ser
 
 - **Terminal mode** -- full VT100/xterm emulator rendering htop, vim, and other TUI apps on the 1-bit display
 - **Dashboard mode** -- curated server stats (CPU, memory, disk, network, GPU, Docker, screen sessions) refreshed on a configurable interval
-- **SSH client** -- libssh2 with hardware-accelerated AES-128-CTR (7.5 MB/s), Ed25519 auth (26ms), TOFU host key verification
+- **SSH client** -- libssh 0.11.4 (vendored in-tree as `components/libssh/`) with hardware-accelerated AES-128-CTR, Ed25519 / ECDSA P-256 / RSA-SHA2 auth, TOFU host key verification
 - **BLE keyboard** -- NimBLE HID host with auto-reconnect to bonded devices, full keycode-to-terminal translation (arrows, function keys, Ctrl combos)
 - **WiFi** -- auto-connect to known networks by signal strength; new networks are added via SD card JSON config (on-screen password entry is not implemented).
 - **3 font sizes** -- 80x37 (5x7), 66x30 (6x9), 50x23 (8x12) -- cycle with button or F-key
@@ -42,8 +42,8 @@ The firmware is tuned for the ESP32-S3's specific hardware profile:
 
 | Decision | Why |
 |----------|-----|
-| AES-128-CTR over AES-GCM | Hardware AES-CTR: 7.5 MB/s. AES-GCM GHASH in software: 1.35 MB/s (5.5x slower) |
-| Ed25519 over RSA-2048 | 26ms sign vs 118ms. Curve25519 software math is faster than RSA hardware bignum |
+| AES-128-CTR over AES-GCM | Hardware AES-CTR primitive: 7.5 MB/s (ESP32-S3 crypto peripheral). AES-GCM GHASH in software: 1.35 MB/s (5.5x slower). Note: end-to-end SSH throughput measures ~1 MB/s, bounded by the application send path in `ssh_client` (16-byte queue items, 5 ms poll), not the crypto primitive. |
+| Ed25519 over RSA-2048 | Ed25519 end-to-end auth ~813 ms (post-swap measured: TCP connect + KEX + pubkey). libssh vendors the Ed25519 reference impl so mbedTLS doesn't need to support it — that's why libssh2+mbedTLS cannot deliver Ed25519 at all and the swap to libssh happened. |
 | Framebuffer in DMA SRAM | SPI DMA requires internal SRAM. PSRAM would need cache coherence workaround |
 | Scrollback in PSRAM | Large, sequential access pattern benefits from 64-byte cache line prefetch |
 | 64KB data cache | Trades 32KB SRAM for substantially better PSRAM throughput |
