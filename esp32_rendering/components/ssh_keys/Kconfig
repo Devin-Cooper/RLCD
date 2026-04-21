@@ -1,0 +1,11 @@
+menu "SSH Keys (components/ssh_keys/)"
+
+config SSH_KEYS_MAX
+    int "Maximum stored keys"
+    default 32
+    range 1 128
+    help
+        Upper bound on managed keys in the NVS index.
+        Each key is 112 bytes in the index; 32 keys × 112 B = 3.7 KB.
+
+endmenu
