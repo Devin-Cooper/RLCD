@@ -96,7 +96,7 @@ private:
     StateCallback state_cb_;
     void* state_ctx_;
 
-    // libssh2 handles (opaque — cast in .cpp)
+    // libssh handles (opaque — cast in .cpp)
     void* session_;
     void* channel_;
     int socket_fd_;
