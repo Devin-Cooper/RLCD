@@ -54,11 +54,19 @@ bool export_sd(KeyStore& store, const KeyId& id,
 /// For rendering on SshKeyPubkeyTextScreen.
 std::string wrapped_pubkey_line(KeyStore& store, const KeyId& id);
 
-/// QR render: writes a QR matrix for the pubkey line into the framebuffer.
-/// Returns the module size used (0 on "too large"). Scale auto-selected
-/// via select_qr_scale.
+/// QR render: rasterizes the pubkey line as a QR code onto a framebuffer.
+/// `framebuffer_opaque` must be an `onebit::IFramebuffer*`; type is erased
+/// here so this header stays free of 1-bit display types. Pixel
+/// (origin_x, origin_y) is the TOP-LEFT of the QR module grid; the caller
+/// provides surrounding whitespace (quiet zone).
+///
+/// Returns the pixel scale used on success (e.g. 6 for V6 @ 294 px).
+/// Returns 0 on any failure; every failure path logs via
+/// ESP_LOGE("ssh_keys", ...). Failure modes: key not in store, cached
+/// `.pub` unreadable, pubkey line too large for the buffer, nayuki
+/// encoder refuses the payload, or computed scale is 0.
 int render_qr_to_framebuffer(KeyStore& store, const KeyId& id,
-                             void* framebuffer, int origin_x, int origin_y);
+                             void* framebuffer_opaque, int origin_x, int origin_y);
 
 /// Pure helper, exposed for host unit test.
 int select_qr_scale(int modules);

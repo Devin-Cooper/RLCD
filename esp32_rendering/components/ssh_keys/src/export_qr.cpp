@@ -1,11 +1,8 @@
 #include "ssh_key_export.hpp"
-#include "ssh_key_codec.hpp"
 
 #include <cstdio>
-#include <cstring>
 
 #include "esp_log.h"
-#include "libssh/libssh.h"
 #include "qrcodegen.h"
 
 // Interact with the 1-bit framebuffer via the project's onebit API.
@@ -18,17 +15,23 @@ namespace ssh_keys {
 int render_qr_to_framebuffer(KeyStore& store, const KeyId& id,
                              void* framebuffer_opaque,
                              int origin_x, int origin_y) {
-    const KeyMeta* meta = store.find(id);
-    if (!meta) return 0;
+    if (!store.contains(id)) {
+        ESP_LOGE(TAG, "qr: key not in store: %s", id.hex().c_str());
+        return 0;
+    }
 
     // Build pubkey line from cached .pub
     char path[96];
     std::snprintf(path, sizeof(path), "/littlefs/ssh_keys/%s.pub", id.hex().c_str());
-    char line[600] = {};
+    char line[768] = {};
     FILE* f = std::fopen(path, "rb");
     if (!f) { ESP_LOGE(TAG, "qr: fopen %s failed", path); return 0; }
     size_t n = std::fread(line, 1, sizeof(line) - 1, f);
     std::fclose(f);
+    if (n == sizeof(line) - 1) {
+        ESP_LOGE(TAG, "qr: pubkey line >= %zu B, truncated — refusing to encode", sizeof(line) - 1);
+        return 0;
+    }
     line[n] = '\0';
     while (n > 0 && (line[n-1] == '\n' || line[n-1] == '\r')) line[--n] = '\0';
 
