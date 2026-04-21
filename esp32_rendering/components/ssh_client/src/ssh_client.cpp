@@ -3,9 +3,10 @@
 #include "esp_timer.h"
 #include "esp_task_wdt.h"
 #include "nvs_flash.h"
+#include "nvs.h"
 
-#include "libssh2.h"
-#include "libssh2_sftp.h"
+#include "libssh/libssh.h"
+#include "libssh_port.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -17,18 +18,22 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <dirent.h>
 #include <cerrno>
+#include <cstdio>
+#include <cstring>
 
 static const char* TAG = "ssh_client";
 
-// SSH task stack size — large enough for crypto operations
 static constexpr int SSH_TASK_STACK = 16384;
-// SSH task priority on Core 1 (below display at 12, above dashboard at 5)
 static constexpr int SSH_TASK_PRIORITY = 10;
 static constexpr int SSH_TASK_CORE = 1;
-
-// Send queue for thread-safe keyboard input
 static constexpr int SEND_QUEUE_SIZE = 256;
+static constexpr int KEEPALIVE_INTERVAL_SEC = 30;
+static constexpr int DISCONNECT_WATCHDOG_MS = 1000;
+static constexpr const char* KNOWN_HOSTS_PATH = "/littlefs/known_hosts";
+static constexpr const char* KNOWN_HOSTS_NVS_NS = "ssh_host";
+static constexpr const char* KNOWN_HOSTS_NVS_KEY = "migrated_v2";
 
 struct SendItem {
     uint8_t data[16];
@@ -37,9 +42,6 @@ struct SendItem {
 
 namespace ssh {
 
-// Hostname sanitizer (Spec 04 Bug 4). Accept [A-Za-z0-9._-]{1,253} only;
-// reject empty, leading '-' or '.', any '/'. Keeps the TOFU known_hosts
-// path `/littlefs/known_hosts/<host>_<port>` confined to that directory.
 static bool is_valid_hostname(const char* s) {
     if (!s) return false;
     size_t n = 0;
@@ -58,6 +60,52 @@ static bool is_valid_hostname(const char* s) {
     return true;
 }
 
+// One-shot migration: if a pre-swap known_hosts exists (file OR directory),
+// remove it. libssh uses OpenSSH-native format which our previous code did
+// not produce. Guarded by NVS sentinel so it runs exactly once.
+static void run_known_hosts_migration_once() {
+    nvs_handle_t h;
+    if (nvs_open(KNOWN_HOSTS_NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
+
+    uint8_t sentinel = 0;
+    nvs_get_u8(h, KNOWN_HOSTS_NVS_KEY, &sentinel);
+    if (sentinel == 1) {
+        nvs_close(h);
+        return;
+    }
+
+    struct stat st;
+    if (stat(KNOWN_HOSTS_PATH, &st) == 0) {
+        if (S_ISDIR(st.st_mode)) {
+            // Pre-swap firmware stored per-host files in /littlefs/known_hosts/
+            // as a directory — the format is incompatible with libssh's flat-file
+            // known_hosts. Erase the directory and its contents; TOFU will
+            // repopulate as a flat file on next connect.
+            DIR* d = opendir(KNOWN_HOSTS_PATH);
+            if (d) {
+                struct dirent* e;
+                // 512 > strlen(KNOWN_HOSTS_PATH) + 1 + max d_name (255 per POSIX)
+                // — required to dodge -Werror=format-truncation on GCC 14.
+                char path[512];
+                while ((e = readdir(d)) != nullptr) {
+                    if (e->d_name[0] == '.') continue;
+                    snprintf(path, sizeof(path), "%s/%s", KNOWN_HOSTS_PATH, e->d_name);
+                    unlink(path);
+                }
+                closedir(d);
+                rmdir(KNOWN_HOSTS_PATH);
+            }
+        } else {
+            unlink(KNOWN_HOSTS_PATH);
+        }
+        ESP_LOGI(TAG, "Migrated away from pre-swap known_hosts format");
+    }
+
+    nvs_set_u8(h, KNOWN_HOSTS_NVS_KEY, 1);
+    nvs_commit(h);
+    nvs_close(h);
+}
+
 SshClient::SshClient()
     : state_(State::Disconnected),
       data_cb_(nullptr), data_ctx_(nullptr),
@@ -65,7 +113,8 @@ SshClient::SshClient()
       session_(nullptr), channel_(nullptr),
       socket_fd_(-1), task_handle_(nullptr),
       send_queue_(nullptr),
-      shutdown_requested_(false) {
+      shutdown_requested_(false),
+      task_exited_(false) {
     std::memset(&config_, 0, sizeof(config_));
 }
 
@@ -78,15 +127,22 @@ void SshClient::connect(const Config& config) {
         disconnect();
     }
 
+    libssh_port_init();
+    run_known_hosts_migration_once();
+
     config_ = config;
     shutdown_requested_ = false;
+    task_exited_ = false;
+    std::memset(last_cipher_in_, 0, sizeof(last_cipher_in_));
+    std::memset(last_cipher_out_, 0, sizeof(last_cipher_out_));
+    std::memset(last_hostkey_type_, 0, sizeof(last_hostkey_type_));
+    std::memset(last_fingerprint_, 0, sizeof(last_fingerprint_));
+    std::memset(last_error_message_, 0, sizeof(last_error_message_));
 
-    // Create send queue
     if (!send_queue_) {
         send_queue_ = xQueueCreate(SEND_QUEUE_SIZE, sizeof(SendItem));
     }
 
-    // Spawn SSH task on Core 1
     xTaskCreatePinnedToCore(
         sshTask, "ssh_client", SSH_TASK_STACK,
         this, SSH_TASK_PRIORITY,
@@ -97,8 +153,6 @@ void SshClient::connect(const Config& config) {
 
 void SshClient::send(const uint8_t* data, size_t len) {
     if (!send_queue_ || state_.load(std::memory_order_acquire) != State::Connected) return;
-
-    // Split into SendItem-sized chunks if needed
     size_t offset = 0;
     while (offset < len) {
         SendItem item = {};
@@ -109,47 +163,63 @@ void SshClient::send(const uint8_t* data, size_t len) {
     }
 }
 
-void SshClient::resizeTerminal(int cols, int rows) {
-    if (!channel_ || state_.load(std::memory_order_acquire) != State::Connected) return;
-    auto* ch = static_cast<LIBSSH2_CHANNEL*>(channel_);
-    libssh2_channel_request_pty_size(ch, cols, rows);
-    ESP_LOGI(TAG, "Terminal resized to %dx%d", cols, rows);
-}
+// Stubbed — real body in Task 3.4 once channel ops are wired.
+void SshClient::resizeTerminal(int /*cols*/, int /*rows*/) { /* TODO Task 3.4 */ }
 
-void SshClient::disconnect() {
-    // Signal the SSH task to shut down gracefully
-    shutdown_requested_ = true;
-
-    // Wait up to 5 seconds for the task to self-terminate
-    if (task_handle_) {
-        for (int i = 0; i < 50 && task_handle_ != nullptr; ++i) {
-            vTaskDelay(pdMS_TO_TICKS(100));
-        }
-        // If the task did not self-terminate, force-kill as a last resort
-        if (task_handle_) {
-            ESP_LOGW(TAG, "SSH task did not exit gracefully, force-killing");
-            vTaskDelete(static_cast<TaskHandle_t>(task_handle_));
-            task_handle_ = nullptr;
-        }
-    }
-
-    // Clean up session resources (may already be cleaned by sshTask)
+void SshClient::teardown() {
+    // Idempotent: each pointer is nulled after free so re-entry is safe.
     if (channel_) {
-        auto* ch = static_cast<LIBSSH2_CHANNEL*>(channel_);
-        libssh2_channel_close(ch);
-        libssh2_channel_free(ch);
+        auto* ch = static_cast<ssh_channel>(channel_);
+        ssh_channel_close(ch);
+        ssh_channel_free(ch);
         channel_ = nullptr;
     }
     if (session_) {
-        auto* sess = static_cast<LIBSSH2_SESSION*>(session_);
-        libssh2_session_disconnect(sess, "Client disconnecting");
-        libssh2_session_free(sess);
+        // libssh 0.11's ssh_free() calls close() on the fd we handed over
+        // via SSH_OPTIONS_FD. Do NOT double-close — null socket_fd_ before
+        // ssh_free so the else-branch below is skipped.
+        auto* sess = static_cast<ssh_session>(session_);
+        ssh_disconnect(sess);
+        ssh_free(sess);
         session_ = nullptr;
-    }
-    if (socket_fd_ >= 0) {
+        socket_fd_ = -1;
+    } else if (socket_fd_ >= 0) {
+        // Session was never created (or creation failed); we still own the fd.
         close(socket_fd_);
         socket_fd_ = -1;
     }
+}
+
+void SshClient::fail(const char* where) {
+    const char* detail = "no session";
+    if (session_) detail = ssh_get_error(static_cast<ssh_session>(session_));
+    char msg[128];
+    snprintf(msg, sizeof(msg), "%s: %s", where, detail ? detail : "(null)");
+    ESP_LOGW(TAG, "%s", msg);
+    strncpy(last_error_message_, msg, sizeof(last_error_message_) - 1);
+    setState(State::Error, msg);
+    teardown();
+}
+
+void SshClient::disconnect() {
+    shutdown_requested_ = true;
+
+    // Spin on task_exited_ atomic rather than task_handle_ — the task sets
+    // task_exited_ before it begins teardown/vTaskDelete, so this is race-free.
+    if (task_handle_) {
+        int ticks = DISCONNECT_WATCHDOG_MS / 20;
+        for (int i = 0; i < ticks && !task_exited_.load(std::memory_order_acquire); ++i) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+        if (!task_exited_.load(std::memory_order_acquire)) {
+            ESP_LOGW(TAG, "Disconnect watchdog: force-killing ssh task");
+            vTaskDelete(static_cast<TaskHandle_t>(task_handle_));
+            task_handle_ = nullptr;
+            teardown();  // task didn't get to clean up; do it ourselves
+        }
+        task_handle_ = nullptr;
+    }
+
     if (send_queue_) {
         vQueueDelete(static_cast<QueueHandle_t>(send_queue_));
         send_queue_ = nullptr;
@@ -158,364 +228,136 @@ void SshClient::disconnect() {
 }
 
 bool SshClient::verifyHostKey() {
-    if (!session_) return false;
-
-    // Spec 04 Bug 4: sanitize host before building any filesystem path
-    // (TOFU known_hosts) — refuse path-traversal hostnames up front.
-    if (!is_valid_hostname(config_.host)) {
-        ESP_LOGE(TAG, "Rejected invalid SSH host '%s' (unsafe characters or length)",
-                 config_.host);
-        setState(State::Error, "Invalid SSH host — refusing to connect");
-        return false;
-    }
-
-    auto* sess = static_cast<LIBSSH2_SESSION*>(session_);
-
-    // Get server's host key fingerprint
-    const char* fingerprint = libssh2_hostkey_hash(sess, LIBSSH2_HOSTKEY_HASH_SHA256);
-    if (!fingerprint) {
-        setState(State::Error, "Failed to get host key fingerprint");
-        return false;
-    }
-
-    // Build storage path based on host (now validated above).
-    char path[128];
-    snprintf(path, sizeof(path), "/littlefs/known_hosts/%s_%d",
-             config_.host, config_.port);
-
-    // Try to read stored fingerprint
-    FILE* f = fopen(path, "r");
-    if (f) {
-        char stored[64] = {};
-        fread(stored, 1, sizeof(stored) - 1, f);
-        fclose(f);
-
-        // Compare fingerprints (SHA-256 = 32 bytes)
-        if (std::memcmp(stored, fingerprint, 32) != 0) {
-            setState(State::Error,
-                     "HOST KEY CHANGED — possible MITM attack! "
-                     "Delete stored key to accept new one.");
-            return false;
-        }
-        ESP_LOGI(TAG, "Host key verified for %s:%d", config_.host, config_.port);
-        return true;
-    }
-
-    // First connection — TOFU: store the fingerprint
-    // Ensure directory exists
-    mkdir("/littlefs/known_hosts", 0755);
-    f = fopen(path, "w");
-    if (f) {
-        fwrite(fingerprint, 1, 32, f);
-        fclose(f);
-        ESP_LOGI(TAG, "Stored host key for %s:%d (TOFU)", config_.host, config_.port);
-    }
-    return true;
+    // Stubbed — real body in Task 3.2. Intermediate commits surface the
+    // unimplemented state to callers rather than silently returning false.
+    setState(State::Error, "verifyHostKey not yet implemented");
+    teardown();
+    return false;
 }
 
-// --- SSH Task ---
-
-void SshClient::sshTask(void* param) {
-    auto* self = static_cast<SshClient*>(param);
-
-    // Initialize libssh2
-    libssh2_init(0);
-
-    // Register this task with the watchdog timer
-    esp_task_wdt_add(nullptr);
-
-    if (!self->doConnect()) {
-        self->setState(State::Error, "Connection failed");
-        goto cleanup;
-    }
-
-    if (!self->verifyHostKey()) {
-        self->setState(State::Error, "Host key verification failed");
-        goto cleanup;
-    }
-
-    if (!self->doAuthenticate()) {
-        self->setState(State::Error, "Authentication failed");
-        goto cleanup;
-    }
-
-    // Default terminal: 80x24, will be resized once renderer calculates actual size
-    if (!self->openShell(80, 24)) {
-        self->setState(State::Error, "Failed to open shell");
-        goto cleanup;
-    }
-
-    self->setState(State::Connected);
-    self->ioLoop();
-
-cleanup:
-    // Clean up session resources from within the task
-    if (self->channel_) {
-        auto* ch = static_cast<LIBSSH2_CHANNEL*>(self->channel_);
-        libssh2_channel_close(ch);
-        libssh2_channel_free(ch);
-        self->channel_ = nullptr;
-    }
-    if (self->session_) {
-        auto* sess = static_cast<LIBSSH2_SESSION*>(self->session_);
-        libssh2_session_disconnect(sess, "Session ended");
-        libssh2_session_free(sess);
-        self->session_ = nullptr;
-    }
-    if (self->socket_fd_ >= 0) {
-        close(self->socket_fd_);
-        self->socket_fd_ = -1;
-    }
-
-    libssh2_exit();
-
-    // Unregister from watchdog before self-deleting
-    esp_task_wdt_delete(nullptr);
-
-    // Mark task handle as null so disconnect() knows we exited
-    self->task_handle_ = nullptr;
-    vTaskDelete(nullptr);
+bool SshClient::doAuthenticate() {
+    // Stubbed — real body in Task 3.3.
+    setState(State::Error, "doAuthenticate not yet implemented");
+    return false;
 }
+
+bool SshClient::openShell(int /*cols*/, int /*rows*/) {
+    // Stubbed — real body in Task 3.4.
+    setState(State::Error, "openShell not yet implemented");
+    return false;
+}
+
+void SshClient::ioLoop() { /* TODO Task 3.4 */ }
+
+void SshClient::configureCipherSuites() { /* TODO Task 3.5 */ }
 
 bool SshClient::doConnect() {
     setState(State::Connecting);
 
-    // Resolve hostname
     struct addrinfo hints = {};
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
-
     char port_str[8];
     snprintf(port_str, sizeof(port_str), "%d", config_.port ? config_.port : 22);
 
     struct addrinfo* result = nullptr;
     if (getaddrinfo(config_.host, port_str, &hints, &result) != 0 || !result) {
-        ESP_LOGE(TAG, "DNS resolution failed for %s", config_.host);
+        char msg[128];
+        snprintf(msg, sizeof(msg), "DNS resolution failed for %s", config_.host);
+        strncpy(last_error_message_, msg, sizeof(last_error_message_) - 1);
+        setState(State::Error, msg);
         return false;
     }
 
-    // Create socket
     socket_fd_ = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
     if (socket_fd_ < 0) {
         freeaddrinfo(result);
-        ESP_LOGE(TAG, "Socket creation failed");
+        strncpy(last_error_message_, "socket() failed", sizeof(last_error_message_) - 1);
+        setState(State::Error, "socket() failed");
         return false;
     }
 
-    // Set TCP_NODELAY for interactive SSH (disable Nagle's algorithm)
     int flag = 1;
     setsockopt(socket_fd_, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
-
-    // Enable TCP keepalive to detect dead connections
     int keepalive = 1, idle = 30, interval = 5, count = 3;
     setsockopt(socket_fd_, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
     setsockopt(socket_fd_, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
     setsockopt(socket_fd_, IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(interval));
     setsockopt(socket_fd_, IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count));
 
-    // Connect
     if (::connect(socket_fd_, result->ai_addr, result->ai_addrlen) < 0) {
         freeaddrinfo(result);
         close(socket_fd_);
         socket_fd_ = -1;
-        ESP_LOGE(TAG, "TCP connect failed to %s:%s", config_.host, port_str);
+        char msg[128];
+        snprintf(msg, sizeof(msg), "TCP connect to %s:%s: %s",
+                 config_.host, port_str, strerror(errno));
+        strncpy(last_error_message_, msg, sizeof(last_error_message_) - 1);
+        setState(State::Error, msg);
         return false;
     }
     freeaddrinfo(result);
 
-    // Create libssh2 session
-    auto* sess = libssh2_session_init();
+    auto sess = ssh_new();
     if (!sess) {
         close(socket_fd_);
         socket_fd_ = -1;
-        ESP_LOGE(TAG, "libssh2 session init failed");
+        strncpy(last_error_message_, "ssh_new() failed", sizeof(last_error_message_) - 1);
+        setState(State::Error, "ssh_new() failed");
         return false;
     }
     session_ = sess;
 
-    // Configure cipher suites for ESP32-S3 hardware
+    ssh_options_set(sess, SSH_OPTIONS_HOST, config_.host);
+    int port = config_.port ? config_.port : 22;
+    ssh_options_set(sess, SSH_OPTIONS_PORT, &port);
+    ssh_options_set(sess, SSH_OPTIONS_USER, config_.username);
+    ssh_options_set(sess, SSH_OPTIONS_FD, &socket_fd_);
+    ssh_options_set(sess, SSH_OPTIONS_KNOWNHOSTS, KNOWN_HOSTS_PATH);
+    int log_level = CONFIG_LIBSSH_LOG_LEVEL;
+    ssh_options_set(sess, SSH_OPTIONS_LOG_VERBOSITY, &log_level);
+
     configureCipherSuites();
 
-    // Set non-blocking mode for the I/O loop
-    libssh2_session_set_blocking(sess, 0);
-
-    // Perform SSH handshake (blocking until complete)
-    libssh2_session_set_blocking(sess, 1);
-    int rc = libssh2_session_handshake(sess, socket_fd_);
-    if (rc) {
-        ESP_LOGE(TAG, "SSH handshake failed: %d", rc);
+    ssh_set_blocking(sess, 1);
+    if (ssh_connect(sess) != SSH_OK) {
+        fail("ssh_connect");
         return false;
     }
 
-    // Switch back to non-blocking for I/O
-    libssh2_session_set_blocking(sess, 0);
+    // libssh 0.11.4 has no ssh_set_keepalive_options(); TCP-level keepalive
+    // is already active via setsockopt(SO_KEEPALIVE,...) above. Application-
+    // level keepalive would require periodic ssh_send_keepalive() pokes from
+    // the ioLoop (Task 3.4) — deferred. KEEPALIVE_INTERVAL_SEC stays on the
+    // file to document the intended cadence.
+    (void)KEEPALIVE_INTERVAL_SEC;
 
     ESP_LOGI(TAG, "SSH handshake complete with %s:%s", config_.host, port_str);
     return true;
 }
 
-void SshClient::configureCipherSuites() {
-    auto* sess = static_cast<LIBSSH2_SESSION*>(session_);
+void SshClient::sshTask(void* param) {
+    auto* self = static_cast<SshClient*>(param);
+    esp_task_wdt_add(nullptr);
 
-    // ESP32-S3 hardware-informed cipher priorities:
-    // AES-128-CTR: 7.5 MB/s (hardware accelerated)
-    // AES-256-CTR: 7.5 MB/s (hardware accelerated)
-    // ChaCha20: 3.3 MB/s (software only)
-    // AES-GCM: 1.35 MB/s (GHASH in software — AVOID)
-    libssh2_session_method_pref(sess, LIBSSH2_METHOD_CRYPT_CS,
-        "aes128-ctr,aes256-ctr,chacha20-poly1305@openssh.com");
-    libssh2_session_method_pref(sess, LIBSSH2_METHOD_CRYPT_SC,
-        "aes128-ctr,aes256-ctr,chacha20-poly1305@openssh.com");
+    bool connected = self->doConnect() &&
+                     self->verifyHostKey() &&
+                     self->doAuthenticate() &&
+                     self->openShell(80, 24);
 
-    // Key exchange: Curve25519 is fastest (15ms, software optimized)
-    libssh2_session_method_pref(sess, LIBSSH2_METHOD_KEX,
-        "curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256");
-
-    // Host key: Ed25519 fastest (26ms sign)
-    libssh2_session_method_pref(sess, LIBSSH2_METHOD_HOSTKEY,
-        "ssh-ed25519,ecdsa-sha2-nistp256,ssh-rsa");
-
-    // MAC: SHA hardware accelerated
-    libssh2_session_method_pref(sess, LIBSSH2_METHOD_MAC_CS,
-        "hmac-sha2-256,hmac-sha2-512");
-    libssh2_session_method_pref(sess, LIBSSH2_METHOD_MAC_SC,
-        "hmac-sha2-256,hmac-sha2-512");
-}
-
-bool SshClient::doAuthenticate() {
-    setState(State::Authenticating);
-    auto* sess = static_cast<LIBSSH2_SESSION*>(session_);
-
-    // Make authentication blocking
-    libssh2_session_set_blocking(sess, 1);
-
-    // Try key-based auth first if configured
-    if (config_.use_key_auth) {
-        int rc = libssh2_userauth_publickey_fromfile(
-            sess, config_.username,
-            "/littlefs/ssh_ed25519.pub",
-            "/littlefs/ssh_ed25519",
-            nullptr  // passphrase (none for now)
-        );
-        if (rc == 0) {
-            ESP_LOGI(TAG, "Ed25519 key auth successful for %s", config_.username);
-            // Zero out password from memory after successful auth
-            std::memset(config_.password, 0, sizeof(config_.password));
-            libssh2_session_set_blocking(sess, 0);
-            return true;
-        }
-        ESP_LOGW(TAG, "Key auth failed (rc=%d), trying password", rc);
+    if (connected) {
+        self->setState(State::Connected);
+        // Connection-info snapshot for ssh-info consumers — populated in Task 3.5.
+        self->ioLoop();
     }
+    // else: fail() already emitted Error and torn down.
 
-    // Password auth
-    if (config_.password[0]) {
-        int rc = libssh2_userauth_password(sess, config_.username, config_.password);
-        // Zero out password from memory regardless of success
-        std::memset(config_.password, 0, sizeof(config_.password));
-        if (rc == 0) {
-            ESP_LOGI(TAG, "Password auth successful for %s", config_.username);
-            libssh2_session_set_blocking(sess, 0);
-            return true;
-        }
-        ESP_LOGE(TAG, "Password auth failed: %d", rc);
-    }
-
-    libssh2_session_set_blocking(sess, 0);
-    return false;
-}
-
-bool SshClient::openShell(int cols, int rows) {
-    auto* sess = static_cast<LIBSSH2_SESSION*>(session_);
-    libssh2_session_set_blocking(sess, 1);
-
-    auto* ch = libssh2_channel_open_session(sess);
-    if (!ch) {
-        ESP_LOGE(TAG, "Failed to open channel");
-        libssh2_session_set_blocking(sess, 0);
-        return false;
-    }
-    channel_ = ch;
-
-    // Request PTY with terminal size
-    if (libssh2_channel_request_pty_ex(ch, "xterm-256color", 14,
-                                         nullptr, 0, cols, rows, 0, 0)) {
-        ESP_LOGE(TAG, "Failed to request PTY");
-        libssh2_session_set_blocking(sess, 0);
-        return false;
-    }
-
-    // Request shell
-    if (libssh2_channel_shell(ch)) {
-        ESP_LOGE(TAG, "Failed to request shell");
-        libssh2_session_set_blocking(sess, 0);
-        return false;
-    }
-
-    libssh2_session_set_blocking(sess, 0);
-    ESP_LOGI(TAG, "Shell opened (%dx%d)", cols, rows);
-    return true;
-}
-
-void SshClient::ioLoop() {
-    auto* ch = static_cast<LIBSSH2_CHANNEL*>(channel_);
-    uint8_t recv_buf[4096];
-    auto send_q = static_cast<QueueHandle_t>(send_queue_);
-
-    while (!shutdown_requested_) {
-        bool activity = false;
-
-        // Read from SSH channel → data callback
-        ssize_t n = libssh2_channel_read(ch, reinterpret_cast<char*>(recv_buf),
-                                          sizeof(recv_buf));
-        if (n > 0) {
-            if (data_cb_) {
-                data_cb_(recv_buf, n, data_ctx_);
-            }
-            activity = true;
-        } else if (n == LIBSSH2_ERROR_EAGAIN) {
-            // No data available, that's fine
-        } else if (n < 0) {
-            ESP_LOGE(TAG, "Channel read error: %zd", n);
-            break;
-        }
-
-        // Check for channel EOF
-        if (libssh2_channel_eof(ch)) {
-            ESP_LOGI(TAG, "Channel EOF received");
-            break;
-        }
-
-        // Write pending keyboard input → SSH channel
-        SendItem item;
-        while (xQueueReceive(send_q, &item, 0) == pdTRUE) {
-            ssize_t written = 0;
-            while (written < static_cast<ssize_t>(item.len)) {
-                ssize_t w = libssh2_channel_write(ch,
-                    reinterpret_cast<const char*>(item.data + written),
-                    item.len - written);
-                if (w > 0) {
-                    written += w;
-                } else if (w == LIBSSH2_ERROR_EAGAIN) {
-                    vTaskDelay(pdMS_TO_TICKS(1));
-                } else {
-                    ESP_LOGE(TAG, "Channel write error: %zd", w);
-                    goto exit_loop;
-                }
-            }
-            activity = true;
-        }
-
-        // If no activity, yield to other tasks briefly
-        if (!activity) {
-            vTaskDelay(pdMS_TO_TICKS(5));
-        }
-
-        // Feed watchdog during I/O loop
-        esp_task_wdt_reset();
-    }
-
-exit_loop:
-    setState(State::Disconnected, "SSH session ended");
+    // Mark exit FIRST, THEN teardown, THEN delete self. disconnect()'s
+    // spin-loop observes task_exited_ before we touch any libssh state.
+    self->task_exited_.store(true, std::memory_order_release);
+    self->teardown();
+    esp_task_wdt_delete(nullptr);
+    vTaskDelete(nullptr);
 }
 
 void SshClient::setState(State s, const char* msg) {
