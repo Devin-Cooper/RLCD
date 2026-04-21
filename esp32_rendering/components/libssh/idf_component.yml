@@ -1,0 +1,5 @@
+# In-tree component: libssh 0.11.4 vendored from ewpa/LibSSH-ESP32.
+# No external dependencies — all sources are under upstream/ and external/.
+dependencies:
+  idf:
+    version: ">=5.2"

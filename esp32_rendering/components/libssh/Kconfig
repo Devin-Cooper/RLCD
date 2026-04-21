@@ -1,0 +1,25 @@
+menu "libssh (vendored libssh 0.11.4)"
+
+config LIBSSH_LOG_LEVEL
+    int "libssh log level (0=none, 1=warn, 2=info, 3=debug, 4=trace)"
+    range 0 4
+    default 1
+    help
+        Maps to libssh's ssh_set_log_level() at init. Production default
+        is 1 (warnings). Set to 4 only for debugging SSH protocol issues.
+
+config LIBSSH_MAX_PACKET_SIZE
+    int "libssh maximum packet size (bytes)"
+    range 4096 65536
+    default 32768
+    help
+        Caps libssh's per-packet allocation. libssh's upstream default
+        can be too large for ESP32 heap; 32 KB is a safe ceiling for
+        interactive shell workloads.
+
+comment "Multi-session SSH sessions require CONFIG_MBEDTLS_HARDWARE_SHA=n"
+comment "due to an ewpa-documented concurrency bug. This firmware uses"
+comment "only one SSH session at a time, so the flag is left at the default."
+comment "See the future multi-session spec."
+
+endmenu
