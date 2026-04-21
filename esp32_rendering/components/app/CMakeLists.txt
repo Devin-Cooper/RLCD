@@ -18,6 +18,14 @@ idf_component_register(
         "src/screens/server_list_screen.cpp"
         "src/screens/server_edit_screen.cpp"
         "src/screens/settings_screen.cpp"
+        "src/screens/text_input_screen.cpp"
+        "src/screens/ssh_key_list_screen.cpp"
+        "src/screens/ssh_key_generate_screen.cpp"
+        "src/screens/ssh_key_import_screen.cpp"
+        "src/screens/ssh_key_detail_screen.cpp"
+        "src/screens/ssh_key_pubkey_text_screen.cpp"
+        "src/screens/ssh_key_pubkey_qr_screen.cpp"
+        "src/screens/ssh_key_enroll_screen.cpp"
     INCLUDE_DIRS "include"
     REQUIRES onebit ssh_client sdcard_config nvs_flash input_queue ble_hid wifi_manager ssh_keys
 )

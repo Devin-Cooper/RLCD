@@ -5,6 +5,7 @@
 #include "screens/wifi_screen.hpp"
 #include "screens/server_list_screen.hpp"
 #include "screens/settings_screen.hpp"
+#include "screens/ssh_key_list_screen.hpp"
 #include "screen_stack.hpp"
 #include "overlay.hpp"
 #include <1bit/render/primitives.hpp>
@@ -95,10 +96,7 @@ void MenuScreen::dispatchSelection(ScreenStack& stack, Item item) {
             stack.replace(std::make_unique<ServerListScreen>(ctx_));
             break;
         case Item::SshKeys:
-            // Phase 13 swaps this stub for
-            //   stack.replace(std::make_unique<SshKeyListScreen>(ctx_,
-            //                 SshKeyListScreen::Mode::Browse));
-            ctx_.overlay.showToast("SSH Keys (Phase 13)", 1500);
+            stack.push(std::make_unique<SshKeyListScreen>(ctx_));
             break;
         case Item::Settings:
             stack.replace(std::make_unique<SettingsScreen>(ctx_));

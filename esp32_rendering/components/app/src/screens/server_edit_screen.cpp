@@ -1,4 +1,5 @@
 #include "screens/server_edit_screen.hpp"
+#include "screens/ssh_key_list_screen.hpp"
 #include "screen_stack.hpp"
 #include "overlay.hpp"
 #include "config_manager.hpp"
@@ -8,6 +9,8 @@
 #include <cstring>
 #include <cstdlib>
 #include <cstdio>
+#include <memory>
+#include <string>
 
 namespace app {
 
@@ -113,10 +116,28 @@ void ServerEditScreen::handleInput(const input::InputEvent& evt,
     }
 
     if (focus_ == 5 && evt.data_length == 1 && evt.data[0] == '\r') {
-        // Phase 13 swaps this stub for a push of SshKeyListScreen in Picker
-        // mode with a callback that writes ssh_key_id + use_key_auth back
-        // to the current server via ConfigManager + calls markRepicked().
-        ctx_.overlay.showToast("Key picker (Phase 13)", 1500);
+        int idx = index_;
+        stack.push(std::make_unique<SshKeyListScreen>(ctx_,
+            [this, idx](const std::string& id_hex) {
+                // Load current creds, update ssh_key_id + use_key_auth, save.
+                if (idx < 0 || idx >= ctx_.configMgr.serverCount()) return;
+                sdcard::ServerCreds new_creds =
+                    ctx_.configMgr.getServer(idx).creds;
+                if (id_hex.empty()) {
+                    new_creds.use_key_auth = false;
+                    new_creds.ssh_key_id[0] = '\0';
+                } else {
+                    new_creds.use_key_auth = true;
+                    std::strncpy(new_creds.ssh_key_id, id_hex.c_str(),
+                                 sizeof(new_creds.ssh_key_id) - 1);
+                    new_creds.ssh_key_id[
+                        sizeof(new_creds.ssh_key_id) - 1] = '\0';
+                }
+                ctx_.configMgr.upsertServer(new_creds, idx);
+                // Phase 11.6 Step 3: clear the re-pick warning for this
+                // server now that the user has explicitly chosen a key.
+                ctx_.configMgr.markRepicked(idx);
+            }));
         return;
     }
     if (focus_ == 6 && evt.data_length == 1 && evt.data[0] == '\r') {
