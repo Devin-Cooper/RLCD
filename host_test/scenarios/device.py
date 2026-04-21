@@ -257,6 +257,60 @@ class Device:
         assert r.ok, r
         return dict(kv.split("=", 1) for kv in (r.value or "").split() if "=" in kv)
 
+    def ssh_connect(self, host: str, port: int, user: str,
+                    password: str = "", key_path: str = "") -> None:
+        """Dispatches the ssh-connect REPL command. Returns when the command
+        is acknowledged (Connecting state); caller must wait_for_ssh_state()
+        for Connected.
+        """
+        import base64
+        if key_path:
+            pw_b64 = "_"
+            r = self.send(f"ssh-connect {host} {port} {user} {pw_b64} {key_path}")
+        else:
+            pw_b64 = base64.b64encode(password.encode()).decode() if password else "_"
+            r = self.send(f"ssh-connect {host} {port} {user} {pw_b64}")
+        assert r.ok, r
+
+    def ssh_disconnect(self) -> None:
+        r = self.send("ssh-disconnect")
+        assert r.ok, r
+
+    def ssh_info(self) -> dict[str, str]:
+        r = self.send("ssh-info")
+        assert r.ok, r
+        return dict(kv.split("=", 1) for kv in (r.value or "").split() if "=" in kv)
+
+    def ssh_last_error(self) -> str:
+        r = self.send("ssh-last-error")
+        assert r.ok, r
+        return (r.value or "").strip()
+
+    def ssh_known_hosts_list(self) -> list[dict]:
+        r = self.send("ssh-known-hosts-list")
+        assert r.ok, r
+        out = []
+        for line in r.data_lines:
+            parts = line.split()
+            if len(parts) >= 3:
+                out.append({"host": parts[0], "key_type": parts[1], "blob_head": parts[2]})
+        return out
+
+    def ssh_known_hosts_erase(self) -> None:
+        r = self.send("ssh-known-hosts-erase")
+        assert r.ok, r
+
+    def wait_for_ssh_state(self, target: str, timeout: float = 15.0) -> None:
+        """Poll ssh-status until state == target, or timeout."""
+        deadline = time.time() + timeout
+        last = None
+        while time.time() < deadline:
+            last = self.ssh_status().get("state")
+            if last == target:
+                return
+            time.sleep(0.2)
+        raise AssertionError(f"ssh-status state stuck at '{last}' (wanted '{target}')")
+
     def ble_status(self) -> dict[str, str]:
         r = self.send("ble-status")
         assert r.ok, r
