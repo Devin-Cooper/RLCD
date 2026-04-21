@@ -228,11 +228,75 @@ void SshClient::disconnect() {
 }
 
 bool SshClient::verifyHostKey() {
-    // Stubbed — real body in Task 3.2. Intermediate commits surface the
-    // unimplemented state to callers rather than silently returning false.
-    setState(State::Error, "verifyHostKey not yet implemented");
-    teardown();
-    return false;
+    auto* sess = static_cast<ssh_session>(session_);
+    if (!sess) { fail("verifyHostKey: no session"); return false; }
+
+    if (!is_valid_hostname(config_.host)) {
+        ESP_LOGE(TAG, "Rejected invalid SSH host '%s'", config_.host);
+        strncpy(last_error_message_, "Invalid SSH host", sizeof(last_error_message_) - 1);
+        setState(State::Error, "Invalid SSH host — refusing to connect");
+        teardown();
+        return false;
+    }
+
+    ssh_key pk = nullptr;
+    if (ssh_get_server_publickey(sess, &pk) != SSH_OK) {
+        fail("get_server_publickey");
+        return false;
+    }
+    unsigned char* hash = nullptr;
+    size_t hash_len = 0;
+    if (ssh_get_publickey_hash(pk, SSH_PUBLICKEY_HASH_SHA256, &hash, &hash_len) != 0) {
+        ssh_key_free(pk);
+        fail("get_publickey_hash");
+        return false;
+    }
+    char* hex = ssh_get_hexa(hash, hash_len);
+    if (hex) {
+        snprintf(last_fingerprint_, sizeof(last_fingerprint_), "SHA256:%s", hex);
+        ESP_LOGI(TAG, "Server fingerprint %s", last_fingerprint_);
+        ssh_string_free_char(hex);
+    }
+    ssh_clean_pubkey_hash(&hash);
+    const char* type_str = ssh_key_type_to_char(ssh_key_type(pk));
+    if (type_str) strncpy(last_hostkey_type_, type_str, sizeof(last_hostkey_type_) - 1);
+    ssh_key_free(pk);
+
+    int known = ssh_session_is_known_server(sess);
+    switch (known) {
+    case SSH_KNOWN_HOSTS_OK:
+        return true;
+    case SSH_KNOWN_HOSTS_UNKNOWN:
+        if (ssh_session_update_known_hosts(sess) != SSH_OK) {
+            fail("update_known_hosts");
+            return false;
+        }
+        ESP_LOGI(TAG, "TOFU: stored host key for %s:%d", config_.host, config_.port);
+        return true;
+    case SSH_KNOWN_HOSTS_CHANGED: {
+        const char* msg = "HOST KEY CHANGED — possible MITM. Delete known_hosts to accept.";
+        strncpy(last_error_message_, msg, sizeof(last_error_message_) - 1);
+        setState(State::Error, msg);
+        teardown();
+        return false;
+    }
+    case SSH_KNOWN_HOSTS_OTHER: {
+        const char* msg = "Server key type changed — delete known_hosts to accept.";
+        strncpy(last_error_message_, msg, sizeof(last_error_message_) - 1);
+        setState(State::Error, msg);
+        teardown();
+        return false;
+    }
+    case SSH_KNOWN_HOSTS_ERROR:
+    default: {
+        const char* msg = "known_hosts unreadable — see logs.";
+        strncpy(last_error_message_, msg, sizeof(last_error_message_) - 1);
+        setState(State::Error, msg);
+        ESP_LOGE(TAG, "ssh_session_is_known_server: %s", ssh_get_error(sess));
+        teardown();
+        return false;
+    }
+    }
 }
 
 bool SshClient::doAuthenticate() {
