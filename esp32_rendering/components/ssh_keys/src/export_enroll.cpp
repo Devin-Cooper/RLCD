@@ -108,6 +108,8 @@ EnrollResult enroll_key(KeyStore& store, const KeyId& id,
                                          std::strlen(pubkey_line),
                                          20000, &exit_code,
                                          ssh_err, sizeof(ssh_err));
+            // Spec §4.1: zero the password after step 4 regardless of outcome.
+            std::memset(cfg.password, 0, sizeof(cfg.password));
             if (rc != 0) {
                 std::snprintf(out_err, out_err_cap, "probe-or-password: %s", ssh_err);
                 return EnrollResult::ProbeOrPassword;
@@ -144,8 +146,9 @@ EnrollResult enroll_key(KeyStore& store, const KeyId& id,
             return EnrollResult::FlipFailed;
         }
     }
-    ESP_LOGI(TAG, "enroll: success for server %d", server_idx);
-    return EnrollResult::Ok;
+    ESP_LOGI(TAG, "enroll: success for server %d%s", server_idx,
+             already_enrolled ? " (already enrolled, local record updated)" : "");
+    return already_enrolled ? EnrollResult::AlreadyEnrolled : EnrollResult::Ok;
 }
 
 } // namespace ssh_keys

@@ -654,10 +654,30 @@ int SshClient::execOneshot(const Config& cfg,
     ssh_options_set(sess, SSH_OPTIONS_PORT, &port);
     ssh_options_set(sess, SSH_OPTIONS_USER, cfg.username);
     ssh_options_set(sess, SSH_OPTIONS_FD, &sockfd);
-    ssh_options_set(sess, SSH_OPTIONS_KNOWNHOSTS, "/littlefs/known_hosts");
+    ssh_options_set(sess, SSH_OPTIONS_KNOWNHOSTS, KNOWN_HOSTS_PATH);
 
     ssh_set_blocking(sess, 1);
     if (ssh_connect(sess) != SSH_OK) return err_ret(ssh_get_error(sess));
+
+    // TOFU host-key verification — match interactive path (verifyHostKey).
+    // Without this, the first enrollment call flows a password through to an
+    // unverified endpoint on a MITM'd network.
+    int hk = ssh_session_is_known_server(sess);
+    switch (hk) {
+        case SSH_KNOWN_HOSTS_OK:
+            break;
+        case SSH_KNOWN_HOSTS_NOT_FOUND:
+        case SSH_KNOWN_HOSTS_UNKNOWN:
+            if (ssh_session_update_known_hosts(sess) != SSH_OK)
+                return err_ret("known_hosts_update");
+            break;
+        case SSH_KNOWN_HOSTS_CHANGED:
+            return err_ret("host_key_changed");
+        case SSH_KNOWN_HOSTS_OTHER:
+        case SSH_KNOWN_HOSTS_ERROR:
+        default:
+            return err_ret("host_key_verify_error");
+    }
 
     // Authenticate
     if (cfg.use_key_auth) {
@@ -701,8 +721,11 @@ int SshClient::execOneshot(const Config& cfg,
     int rc = SSH_AGAIN;
     while (esp_timer_get_time() < deadline) {
         char drain[256];
-        ssh_channel_read_nonblocking(ch, drain, sizeof(drain), 0);
-        ssh_channel_read_nonblocking(ch, drain, sizeof(drain), 1);
+        int dn1 = ssh_channel_read_nonblocking(ch, drain, sizeof(drain), 0);
+        int dn2 = ssh_channel_read_nonblocking(ch, drain, sizeof(drain), 1);
+        if (dn1 == SSH_ERROR || dn2 == SSH_ERROR) {
+            return err_ret("channel_read_error");
+        }
         rc = ssh_channel_get_exit_state(ch, &exit_code, &exit_signal, &core_dumped);
         if (rc == SSH_OK) break;
         vTaskDelay(pdMS_TO_TICKS(50));
