@@ -392,7 +392,12 @@ class Device:
         r = self.send(f"fs-write-begin {path}")
         assert r.ok, r
         token = (r.value or "").strip()
-        CHUNK = 3072  # decoded bytes per chunk
+        # The esp-console linenoise input buffer is 256 bytes. Base64 of N
+        # decoded bytes is ceil(N/3)*4 chars; plus ~30 chars for the
+        # "fs-write-chunk <token> " prefix and framing. 128-byte decoded
+        # chunks encode to ~172 chars of b64 + ~30 overhead = ~202 chars,
+        # leaving comfortable headroom. Larger chunks silently truncate.
+        CHUNK = 128
         for i in range(0, len(data), CHUNK):
             b64 = base64.b64encode(data[i:i + CHUNK]).decode()
             r2 = self.send(f"fs-write-chunk {token} {b64}", timeout=10.0)
