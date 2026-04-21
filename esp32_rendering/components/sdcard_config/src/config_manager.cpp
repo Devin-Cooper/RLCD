@@ -537,6 +537,13 @@ bool ConfigManager::deleteServer(int index) {
         servers_[i] = servers_[i + 1];
     }
     server_count_--;
+    // Adjust needs_repick_ for the shift: drop the deleted index,
+    // decrement indices past it.
+    auto new_end = std::remove(needs_repick_.begin(), needs_repick_.end(), index);
+    needs_repick_.erase(new_end, needs_repick_.end());
+    for (auto& i : needs_repick_) {
+        if (i > index) --i;
+    }
     if (active_index_ == index) active_index_ = 0;
     else if (active_index_ > index) active_index_--;
     persistActiveIndex(active_index_);

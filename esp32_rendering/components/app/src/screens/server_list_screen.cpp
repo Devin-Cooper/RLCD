@@ -19,11 +19,13 @@ void ServerListScreen::onEnter() {
     // ConfigManager owns the list; a local Set prevents re-showing when the
     // user navigates away and back within the same boot. The list is cleared
     // only by ConfigManager::markRepicked() on picker success (Phase 13).
-    const auto& indices = ctx_.configMgr.needsRepickIndices();
+    // Copy by value — markRepicked (called from Phase 13's picker callback)
+    // would invalidate iterators into the ConfigManager's vector otherwise.
+    auto indices = ctx_.configMgr.needsRepickIndices();
     for (int idx : indices) {
         if (idx < 0 || idx >= ctx_.configMgr.serverCount()) continue;
-        if (!shown_repick_indices_.insert(idx).second) continue;
         const char* name = ctx_.configMgr.getServer(idx).creds.name;
+        if (!shown_repick_names_.insert(name).second) continue;
         char msg[96];
         std::snprintf(msg, sizeof(msg), "Re-select SSH key for '%s'", name);
         ctx_.overlay.showToast(msg, 3000);

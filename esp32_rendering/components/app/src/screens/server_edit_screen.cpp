@@ -202,8 +202,11 @@ void ServerEditScreen::render(onebit::IFramebuffer& fb,
     drawBtn(20, save, focus_ == 6);
     drawBtn(140, cancel, focus_ == 7);
 
+    const char* hint = (focus_ == 5)
+        ? "Enter pick key  Up/Dn nav  Esc cancel"
+        : "Tab next  Up/Dn nav  Ctrl+R reveal pw  Esc cancel";
     onebit::drawBitmapText(fb, font, 10, fb.height() - font.glyph_height - 4,
-        "Tab next  Up/Dn nav  Ctrl+R reveal pw  Esc cancel", onebit::BLACK);
+        hint, onebit::BLACK);
 }
 
 } // namespace app

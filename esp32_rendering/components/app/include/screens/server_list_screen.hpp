@@ -2,6 +2,7 @@
 #include "screen.hpp"
 #include "screen_context.hpp"
 #include <set>
+#include <string>
 
 namespace app {
 
@@ -22,7 +23,7 @@ private:
     // ConfigManager-owned needs_repick_ list remains populated (cleared only
     // by markRepicked() on picker success); this set suppresses duplicate
     // Toasts within the current boot if the user revisits the screen.
-    std::set<int> shown_repick_indices_;
+    std::set<std::string> shown_repick_names_;
     int rowCount() const;
     void openEditorForSelection(ScreenStack& stack);
 };
