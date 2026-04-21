@@ -157,35 +157,6 @@ void SshClient::disconnect() {
     setState(State::Disconnected);
 }
 
-// --- Key Management ---
-
-bool SshClient::generateKeypair(char* pubkey_out, size_t pubkey_size) {
-    // Generate Ed25519 keypair using libssh2's built-in support
-    // Store private key to LittleFS: /littlefs/ssh_ed25519
-    // Store public key to LittleFS: /littlefs/ssh_ed25519.pub
-    //
-    // Ed25519 is the fastest option on ESP32-S3:
-    //   Ed25519 sign: 26ms
-    //   RSA-2048 sign: 118ms
-    //   ECDSA P-256 sign: 67ms
-
-    // TODO: Implement Ed25519 key generation using mbedTLS PSA Crypto API
-    // mbedtls_pk_setup() with MBEDTLS_PK_EDDSA, then write to file
-    // For now, users can generate keys externally and upload via LittleFS
-
-    ESP_LOGW(TAG, "Ed25519 key generation: upload keys to /littlefs/ssh_ed25519");
-    return false;
-}
-
-bool SshClient::getPublicKey(char* pubkey_out, size_t pubkey_size) {
-    FILE* f = fopen("/littlefs/ssh_ed25519.pub", "r");
-    if (!f) return false;
-    size_t n = fread(pubkey_out, 1, pubkey_size - 1, f);
-    pubkey_out[n] = '\0';
-    fclose(f);
-    return n > 0;
-}
-
 bool SshClient::verifyHostKey() {
     if (!session_) return false;
 

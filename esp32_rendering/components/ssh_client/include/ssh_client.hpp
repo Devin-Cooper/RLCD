@@ -19,7 +19,8 @@ struct Config {
     uint16_t port;          // default 22
     char username[32];
     char password[64];      // empty if using key auth
-    bool use_key_auth;      // Ed25519 key auth (preferred — 26ms vs 118ms RSA)
+    bool use_key_auth;      // true → authenticate with key_path (PEM); false → password
+    char key_path[64];      // absolute LittleFS path to PEM private key; empty when !use_key_auth
 };
 
 using DataCallback = void(*)(const uint8_t* data, size_t len, void* ctx);
@@ -27,15 +28,19 @@ using StateCallback = void(*)(State state, const char* message, void* ctx);
 
 /// SSH client for interactive terminal sessions.
 ///
-/// Uses skuodi/libssh2_esp (libssh2 v1.11.1 with mbedTLS backend).
-/// Runs its own FreeRTOS task pinned to Core 1 for non-blocking I/O.
+/// Uses libssh 0.11.4 (vendored from ewpa/LibSSH-ESP32 as components/libssh/)
+/// with ESP-IDF's mbedTLS backend. Runs its own FreeRTOS task pinned to
+/// Core 1 for non-blocking I/O. Single-session — libssh is not thread-safe
+/// across concurrent sessions without ssh_threads_set_callbacks.
 ///
-/// Cipher suite priorities (ESP32-S3 hardware-informed):
-///   KEX:    curve25519-sha256 (15ms) > ecdh-sha2-nistp256 (62ms)
-///   Host:   ssh-ed25519 (26ms sign) > ecdsa-sha2-nistp256 (67ms)
-///   Cipher: aes128-ctr (7.5 MB/s hw) > aes256-ctr > chacha20-poly1305 (3.3 MB/s)
-///           AVOID aes128-gcm / aes256-gcm (1.35 MB/s — GHASH in software)
-///   MAC:    hmac-sha2-256 (26 MB/s) > hmac-sha2-512 (28.6 MB/s)
+/// Cipher-suite preferences (ESP32-S3 hardware-informed; numbers re-measured
+/// post-swap — see README):
+///   KEX:    curve25519-sha256, ecdh-sha2-nistp256
+///   Host:   ssh-ed25519, ecdsa-sha2-nistp256, rsa-sha2-512, rsa-sha2-256
+///           (ssh-rsa / SHA-1 signatures excluded)
+///   Cipher: aes128-ctr, aes256-ctr, chacha20-poly1305@openssh.com
+///           AVOID aes-gcm (GHASH is software)
+///   MAC:    hmac-sha2-256, hmac-sha2-512
 class SshClient {
 public:
     SshClient();
@@ -69,18 +74,20 @@ public:
     /// Get current state.
     State state() const { return state_; }
 
-    /// Generate Ed25519 keypair, store in LittleFS. Returns public key string.
-    /// Ed25519 is preferred: 26ms sign vs 118ms RSA-2048, 67ms ECDSA P-256.
-    static bool generateKeypair(char* pubkey_out, size_t pubkey_size);
-
-    /// Load public key from storage.
-    static bool getPublicKey(char* pubkey_out, size_t pubkey_size);
-
     /// Verify server host key (TOFU — Trust On First Use).
     /// Returns false if key changed from stored value.
     /// On first connection (no stored key), stores the key.
     /// If mismatch: calls state callback with Error + warning message.
     bool verifyHostKey();
+
+    // Snapshots populated at State::Connected; empty strings otherwise.
+    // Consumed by test_console ssh-info.
+    const char* lastCipherIn()  const { return last_cipher_in_; }
+    const char* lastCipherOut() const { return last_cipher_out_; }
+    const char* lastHostKeyType() const { return last_hostkey_type_; }
+    const char* lastFingerprint() const { return last_fingerprint_; }
+    /// Most recent Error-state message (or empty string if never errored).
+    const char* lastErrorMessage() const { return last_error_message_; }
 
 private:
     std::atomic<State> state_;
@@ -103,9 +110,23 @@ private:
     // Graceful shutdown flag — set by disconnect(), checked by ioLoop()
     std::atomic<bool> shutdown_requested_;
 
+    // Set by the task just before it reaches its terminal teardown point.
+    // disconnect() spins on this instead of the non-atomic task_handle_ to
+    // avoid racing teardown() with the task's own exit cleanup.
+    std::atomic<bool> task_exited_;
+
     Config config_;
 
+    // Connection-info snapshot for test_console ssh-info. Updated at Connected.
+    char last_cipher_in_[32]    = {};
+    char last_cipher_out_[32]   = {};
+    char last_hostkey_type_[16] = {};
+    char last_fingerprint_[100] = {};
+    char last_error_message_[128] = {};
+
     void setState(State s, const char* msg = "");
+    void fail(const char* where);
+    void teardown();
     static void sshTask(void* param);
     bool doConnect();
     bool doAuthenticate();
