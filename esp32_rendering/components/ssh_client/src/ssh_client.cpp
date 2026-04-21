@@ -164,7 +164,12 @@ void SshClient::send(const uint8_t* data, size_t len) {
 }
 
 // Stubbed — real body in Task 3.4 once channel ops are wired.
-void SshClient::resizeTerminal(int /*cols*/, int /*rows*/) { /* TODO Task 3.4 */ }
+void SshClient::resizeTerminal(int cols, int rows) {
+    if (!channel_ || state_.load(std::memory_order_acquire) != State::Connected) return;
+    auto* ch = static_cast<ssh_channel>(channel_);
+    ssh_channel_change_pty_size(ch, cols, rows);
+    ESP_LOGI(TAG, "Terminal resized to %dx%d", cols, rows);
+}
 
 void SshClient::teardown() {
     // Idempotent: each pointer is nulled after free so re-entry is safe.
@@ -371,13 +376,61 @@ bool SshClient::doAuthenticate() {
     return false;
 }
 
-bool SshClient::openShell(int /*cols*/, int /*rows*/) {
-    // Stubbed — real body in Task 3.4.
-    setState(State::Error, "openShell not yet implemented");
-    return false;
+bool SshClient::openShell(int cols, int rows) {
+    auto* sess = static_cast<ssh_session>(session_);
+    ssh_set_blocking(sess, 1);
+
+    ssh_channel ch = ssh_channel_new(sess);
+    if (!ch) { fail("ssh_channel_new"); return false; }
+    channel_ = ch;
+
+    if (ssh_channel_open_session(ch) != SSH_OK) { fail("ssh_channel_open_session"); return false; }
+    if (ssh_channel_request_pty_size(ch, "xterm-256color", cols, rows) != SSH_OK) {
+        fail("ssh_channel_request_pty_size"); return false;
+    }
+    if (ssh_channel_request_shell(ch) != SSH_OK) { fail("ssh_channel_request_shell"); return false; }
+
+    ssh_set_blocking(sess, 0);
+    ESP_LOGI(TAG, "Shell opened (%dx%d)", cols, rows);
+    return true;
 }
 
-void SshClient::ioLoop() { /* TODO Task 3.4 */ }
+void SshClient::ioLoop() {
+    auto* ch = static_cast<ssh_channel>(channel_);
+    uint8_t recv_buf[4096];
+    auto send_q = static_cast<QueueHandle_t>(send_queue_);
+    size_t total_tx = 0, total_rx = 0;
+
+    while (!shutdown_requested_) {
+        int n = ssh_channel_read_nonblocking(ch, recv_buf, sizeof(recv_buf), 0);
+        if (n > 0) {
+            if (data_cb_) data_cb_(recv_buf, n, data_ctx_);
+            total_rx += n;
+        } else if (n == SSH_ERROR) {
+            fail("ssh_channel_read_nonblocking");
+            break;
+        }
+
+        if (ssh_channel_is_eof(ch)) {
+            ESP_LOGI(TAG, "Remote closed channel");
+            setState(State::Disconnected, "remote closed");
+            break;
+        }
+
+        SendItem item;
+        while (xQueueReceive(send_q, &item, 0) == pdTRUE) {
+            int w = ssh_channel_write(ch, item.data, item.len);
+            if (w == SSH_ERROR) { fail("ssh_channel_write"); goto exit_loop; }
+            total_tx += w;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(5));
+        esp_task_wdt_reset();
+    }
+
+exit_loop:
+    ESP_LOGD(TAG, "tx=%zuB rx=%zuB", total_tx, total_rx);
+}
 
 void SshClient::configureCipherSuites() { /* TODO Task 3.5 */ }
 
