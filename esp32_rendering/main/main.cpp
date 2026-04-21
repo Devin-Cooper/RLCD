@@ -135,7 +135,9 @@ static void switchToNextServer(sdcard::ConfigManager* configMgr,
     cfg.port = srv.creds.port;
     strncpy(cfg.username, srv.creds.username, sizeof(cfg.username) - 1);
     cfg.use_key_auth = srv.creds.use_key_auth;
-    if (!cfg.use_key_auth) {
+    if (cfg.use_key_auth) {
+        strncpy(cfg.key_path, srv.creds.key_path, sizeof(cfg.key_path) - 1);
+    } else {
         strncpy(cfg.password, srv.creds.password, sizeof(cfg.password) - 1);
     }
     sshClient.connect(cfg);
@@ -163,7 +165,9 @@ static void reconnectActiveServer(sdcard::ConfigManager* configMgr,
     cfg.port = srv.creds.port;
     strncpy(cfg.username, srv.creds.username, sizeof(cfg.username) - 1);
     cfg.use_key_auth = srv.creds.use_key_auth;
-    if (!cfg.use_key_auth) {
+    if (cfg.use_key_auth) {
+        strncpy(cfg.key_path, srv.creds.key_path, sizeof(cfg.key_path) - 1);
+    } else {
         strncpy(cfg.password, srv.creds.password, sizeof(cfg.password) - 1);
     }
     sshClient.connect(cfg);
@@ -585,8 +589,10 @@ extern "C" void app_main() {
             sshCfg.port = srv.creds.port;
             strncpy(sshCfg.username, srv.creds.username, sizeof(sshCfg.username) - 1);
             sshCfg.use_key_auth = srv.creds.use_key_auth;
-            // Password is now stored directly in ServerCreds (Task 20)
-            if (!sshCfg.use_key_auth) {
+            // Password and key_path both live on ServerCreds; copy the one in use.
+            if (sshCfg.use_key_auth) {
+                strncpy(sshCfg.key_path, srv.creds.key_path, sizeof(sshCfg.key_path) - 1);
+            } else {
                 strncpy(sshCfg.password, srv.creds.password, sizeof(sshCfg.password) - 1);
             }
         } else {
