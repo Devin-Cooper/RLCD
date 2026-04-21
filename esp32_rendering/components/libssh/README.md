@@ -20,6 +20,13 @@ Vendored libssh 0.11.4 sources, ported to ESP-IDF via minimal glue.
 
 1. Clone ewpa at the new commit.
 2. Replace `upstream/src/*` and `include/libssh/*` with the new sources.
+   - Copy ewpa's `src/*.c` **and** `src/*.h` (private headers like
+     `libssh_esp32_config.h`, `mbedcrypto-compat.h` live next to the .c files).
+   - Copy ewpa's `src/threads/*.c` into `upstream/src/threads/` — the
+     threads subdir is its own translation unit set (`ssh_mutex_lock`,
+     `ssh_threads_get_default`, `crypto_thread_init`) and gets missed by
+     a top-level-only glob.
+   - Copy ewpa's `external/*` into `upstream/external/` (Ed25519 + curve25519).
 3. Run `idf.py build` and fix any new compile/link failures by adding
    the offending .c file to `LIBSSH_EXCLUDE` in `CMakeLists.txt`.
 4. Run the full pytest scenario suite — all SSH scenarios must pass.

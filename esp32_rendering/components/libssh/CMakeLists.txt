@@ -4,6 +4,7 @@
 
 file(GLOB LIBSSH_UPSTREAM_SRC
     "upstream/src/*.c"
+    "upstream/src/threads/*.c"
     "upstream/external/*.c"
 )
 
@@ -20,9 +21,9 @@ idf_component_register(
         "port/libssh_port.c"
     INCLUDE_DIRS
         "include"
+        "port"
     PRIV_INCLUDE_DIRS
         "upstream/src"
-        "port"
     REQUIRES
         mbedtls
         pthread
