@@ -38,6 +38,10 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     HAVE_LIBMBEDCRYPTO=1
     HAVE_PTHREAD_H=1
     CONFIG_H_INCLUDED=1
+    # ewpa's upstream source uses -DESP32 to suppress its own nfds_t typedef
+    # when building on ESP-IDF 4+. Without it, libssh/poll.h redefines nfds_t
+    # and conflicts with newlib's sys/poll.h (unsigned int).
+    ESP32=1
 )
 
 # We don't own the vendored C code; keep vendored warnings from breaking the build.
@@ -47,4 +51,5 @@ target_compile_options(${COMPONENT_LIB} PRIVATE
     -Wno-unused-variable
     -Wno-sign-compare
     -Wno-format
+    -Wno-error=char-subscripts
 )

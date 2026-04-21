@@ -1,5 +1,6 @@
 #include "libssh_port.h"
 #include "libssh/libssh.h"
+#include "libssh/callbacks.h"
 #include "esp_log.h"
 #include <stdbool.h>
 
