@@ -79,3 +79,23 @@ add_host_test(
     INCLUDES
         "${RLCD_COMPONENTS}/ssh_client/include"
 )
+
+add_host_test(
+    NAME test_ssh_keys_id
+    SOURCES
+        test_ssh_keys_id.cpp
+        "${RLCD_COMPONENTS}/ssh_keys/src/key_id.cpp"
+    INCLUDES
+        "${RLCD_COMPONENTS}/ssh_keys/include"
+)
+
+add_host_test(
+    NAME test_ssh_keys_index
+    SOURCES
+        test_ssh_keys_index.cpp
+        "${RLCD_COMPONENTS}/ssh_keys/src/key_id.cpp"
+        "${RLCD_COMPONENTS}/ssh_keys/src/ssh_keys_index.cpp"
+    INCLUDES
+        "${RLCD_COMPONENTS}/ssh_keys/include"
+        "${RLCD_COMPONENTS}/ssh_keys/src"
+)

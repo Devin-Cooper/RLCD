@@ -4,6 +4,7 @@
 idf_component_register(
     SRCS
         "src/key_id.cpp"
+        "src/ssh_keys_index.cpp"
         "src/key_store.cpp"
         "src/key_codec.cpp"
         "src/key_gen.cpp"
