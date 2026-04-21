@@ -41,6 +41,7 @@
 #include "screens/pairing_screen.hpp"
 #include "screens/wifi_screen.hpp"
 #include "test_console.hpp"
+#include "boot_validator.hpp"
 
 // SD card config
 #include "sdcard_manager.hpp"
@@ -717,6 +718,8 @@ extern "C" void app_main() {
     };
     test_console::init(tctx);
 #endif
+
+    app::startBootValidatorTask(stack);
 
     // Wire SSH data into stream buffer — SSH task pushes, main loop drains
     sshClient.onData([](const uint8_t* data, size_t len, void* ctx) {

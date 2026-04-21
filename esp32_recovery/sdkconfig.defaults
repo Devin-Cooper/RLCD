@@ -1,0 +1,57 @@
+# ESP32-S3-RLCD Recovery firmware — minimal footprint, USB-JTAG CDC.
+CONFIG_IDF_TARGET="esp32s3"
+
+# Flash size — must match the 16 MB layout in partitions.csv.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+
+# Custom partition table (shared with esp32_rendering).
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Rollback safety net — bootloader falls back to factory on pending-verify
+# failure. Factory itself doesn't participate in the rollback state
+# machine but the bootloader still needs this to understand otadata.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# Factory-reset pin: GPIO 18 = button A on this board. Holding it >=5 s
+# at reset erases otadata, forcing the next boot to factory. GPIO 0 is
+# button B / BOOT strap and is NOT safe for this role.
+CONFIG_BOOTLOADER_FACTORY_RESET=y
+CONFIG_BOOTLOADER_NUM_PIN_FACTORY_RESET=18
+CONFIG_BOOTLOADER_HOLD_TIME_GPIO=5
+CONFIG_BOOTLOADER_OTA_DATA_ERASE=y
+
+# Size optimization.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_SILENT=y
+CONFIG_COMPILER_CXX_RTTI=n
+CONFIG_COMPILER_CXX_EXCEPTIONS=n
+CONFIG_LIBC_NEWLIB_NANO_FORMAT=y
+CONFIG_HEAP_PLACE_FUNCTION_INTO_FLASH=y
+
+# Logging: WARN level; no dynamic level control.
+CONFIG_LOG_DEFAULT_LEVEL_WARN=y
+CONFIG_LOG_DYNAMIC_LEVEL_CONTROL=n
+
+# Console: USB-JTAG CDC only (board has no external UART bridge).
+CONFIG_ESP_CONSOLE_UART_DEFAULT=n
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# PSRAM required — ST7305 allocates framebuffer with MALLOC_CAP_SPIRAM.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+
+# SPI_MASTER in IRAM for reliable LCD DMA during heartbeat + render.
+CONFIG_SPI_MASTER_ISR_IN_IRAM=y
+
+# VFS: drop select/dir/termios (tiny savings, but every byte matters).
+CONFIG_VFS_SUPPORT_SELECT=n
+CONFIG_VFS_SUPPORT_DIR=n
+CONFIG_VFS_SUPPORT_TERMIOS=n
+
+# No networking / radios in recovery.
+CONFIG_ESP_WIFI_ENABLED=n
+CONFIG_BT_ENABLED=n

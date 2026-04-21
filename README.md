@@ -34,7 +34,7 @@ ESP-IDF firmware that turns the board into a self-contained SSH terminal and ser
 - **3 font sizes** -- 80x37 (5x7), 66x30 (6x9), 50x23 (8x12) -- cycle with button or F-key
 - **Menu system** -- overlay navigable via keyboard or physical buttons
 - **Power management** -- WiFi modem-sleep during active SSH (~20mA). Light sleep is disabled because ST7305 needs continuous SPI power.
-- **OTA updates** -- dual 3MB app partitions with automatic rollback
+- **Recovery firmware** -- 512KB factory-partition recovery image with auto-fallback: if main fails to `mark_app_valid` within 30s, bootloader boots recovery which keeps USB-JTAG CDC stable and displays a "RECOVERY MODE" banner on the LCD. Recovery exposes a minimal REPL (`ping`/`info`/`reboot-ota`/`erase-nvs`/`coredump-dump`)
 
 #### Hardware-Informed Optimizations
 
@@ -62,12 +62,19 @@ BLE HID Input (P:9)         Dashboard Poll (P:5)
 
 #### Flash Partition Layout (16MB)
 
-| Partition | Size | Purpose |
-|-----------|------|---------|
-| NVS | 24 KB | WiFi/SSH credentials (plaintext; encryption deferred) |
-| OTA_0 / OTA_1 | 3 MB each | Dual application slots with rollback |
-| LittleFS | 2 MB | SSH keys, known_hosts, dashboard config |
-| Core Dump | 1 MB | Crash diagnostics |
+| Offset | Size | Name | Purpose |
+|---|---|---|---|
+| 0x9000 | 24 KB | `nvs` | WiFi/SSH credentials (plaintext; encryption deferred) |
+| 0x10000 | 8 KB | `otadata` | rollback state (main → factory fallback) |
+| 0x20000 | 512 KB | `factory` | recovery firmware — USB-JTAG REPL + "RECOVERY MODE" banner |
+| 0xA0000 | 10 MB | `ota_0` | main application (single OTA slot) |
+| 0xAA0000 | 4 MB | `littlefs` | SSH keys, known_hosts, dashboard config |
+| 0xEA0000 | 1 MB | `coredump` | ELF coredump after panic |
+
+One-time migration from the old dual-OTA layout: see
+[MIGRATION-factory-ota.md](MIGRATION-factory-ota.md). Subsequent dev
+iterations use `idf.py -C esp32_rendering flash` to rewrite only the
+main slot.
 
 #### Building
 
@@ -201,6 +208,29 @@ This repository uses:
 - [Python 3.9+](https://www.python.org/downloads/)
 - [ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/get-started/) v5.x or later
 - VS Code with ESP-IDF extension (recommended)
+
+## Partition Layout & Recovery
+
+The 16 MB flash carries a **512 KB factory recovery firmware** alongside a
+**10 MB main application slot**. If the main app boots badly (panic before
+`esp_ota_mark_app_valid_cancel_rollback()`, 30 s stability check fails, etc.)
+the bootloader automatically boots the recovery firmware — which keeps
+USB-JTAG CDC visible so the host can always reflash without pressing BOOT.
+
+**First-time / layout-change flash:** `./flash.sh` builds both projects
+and writes all four regions (bootloader + partition table + factory +
+main) per-offset, preserving NVS so WiFi credentials survive. See
+[MIGRATION-factory-ota.md](MIGRATION-factory-ota.md).
+
+**Dev inner loop:** `./dev-flash.sh [port] [test]` rewrites only the
+main slot at 0xA0000. Recovery, partition table, and NVS are
+untouched. **Do NOT use `idf.py -C esp32_rendering flash`** — ESP-IDF
+defaults its app offset to the first app partition (factory, 0x20000)
+and would overwrite the recovery firmware.
+
+**Force recovery boot:** hold button A (GPIO 18) at reset for ≥5 s. The
+bootloader erases otadata and boots factory on the next cycle — useful
+when ota_0 is marked valid but broken anyway.
 
 ## Test Infrastructure
 
