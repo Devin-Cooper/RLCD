@@ -1,6 +1,5 @@
 // host_test/app/test_ssh_keys_qr_encode.cpp
 #include <catch2/catch_test_macros.hpp>
-#include <cstring>
 #include <fstream>
 #include <string>
 #include <vector>
