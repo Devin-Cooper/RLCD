@@ -25,7 +25,14 @@ struct KeyMeta {
 };
 
 /// Managed store: NVS single-blob index + LittleFS PEM / .pub blobs.
-/// Not thread-safe; callers serialize through the main task.
+///
+/// **Thread safety:** not internally synchronized. In the current firmware,
+/// both the main (UI) task and the esp_console REPL task reach into KeyStore,
+/// so external serialization will be required once UI screens start writing
+/// (Phase 13). Until then: the REPL is the sole writer; reads from main are
+/// safe because no concurrent mutation exists. A future commit (tracked as
+/// part of Phase 16's grep-audit) must add explicit locking before any UI
+/// screen in Phase 13 calls a mutating KeyStore method.
 class KeyStore {
 public:
     KeyStore();

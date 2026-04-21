@@ -51,6 +51,10 @@ static int cmd_ssh_keys_pubkey(int argc, char** argv) {
     char buf[800] = {};
     size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
     std::fclose(f);
+    if (n == sizeof(buf) - 1) {
+        test_console::err(11, "pubkey line >= %zu B, truncated", sizeof(buf) - 1);
+        return 1;
+    }
     buf[n] = '\0';
     while (n > 0 && (buf[n-1] == '\n' || buf[n-1] == '\r')) buf[--n] = '\0';
     test_console::data("%s", buf);
@@ -109,6 +113,10 @@ static int cmd_ssh_keys_qr_raw(int argc, char** argv) {
     char line[800] = {};
     size_t n = std::fread(line, 1, sizeof(line) - 1, f);
     std::fclose(f);
+    if (n == sizeof(line) - 1) {
+        test_console::err(11, "pubkey line >= %zu B, truncated", sizeof(line) - 1);
+        return 1;
+    }
     while (n > 0 && (line[n-1] == '\n' || line[n-1] == '\r')) line[--n] = '\0';
 
     uint8_t qrb[qrcodegen_BUFFER_LEN_FOR_VERSION(17)];
@@ -129,9 +137,15 @@ static int cmd_ssh_keys_qr_raw(int argc, char** argv) {
             }
         }
     }
-    unsigned char b64[4096] = {};
+    // V17 max: (85*85+7)/8 = 904 B packed → 1208 B base64. 1280 is a safe ceiling
+    // that keeps this frame well under the esp_console task's 8 KB stack.
+    unsigned char b64[1280] = {};
     size_t olen = 0;
-    mbedtls_base64_encode(b64, sizeof(b64), &olen, packed.data(), packed.size());
+    int b64_rc = mbedtls_base64_encode(b64, sizeof(b64), &olen, packed.data(), packed.size());
+    if (b64_rc != 0) {
+        test_console::err(12, "b64 encode (rc=%d, packed=%zu)", b64_rc, packed.size());
+        return 1;
+    }
     test_console::data("%d %s", modules, reinterpret_cast<const char*>(b64));
     test_console::ok("%s", "");
     return 0;
