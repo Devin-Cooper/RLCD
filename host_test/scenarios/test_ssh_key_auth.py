@@ -1,18 +1,11 @@
-"""Key auth via ed25519 key pushed to device with fs_write; authorized_keys on sshd side."""
+"""Key auth via ed25519 key pushed to device with fs_write; authorized_keys on sshd side.
+
+Note: the ed25519_keypair fixture lives in conftest.py so multiple scenarios
+can share it.
+"""
 import pathlib
-import subprocess
 
 import pytest
-
-
-@pytest.fixture
-def ed25519_keypair(tmp_path):
-    priv = tmp_path / "id_ed25519"
-    subprocess.check_call(
-        ["ssh-keygen", "-q", "-t", "ed25519", "-f", str(priv), "-N", ""]
-    )
-    pub = priv.with_suffix(".pub")
-    return {"priv": priv, "pub": pub}
 
 
 def test_ssh_key_auth_roundtrip(fresh_device, loopback_sshd, ed25519_keypair):

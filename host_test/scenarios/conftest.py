@@ -5,8 +5,12 @@ import time
 
 import pytest
 
-from .crash import DeviceCrashError, check_for_crash, extract_coredump, rts_reset
-from .device import Device
+try:
+    from crash import DeviceCrashError, check_for_crash, extract_coredump, rts_reset  # type: ignore
+    from device import Device  # type: ignore
+except ImportError:
+    from .crash import DeviceCrashError, check_for_crash, extract_coredump, rts_reset  # type: ignore
+    from .device import Device  # type: ignore
 
 
 @pytest.fixture(scope="session")
@@ -140,6 +144,49 @@ import socket
 import subprocess
 import tempfile
 import pathlib
+
+
+# -----------------------------------------------------------------
+# SSH key fixtures (shared across ssh_keys scenarios and the older
+# test_ssh_key_auth roundtrip). Moved from test_ssh_key_auth.py so
+# multiple scenarios can reuse them.
+# -----------------------------------------------------------------
+
+
+@pytest.fixture
+def ed25519_keypair(tmp_path):
+    priv = tmp_path / "id_ed25519"
+    subprocess.check_call(
+        ["ssh-keygen", "-q", "-t", "ed25519", "-f", str(priv), "-N", ""]
+    )
+    pub = priv.with_suffix(".pub")
+    return {"priv": priv, "pub": pub}
+
+
+@pytest.fixture
+def rsa2048_keypair(tmp_path):
+    priv = tmp_path / "id_rsa2048"
+    subprocess.check_call(
+        ["ssh-keygen", "-q", "-t", "rsa", "-b", "2048", "-f", str(priv), "-N", ""]
+    )
+    pub = priv.with_suffix(".pub")
+    return {"priv": priv, "pub": pub}
+
+
+def ssh_key_fingerprint(pub_path: pathlib.Path) -> str:
+    """Return the "SHA256:xxx" token from `ssh-keygen -lf <pub_path>`.
+
+    Not a fixture — plain helper so scenario bodies can cross-check the
+    firmware's fingerprint against the OpenSSH reference implementation.
+    """
+    result = subprocess.run(
+        ["ssh-keygen", "-lf", str(pub_path)],
+        capture_output=True, text=True, check=True,
+    )
+    for tok in result.stdout.split():
+        if tok.startswith("SHA256:"):
+            return tok
+    raise RuntimeError(f"no SHA256: token in ssh-keygen -lf output: {result.stdout!r}")
 
 
 def _find_free_port() -> int:
