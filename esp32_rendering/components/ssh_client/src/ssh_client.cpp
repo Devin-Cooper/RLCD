@@ -205,16 +205,20 @@ void SshClient::teardown() {
         channel_ = nullptr;
     }
     if (session_) {
-        // libssh 0.11's ssh_free() calls close() on the fd we handed over
-        // via SSH_OPTIONS_FD. Do NOT double-close — null socket_fd_ before
-        // ssh_free so the else-branch below is skipped.
         auto* sess = static_cast<ssh_session>(session_);
         ssh_disconnect(sess);
         ssh_free(sess);
         session_ = nullptr;
-        socket_fd_ = -1;
-    } else if (socket_fd_ >= 0) {
-        // Session was never created (or creation failed); we still own the fd.
+    }
+    // libssh 0.10+ does NOT close the fd we passed via SSH_OPTIONS_FD
+    // (see ssh_disconnect() docstring in libssh/src/client.c). ssh_disconnect
+    // calls ssh_session_socket_close() which EARLY-RETURNS when opts.fd was
+    // set, then ssh_socket_reset() overwrites session->socket->fd with
+    // SSH_INVALID_SOCKET, so the subsequent ssh_free→ssh_socket_free→
+    // ssh_socket_close sees is_open()==false and skips the real close().
+    // We own the fd and must close it ourselves. Leaving it open leaks the
+    // lwIP socket + TCP PCB (~1-2 KB of internal tables) per connect cycle.
+    if (socket_fd_ >= 0) {
         close(socket_fd_);
         socket_fd_ = -1;
     }
