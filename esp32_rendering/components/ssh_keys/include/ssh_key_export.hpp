@@ -2,12 +2,21 @@
 
 #include "ssh_keys.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
 namespace wifi { class WifiManager; }
 
 namespace ssh_keys {
+
+/// Returns "SHA256:<43-char-b64>" matching `ssh-keygen -lf` output for the
+/// passed 32-byte SHA-256 digest. Buffer `out` must have at least 53 bytes
+/// (7 for "SHA256:" prefix + 43 for unpadded base64 + 1 NUL + slack).
+/// Returns true on success. Uses mbedtls base64 on firmware. Declared here
+/// (firmware-facing header) so host-only tests linking against
+/// key_codec_host.cpp don't need a duplicate implementation.
+bool fp_sha256_b64(const std::array<uint8_t, 32>& fp, char* out, size_t cap);
 
 enum class GenerateResult : uint8_t {
     Ok = 0,

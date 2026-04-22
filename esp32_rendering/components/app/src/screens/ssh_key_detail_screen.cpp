@@ -188,20 +188,16 @@ void SshKeyDetailScreen::render(onebit::IFramebuffer& fb,
     onebit::drawBitmapText(fb, font, 10, y, line, onebit::BLACK);
     y += row_h;
 
-    // Full fingerprint as hex (64 chars). Wrap two rows.
-    char hex[65] = {};
-    for (int i = 0; i < 32; ++i) {
-        std::snprintf(hex + i * 2, 3, "%02x", meta->fp_sha256[i]);
+    // Fingerprint as "SHA256:<43-char-b64>", matching `ssh-keygen -lf`.
+    onebit::drawBitmapText(fb, font, 10, y, "Fingerprint:", onebit::BLACK);
+    y += row_h;
+    char fp_str[64] = {};
+    if (ssh_keys::fp_sha256_b64(meta->fp_sha256, fp_str, sizeof(fp_str))) {
+        onebit::drawBitmapText(fb, font, 10, y, fp_str, onebit::BLACK);
+    } else {
+        onebit::drawBitmapText(fb, font, 10, y,
+                                "SHA256: (encode error)", onebit::BLACK);
     }
-    onebit::drawBitmapText(fb, font, 10, y, "Fingerprint (sha256):",
-                            onebit::BLACK);
-    y += row_h;
-    char chunk[34] = {};
-    std::memcpy(chunk, hex, 32); chunk[32] = '\0';
-    onebit::drawBitmapText(fb, font, 10, y, chunk, onebit::BLACK);
-    y += row_h;
-    std::memcpy(chunk, hex + 32, 32); chunk[32] = '\0';
-    onebit::drawBitmapText(fb, font, 10, y, chunk, onebit::BLACK);
     y += row_h;
 
     onebit::drawBitmapText(fb, font, 10, fb.height() - font.glyph_height - 4,

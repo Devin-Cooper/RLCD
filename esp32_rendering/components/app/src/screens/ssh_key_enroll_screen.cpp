@@ -39,7 +39,6 @@ void SshKeyEnrollScreen::onEnter() {
     }
     sel_ = 0;
     state_ = State::Picker;
-    needs_run_ = false;
     chosen_server_idx_ = -1;
 }
 
@@ -63,17 +62,19 @@ void SshKeyEnrollScreen::beginPasswordPrompt(ScreenStack& stack) {
         "",
         [this](TextInputResult r, const std::string& pw) {
             if (r != TextInputResult::Submit || pw.empty()) {
-                // Cancel: stay on the picker.
+                // Cancel / empty submit: back to picker.
+                state_ = State::Picker;
                 return;
             }
-            // Defer the actual enroll run to the next render tick via a
-            // needs_run_ flag so this callback (which fires inside the
-            // child Screen's pop flow) doesn't reenter the overlay
-            // machinery with the password-screen still partly torn down.
-            // We stash the password in a member for runEnroll to consume.
-            pending_password_ = pw;
-            needs_run_ = true;
+            // Run enroll synchronously. The TextInputScreen's pop here is
+            // deferred (pending_pop_count_++), and runEnroll itself is
+            // synchronous — any stack.pop() it does accumulates onto the
+            // same pending count, processed together in the next
+            // applyPending tick. Deferring this to "next handleInput tick"
+            // would strand the user on "Enrolling..." until they pressed
+            // a key, because handleInput only fires on input events.
             state_ = State::Running;
+            runEnroll(pw);  // runEnroll zeroes its local password copy.
         },
         opts));
 }
@@ -82,14 +83,20 @@ void SshKeyEnrollScreen::runEnroll(const std::string& password) {
     char err[128] = {};
     ctx_.overlay.showToast("Enrolling...", 500);
 
+    // Copy the password into a fixed stack buffer so we can zero it after
+    // enroll returns, matching spec §4.1 ("zero after step 6"). The caller's
+    // std::string copy is owned by the TextInputScreen's Submit lambda and
+    // will go out of scope once this callback returns; its buffer_ is a
+    // stack-automatic char[64] reclaimed on screen destruct.
+    char pwd_copy[65] = {};
+    std::strncpy(pwd_copy, password.c_str(), sizeof(pwd_copy) - 1);
+
     auto rc = ssh_keys::enroll_key(ctx_.keyStore, id_,
                                     static_cast<void*>(&ctx_.configMgr),
-                                    chosen_server_idx_, password.c_str(),
+                                    chosen_server_idx_, pwd_copy,
                                     err, sizeof(err));
 
-    // Zero the password buffer held in the screen member.
-    pending_password_.assign(pending_password_.size(), '\0');
-    pending_password_.clear();
+    std::memset(pwd_copy, 0, sizeof(pwd_copy));
 
     const auto& srv = ctx_.configMgr.getServer(chosen_server_idx_).creds;
 
@@ -137,14 +144,9 @@ void SshKeyEnrollScreen::runEnroll(const std::string& password) {
 void SshKeyEnrollScreen::handleInput(const input::InputEvent& evt,
                                       ScreenStack& stack) {
     if (state_ == State::Running || state_ == State::Done) {
-        // Deferred run: if we just transitioned to Running via the
-        // TextInputScreen callback, fire the enroll now. handleInput is
-        // the first place the parent screen gets a tick after the child
-        // Screen pops.
-        if (needs_run_ && state_ == State::Running) {
-            needs_run_ = false;
-            runEnroll(pending_password_);
-        }
+        // Enrollment is synchronous (runs in the TextInputScreen Submit
+        // callback). If we see input in these states it means the user is
+        // hammering keys while the modal/toast path finishes — ignore.
         return;
     }
 

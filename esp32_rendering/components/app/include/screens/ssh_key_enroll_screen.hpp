@@ -15,11 +15,11 @@ namespace app {
 /// State machine (internal):
 ///   Picker  — arrow-nav over password-auth servers, Enter to pick.
 ///   (Password is a pushed TextInputScreen — this screen stays on the
-///    stack and handles the Submit callback, transitioning to Running.)
+///    stack and handles the Submit callback, transitioning to Running
+///    and invoking runEnroll synchronously in the same tick.)
 ///   Running — displays "Enrolling...". The enroll call itself is
-///             synchronous; the screen repaints once before the call so
-///             the user sees the progress state, and dispatches toasts
-///             or modals when it returns.
+///             synchronous; it dispatches toasts or modals when it
+///             returns.
 class SshKeyEnrollScreen : public Screen {
 public:
     SshKeyEnrollScreen(ScreenContext& ctx, const ssh_keys::KeyId& id);
@@ -39,8 +39,6 @@ private:
     int sel_ = 0;
 
     int chosen_server_idx_ = -1;
-    bool needs_run_ = false;
-    std::string pending_password_;
 
     void collectEligible();
     void beginPasswordPrompt(ScreenStack& stack);

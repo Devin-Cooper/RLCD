@@ -1,4 +1,5 @@
 #include "ssh_key_codec.hpp"
+#include "ssh_key_export.hpp"
 #include "ssh_keys.hpp"
 #include "ssh_keys_index.hpp"
 
@@ -37,6 +38,21 @@ std::string fingerprint_from_pubkey_blob(const uint8_t* blob, size_t len) {
     std::string out = "SHA256:";
     out.append(reinterpret_cast<const char*>(b64), olen);
     return out;
+}
+
+bool fp_sha256_b64(const std::array<uint8_t, 32>& fp, char* out, size_t cap) {
+    if (!out || cap < 53) return false;
+    unsigned char b64[48] = {};
+    size_t olen = 0;
+    if (mbedtls_base64_encode(b64, sizeof(b64), &olen,
+                               fp.data(), fp.size()) != 0) {
+        return false;
+    }
+    // ssh-keygen drops the two '=' pad chars from the SHA256:<fp> output;
+    // mbedtls adds them. Strip any trailing '='.
+    while (olen > 0 && b64[olen - 1] == '=') { b64[--olen] = '\0'; }
+    int n = std::snprintf(out, cap, "SHA256:%s", b64);
+    return n > 0 && static_cast<size_t>(n) < cap;
 }
 
 std::string fingerprint_of_ssh_key(ssh_key k) {

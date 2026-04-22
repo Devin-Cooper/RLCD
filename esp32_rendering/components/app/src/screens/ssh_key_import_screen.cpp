@@ -148,7 +148,7 @@ void SshKeyImportScreen::doImport(const Candidate& cand,
     std::snprintf(body, sizeof(body),
                    "Delete source '%s' from SD?",
                    cand.filename.c_str());
-    ctx_.overlay.showConfirm("Imported", body, [this, path_copy](bool yes) {
+    ctx_.overlay.showConfirm("Delete source?", body, [this, path_copy](bool yes) {
         if (!yes) return;
         if (unlink(path_copy.c_str()) != 0) {
             ctx_.overlay.showError("Unlink failed", path_copy.c_str());
