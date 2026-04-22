@@ -74,21 +74,23 @@ std::string fingerprint_of_ssh_key(ssh_key k) {
 // --- pubkey line ---
 
 std::string pubkey_line(ssh_key k, const char* name) {
-    ssh_key pub = nullptr;
-    if (ssh_pki_export_privkey_to_pubkey(k, &pub) != SSH_OK) return {};
+    // ssh_pki_export_pubkey_base64() only reads the public portion of the
+    // key (see pki_ed25519_public_key_to_blob + pki_key_to_blob(SSH_KEY_PUBLIC)
+    // for RSA/ECDSA), so we can skip the intermediate
+    // ssh_pki_export_privkey_to_pubkey() key-dup step. That dup allocates a
+    // fresh ssh_key_struct plus a pubkey buffer (plus the full ed25519
+    // privkey for ED25519 since pki_ed25519_key_dup ignores the demote flag),
+    // all of which we'd free seconds later. ~180 B of transient allocation
+    // per cycle on ED25519 — enough to show up in the heap-stable watermark.
     char* b64 = nullptr;
-    if (ssh_pki_export_pubkey_base64(pub, &b64) != SSH_OK) {
-        ssh_key_free(pub);
-        return {};
-    }
-    const char* algo = ssh_key_type_to_char(ssh_key_type(pub));
+    if (ssh_pki_export_pubkey_base64(k, &b64) != SSH_OK) return {};
+    const char* algo = ssh_key_type_to_char(ssh_key_type(k));
     std::string out;
     if (algo && b64) {
         out.reserve(std::strlen(algo) + 1 + std::strlen(b64) + 1 + std::strlen(name) + 1);
         out.append(algo).append(" ").append(b64).append(" ").append(name);
     }
     if (b64) ssh_string_free_char(b64);
-    ssh_key_free(pub);
     return out;
 }
 
@@ -193,8 +195,15 @@ KeyId KeyStore::add(const KeyMeta& tmpl, ssh_key priv) {
         if (a.created_utc != b.created_utc) return a.created_utc > b.created_utc;
         return std::strcmp(a.name, b.name) < 0;
     });
-    auto fp = fingerprint_of_ssh_key(priv);
-    ESP_LOGI(TAG, "Added %s: %s", meta.id.hex().c_str(), fp.c_str());
+    // Reuse the fingerprint we already computed above instead of asking libssh
+    // again (which reallocates an ssh_buffer + pubkey blob + SHA256 context for
+    // every generate). Observed as a ~300 B transient-watermark contribution
+    // per generate/delete cycle in test_ssh_keys_heap_stable.
+    char fp_buf[64];
+    if (!fp_sha256_b64(meta.fp_sha256, fp_buf, sizeof(fp_buf))) {
+        fp_buf[0] = '\0';
+    }
+    ESP_LOGI(TAG, "Added %s: %s", meta.id.hex().c_str(), fp_buf);
     return meta.id;
 }
 
