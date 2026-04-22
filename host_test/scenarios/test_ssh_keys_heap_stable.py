@@ -5,9 +5,10 @@ generator uses libssh (ed25519 keypair + NVS write + LittleFS pubkey
 file); delete tears that down symmetrically. Any net allocation that
 escapes the cycle accumulates in min_free.
 
-Uses heap()["min"] (the esp_get_minimum_free_heap_size watermark), which
-is monotone-non-increasing across the device's lifetime — a good leak
-indicator that ignores fragmentation-only jitter.
+Uses heap()["min_free"] (the esp_get_minimum_free_heap_size watermark),
+which is monotone-non-increasing across the device's lifetime — a good
+leak indicator that ignores fragmentation-only jitter. (Firmware
+cmd_heap emits free/min_free/dma_max.)
 """
 
 
@@ -17,7 +18,7 @@ def test_ssh_keys_heap_stable(wifi_device):
     d.ping()
 
     heap_before = d.heap()
-    min_before = heap_before["min"]
+    min_before = heap_before["min_free"]
     assert min_before > 0, f"heap returned no min_free: {heap_before}"
 
     # 30 iterations of generate + delete. Keep names unique to avoid any
@@ -29,7 +30,7 @@ def test_ssh_keys_heap_stable(wifi_device):
     assert d.ssh_keys_list() == [], "churn left keys behind"
 
     heap_after = d.heap()
-    min_after = heap_after["min"]
+    min_after = heap_after["min_free"]
 
     # Delta is "how much lower the watermark moved." Can be 0 if the cycle
     # never exceeded the pre-existing watermark. Must be <= 2 KB by spec.

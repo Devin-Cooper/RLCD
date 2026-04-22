@@ -258,15 +258,34 @@ class Device:
         return dict(kv.split("=", 1) for kv in (r.value or "").split() if "=" in kv)
 
     def ssh_connect(self, host: str, port: int, user: str,
-                    password: str = "", key_path: str = "") -> None:
+                    password: str = "", ssh_key_id: str = "",
+                    key_path: Optional[str] = None) -> None:
         """Dispatches the ssh-connect REPL command. Returns when the command
         is acknowledged (Connecting state); caller must wait_for_ssh_state()
         for Connected.
+
+        ssh_key_id is the 32-char lowercase-hex key identifier (matches
+        KeyId::hex() on firmware). The private-key blob must already be
+        indexed in the on-device KeyStore — dropping a PEM at
+        /littlefs/ssh_keys/<id> without adding an index entry is
+        insufficient; the resolver returns "Private key id not in store."
+
+        key_path is accepted as a deprecated backward-compat alias and
+        forwarded as-is to ssh_key_id, with a DeprecationWarning — this
+        surfaces any remaining stale callers from the pre-Phase-11 path
+        era without silently mis-dispatching the connect.
         """
         import base64
-        if key_path:
+        import warnings
+        if key_path is not None and not ssh_key_id:
+            warnings.warn(
+                "Device.ssh_connect(key_path=...) is deprecated; "
+                "pass ssh_key_id=<32-char-hex> instead.",
+                DeprecationWarning, stacklevel=2)
+            ssh_key_id = key_path
+        if ssh_key_id:
             pw_b64 = "_"
-            r = self.send(f"ssh-connect {host} {port} {user} {pw_b64} {key_path}")
+            r = self.send(f"ssh-connect {host} {port} {user} {pw_b64} {ssh_key_id}")
         else:
             pw_b64 = base64.b64encode(password.encode()).decode() if password else "_"
             r = self.send(f"ssh-connect {host} {port} {user} {pw_b64}")

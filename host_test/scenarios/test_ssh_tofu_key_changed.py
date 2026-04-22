@@ -1,18 +1,15 @@
-"""Bogus known_hosts entry → connect → Error 'HOST KEY CHANGED'; file preserved."""
-import pathlib
-import subprocess
+"""Bogus known_hosts entry → connect → Error 'HOST KEY CHANGED'; file preserved.
 
+Uses device-generated keypair (Phase 11) so we can drive key auth via a
+KeyStore-indexed ssh_key_id. The load-bearing check is the TOFU
+mismatch on the sshd host key, not the client auth path — but we still
+need a working key-auth stanza because use_key_auth=true suppresses
+password fallback.
+"""
 import pytest
 
 
-@pytest.fixture
-def ed25519_keypair(tmp_path):
-    priv = tmp_path / "id_ed25519"
-    subprocess.check_call(["ssh-keygen", "-q", "-t", "ed25519", "-f", str(priv), "-N", ""])
-    return {"priv": priv, "pub": priv.with_suffix(".pub")}
-
-
-def test_tofu_change_triggers_error(fresh_device, loopback_sshd, ed25519_keypair):
+def test_tofu_change_triggers_error(fresh_device, loopback_sshd):
     d = fresh_device
     d.ssh_known_hosts_erase()
 
@@ -23,22 +20,29 @@ def test_tofu_change_triggers_error(fresh_device, loopback_sshd, ed25519_keypair
     )
     d.fs_write("/littlefs/known_hosts", bogus_pub.encode("ascii"))
 
-    # Configure an ed25519 key so the only possible failure path is the TOFU check.
-    pathlib.Path(loopback_sshd["authorized_keys_path"]).write_text(
-        ed25519_keypair["pub"].read_text()
-    )
-    d.send("fs-mkdir /littlefs/keys")  # idempotent (EEXIST is not an error); needed before first write
-    d.fs_write("/littlefs/keys/pytest_ed25519", ed25519_keypair["priv"].read_bytes())
+    # Clean any leftover keys from prior tests.
+    for k in d.ssh_keys_list():
+        d.ssh_keys_delete(k["id"])
 
-    d.ssh_connect(
-        host=loopback_sshd["host"],
-        port=loopback_sshd["port"],
-        user=loopback_sshd["user"],
-        key_path="/littlefs/keys/pytest_ed25519",
-    )
-    d.wait_for_ssh_state("error", timeout=10)
-    assert "HOST KEY CHANGED" in d.ssh_last_error(), d.ssh_last_error()
+    ssh_key_id = d.ssh_keys_generate("pytest_tofu_changed")
+    try:
+        # We don't need to authorize the pubkey on the sshd side here —
+        # the ssh session should never reach userauth because the TOFU
+        # host-key check fires first and aborts the transport.
+        d.ssh_connect(
+            host=loopback_sshd["host"],
+            port=loopback_sshd["port"],
+            user=loopback_sshd["user"],
+            ssh_key_id=ssh_key_id,
+        )
+        d.wait_for_ssh_state("error", timeout=10)
+        assert "HOST KEY CHANGED" in d.ssh_last_error(), d.ssh_last_error()
 
-    # file still has exactly one entry — the bogus one, unchanged.
-    entries = d.ssh_known_hosts_list()
-    assert len(entries) == 1, entries
+        # file still has exactly one entry — the bogus one, unchanged.
+        entries = d.ssh_known_hosts_list()
+        assert len(entries) == 1, entries
+    finally:
+        try:
+            d.ssh_keys_delete(ssh_key_id)
+        except Exception:
+            pass

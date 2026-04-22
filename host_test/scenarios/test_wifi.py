@@ -1,8 +1,10 @@
 def _open_wifi_screen(device):
     device.button("a", "short")
     device.expect_stack_top("MenuScreen")
-    # Menu order: Dashboard, Terminal, Servers, Settings, WiFi, About
-    for _ in range(4):
+    # Menu order: Dashboard(0), Terminal(1), Servers(2), SshKeys(3),
+    # Settings(4), WiFi(5), About(6). Phase 12 inserted SshKeys
+    # between Servers and Settings, pushing WiFi to index 5.
+    for _ in range(5):
         device.key_arrow("down")
     device.key_enter()
     device.expect_stack_top("WifiScreen")

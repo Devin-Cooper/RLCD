@@ -14,8 +14,15 @@ fresh_device fixture would delete them before each test.
 
 def test_ssh_keys_persist(wifi_device):
     d = wifi_device
-    # Pre-condition: empty
-    assert d.ssh_keys_list() == []
+    # Defensive drain: ssh_keys lives in its own NVS namespace (see
+    # module docstring) so _erase_app_state() doesn't wipe it between
+    # scenarios. If a preceding test leaked a key (e.g. the wifi-gate
+    # scenario before it was module-skipped could succeed-generate when
+    # the injected "disconnected" state didn't reach the live Wi-Fi
+    # predicate), clear it so our pre-condition assertion isn't polluted.
+    for k in d.ssh_keys_list():
+        d.ssh_keys_delete(k["id"])
+    assert d.ssh_keys_list() == [], "ssh_keys_list not empty after cleanup"
 
     # Generate 3 keys
     uuids = []
