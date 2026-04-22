@@ -7,8 +7,7 @@
 namespace app {
 
 /// Per-key detail view. Hotkeys: T=text, Q=QR, S=SD export, E=Enroll,
-/// R=Rename, D=Delete, Esc=back. Phase 13 Commit B fills in the full
-/// render + dispatch.
+/// R=Rename, D=Delete, Esc=back.
 class SshKeyDetailScreen : public Screen {
 public:
     SshKeyDetailScreen(ScreenContext& ctx, const ssh_keys::KeyId& id);
@@ -20,6 +19,10 @@ public:
 private:
     ScreenContext& ctx_;
     ssh_keys::KeyId id_;
+
+    void beginRename(ScreenStack& stack);
+    void confirmDelete();
+    void doSdExport();
 };
 
 } // namespace app
