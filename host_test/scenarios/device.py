@@ -487,7 +487,7 @@ class Device:
         assert r.ok, r
         return int(r.value or "0")
 
-    def reboot(self) -> None:
+    def reboot(self, boot_timeout: float = 25.0) -> None:
         # USB-JTAG CDC: esp_restart() drops the USB device off the bus.
         # The host's serial fd becomes invalid until re-enumeration
         # (~1-3s on macOS). Send the command, close our fd, poll for
@@ -496,7 +496,7 @@ class Device:
             self.send("reboot", timeout=1.0)
         except (TimeoutError, OSError):
             pass
-        self._reopen_through_reset()
+        self._reopen_through_reset(boot_timeout=boot_timeout)
 
     def crash(self) -> None:
         try:
@@ -505,7 +505,7 @@ class Device:
             pass   # expected — abort() fires without sending OK
         self._reopen_through_reset()
 
-    def _reopen_through_reset(self) -> None:
+    def _reopen_through_reset(self, boot_timeout: float = 25.0) -> None:
         """Close the serial port, wait for USB re-enumeration, reopen."""
         port_path = self.ser.port
         baud = self.ser.baudrate
@@ -540,4 +540,4 @@ class Device:
             target=self._reader_loop, daemon=True
         )
         self._reader_thread.start()
-        self.wait_for_boot()
+        self.wait_for_boot(timeout=boot_timeout)

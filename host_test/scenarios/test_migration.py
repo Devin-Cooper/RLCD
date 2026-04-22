@@ -9,7 +9,12 @@ def test_migration_path_b_seeds_default_server(fresh_device):
     # Also erase 'servers' NVS so migration has something to do.
     fresh_device.nvs_erase("servers")
 
-    fresh_device.reboot()
+    # Generous boot_timeout: this is the second reboot in the test (the
+    # fresh_device fixture already did one), and when run at the tail of a
+    # full batch the device's NVS/LittleFS state is heavier than in isolation.
+    # 60 s covers the worst boot we've observed empirically (~35 s) with
+    # plenty of margin without masking a real firmware hang.
+    fresh_device.reboot(boot_timeout=60.0)
 
     assert fresh_device.migration() == "PathB"
 
