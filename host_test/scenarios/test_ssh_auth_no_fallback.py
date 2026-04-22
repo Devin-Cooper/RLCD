@@ -34,6 +34,9 @@ def test_missing_key_does_not_fall_back_to_password(fresh_device, loopback_sshd)
     last = d.ssh_last_error()
     assert "Private key id not in store" in last or "Private key unreadable" in last, last
 
-    # Never reached Connected.
-    info = d.ssh_info()
-    assert info.get("fp", "") == "", info
+    # Transport-level TOFU completes before userauth (RFC 4253 vs 4252), so by
+    # the time the userauth_publickey rejection surfaces, ssh_info.fp is already
+    # populated with the server's host key fingerprint. That's expected and not
+    # a fallback signal — the "no auto-fallback to password" guarantee is
+    # verified by (a) state == error above and (b) the error-string check above;
+    # both confirm we never reached Connected via password.
