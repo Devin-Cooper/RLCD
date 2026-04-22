@@ -300,6 +300,35 @@ class Device:
         r = self.send("ssh-known-hosts-erase")
         assert r.ok, r
 
+    def ssh_keys_list(self) -> list[dict]:
+        r = self.send("ssh-keys-list")
+        assert r.ok, r
+        out = []
+        for line in r.data_lines:
+            parts = line.split(maxsplit=3)
+            if len(parts) >= 4:
+                out.append({
+                    "id": parts[0],
+                    "type": parts[1],
+                    "name": parts[2],
+                    "fp_head": parts[3],
+                })
+        return out
+
+    def ssh_keys_pubkey(self, uuid: str) -> str:
+        r = self.send(f"ssh-keys-pubkey {uuid}")
+        assert r.ok, r
+        return "\n".join(r.data_lines)
+
+    def ssh_keys_delete(self, uuid: str) -> None:
+        r = self.send(f"ssh-keys-delete {uuid}")
+        assert r.ok, r
+
+    def ssh_keys_generate(self, name: str) -> str:
+        r = self.send(f"ssh-keys-generate {name}")
+        assert r.ok, r
+        return (r.value or "").strip()
+
     def wait_for_ssh_state(self, target: str, timeout: float = 15.0) -> None:
         """Poll ssh-status until state == target, or timeout."""
         deadline = time.time() + timeout
