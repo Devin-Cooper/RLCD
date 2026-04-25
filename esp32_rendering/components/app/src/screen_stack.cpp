@@ -113,16 +113,19 @@ void ScreenStack::applyPending() {
 
 void ScreenStack::renderAll(onebit::IFramebuffer& fb,
                             const onebit::BitmapFont& font) {
-    in_render_phase_ = true;
+    renderAll(fb, font, /*now_us=*/0);
+}
 
+void ScreenStack::renderAll(onebit::IFramebuffer& fb,
+                            const onebit::BitmapFont& font,
+                            int64_t /*now_us*/) {
+    in_render_phase_ = true;
     int first = static_cast<int>(stack_.size()) - 1;
     while (first > 0 && stack_[first]->isTransparent()) --first;
-
     fb.clear(onebit::WHITE);
     for (size_t i = static_cast<size_t>(first); i < stack_.size(); ++i) {
         stack_[i]->render(fb, font);
     }
-
     in_render_phase_ = false;
 }
 

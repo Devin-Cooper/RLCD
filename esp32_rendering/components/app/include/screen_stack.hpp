@@ -40,6 +40,8 @@ public:
     /// in-render-phase flag that push/pop/replace assert against.
     void renderAll(onebit::IFramebuffer& fb,
                    const onebit::BitmapFont& font);
+    void renderAll(onebit::IFramebuffer& fb, const onebit::BitmapFont& font,
+                   int64_t now_us);
 
     Screen* top();
     size_t depth() const { return stack_.size(); }
