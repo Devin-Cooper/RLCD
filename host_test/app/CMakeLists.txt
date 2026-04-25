@@ -1,6 +1,15 @@
 set(APP_DIR "${RLCD_COMPONENTS}/app")
 
 add_host_test(
+    NAME test_animator
+    SOURCES
+        test_animator.cpp
+        "${APP_DIR}/src/animator.cpp"
+    INCLUDES
+        "${APP_DIR}/include"
+)
+
+add_host_test(
     NAME test_dashboard_feed_data
     SOURCES
         test_dashboard_feed_data.cpp
