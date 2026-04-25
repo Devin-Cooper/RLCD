@@ -32,6 +32,25 @@ struct KeybindHint {
     char label[16];
 };
 
+/// Abstract base for all app screens.
+///
+/// Screen contract
+/// ---------------
+/// Lifecycle:   onEnter() → (handleInput + render)* → onExit()
+/// Rendering:   opaque screens own every pixel in fb;
+///              transparent screens draw into a bounded region only and
+///              MUST NOT call fb.clear().
+/// Stack mut:   only via handleInput's stack arg. Render MUST NOT push/pop
+///              (ScreenStack asserts via in_render_phase_).
+/// Async:       background callbacks (WiFi/BLE state) post synthetic
+///              InputEvents (Source::System + EventType::*StateChanged)
+///              so Screens stay single-threaded.
+/// Timing:      targetFps() paces the main loop; never vTaskDelay > 1 frame.
+///
+/// 2026-04-25 spec adds 7 defaulted virtuals for keyboard-first UX:
+/// keybindHints / getContextualCommands / dispatchContextual /
+/// wantsKeybindFooter / bypassesKeyboardGate / screenKind /
+/// breadcrumbLabel. See per-virtual doc comments below.
 class Screen {
 public:
     virtual ~Screen() = default;
