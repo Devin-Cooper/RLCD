@@ -9,6 +9,7 @@ idf_component_register(
         "src/text_input.cpp"
         "src/font_for_size.cpp"
         "src/animator.cpp"
+        "src/breadcrumb.cpp"
         "src/screens/dashboard_screen.cpp"
         "src/screens/terminal_screen.cpp"
         "src/screens/menu_screen.cpp"

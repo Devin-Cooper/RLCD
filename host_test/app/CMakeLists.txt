@@ -30,6 +30,18 @@ add_host_test(
 )
 
 add_host_test(
+    NAME test_breadcrumb
+    SOURCES
+        test_breadcrumb.cpp
+        "${APP_DIR}/src/screen_stack.cpp"
+        "${APP_DIR}/src/breadcrumb.cpp"
+    INCLUDES
+        "${APP_DIR}/include"
+        "${RLCD_COMPONENTS}/input_queue/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
+)
+
+add_host_test(
     NAME test_overlay_manager
     SOURCES
         test_overlay_manager.cpp
