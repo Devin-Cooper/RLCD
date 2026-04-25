@@ -18,6 +18,11 @@ public:
 
     int targetFps() const override { return 30; }
 
+    bool bypassesKeyboardGate() const override { return true; }
+    ScreenKind screenKind() const override { return ScreenKind::Terminal; }
+    const char* breadcrumbLabel() const override { return "Terminal"; }
+    bool wantsKeybindFooter() const override { return false; }
+
     void feedSshData(const uint8_t* data, size_t len);
 
 private:

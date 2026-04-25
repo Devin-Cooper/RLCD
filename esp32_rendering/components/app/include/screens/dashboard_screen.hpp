@@ -23,6 +23,11 @@ public:
 
     int targetFps() const override { return 10; }
 
+    bool bypassesKeyboardGate() const override { return true; }
+    ScreenKind screenKind() const override { return ScreenKind::Dashboard; }
+    const char* breadcrumbLabel() const override { return "Dashboard"; }
+    bool wantsKeybindFooter() const override { return false; }
+
     void tickUpdate(int64_t now_ms);
     void feedSshData(const uint8_t* data, size_t len);
 
