@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 #include <cassert>
+#include <functional>
 
 namespace app {
 
@@ -49,6 +50,27 @@ public:
         return i < stack_.size() ? stack_[i].get() : nullptr;
     }
 
+    struct BypassToken {
+    private:
+        BypassToken() = default;
+        friend class KeyboardGateModal;
+        friend class PairingScreen;
+    public:
+#ifdef RLCD_HOST_TEST
+        // Test-only seam — production code must construct via the friended
+        // classes (KeyboardGateModal, PairingScreen).
+        static BypassToken forTest() { return BypassToken{}; }
+#endif
+    };
+
+    void pushBypassingGate(BypassToken, std::unique_ptr<Screen> s);
+    void replaceBypassingGate(BypassToken, std::unique_ptr<Screen> s);
+
+    using GatePolicy =
+        std::function<bool(Screen& candidate,
+                           std::unique_ptr<Screen>& deferred_inout)>;
+    void setGatePolicy(GatePolicy p);
+
 private:
     std::vector<std::unique_ptr<Screen>> stack_;
 
@@ -60,6 +82,8 @@ private:
     bool in_render_phase_ = false;
 
     void assertNotInRenderPhase(const char* op) const;
+
+    GatePolicy gate_policy_;
 };
 
 } // namespace app

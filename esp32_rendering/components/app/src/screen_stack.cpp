@@ -15,8 +15,34 @@ void ScreenStack::assertNotInRenderPhase(const char* op) const {
 
 void ScreenStack::push(std::unique_ptr<Screen> s) {
     assertNotInRenderPhase("push");
+    if (gate_policy_) {
+        std::unique_ptr<Screen> deferred = std::move(s);
+        if (gate_policy_(*deferred, deferred)) {
+            // Policy intercepted; deferred has been moved-from or rerouted.
+            return;
+        }
+        // Policy declined; deferred still holds the original Screen.
+        s = std::move(deferred);
+    }
     s->onEnter();
     stack_.push_back(std::move(s));
+}
+
+void ScreenStack::pushBypassingGate(BypassToken, std::unique_ptr<Screen> s) {
+    assertNotInRenderPhase("pushBypassingGate");
+    s->onEnter();
+    stack_.push_back(std::move(s));
+}
+
+void ScreenStack::replaceBypassingGate(BypassToken, std::unique_ptr<Screen> s) {
+    assertNotInRenderPhase("replaceBypassingGate");
+    pending_kind_ = PendingKind::Replace;
+    pending_push_ = std::move(s);
+    pending_pop_count_ = 1;
+}
+
+void ScreenStack::setGatePolicy(GatePolicy p) {
+    gate_policy_ = std::move(p);
 }
 
 void ScreenStack::pop() {

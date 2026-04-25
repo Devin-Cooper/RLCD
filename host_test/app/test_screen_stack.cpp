@@ -103,3 +103,64 @@ TEST_CASE("ScreenStack: clearToBaseAndPush pops to depth 1 then pushes",
     REQUIRE(x1 == 0);
     REQUIRE(e4 == 1);
 }
+
+TEST_CASE("ScreenStack: pushBypassingGate skips policy", "[app][stack][gate]") {
+    ScreenStack s;
+    int e = 0, x = 0, r = 0;
+    bool policy_called = false;
+    s.setGatePolicy([&](Screen&, std::unique_ptr<Screen>&){
+        policy_called = true;
+        return true;
+    });
+    s.pushBypassingGate(ScreenStack::BypassToken::forTest(),
+                        std::make_unique<StubScreen>(&e,&x,&r));
+    REQUIRE_FALSE(policy_called);
+    REQUIRE(s.depth() == 1);
+}
+
+TEST_CASE("ScreenStack: push consults gate policy", "[app][stack][gate]") {
+    ScreenStack s;
+    int e = 0, x = 0, r = 0;
+    s.push(std::make_unique<StubScreen>(&e,&x,&r));  // base, no policy yet
+    int policy_calls = 0;
+    s.setGatePolicy([&](Screen&, std::unique_ptr<Screen>&){
+        ++policy_calls;
+        return false;  // decline
+    });
+    int e2=0, x2=0, r2=0;
+    s.push(std::make_unique<StubScreen>(&e2,&x2,&r2));
+    REQUIRE(policy_calls == 1);
+    REQUIRE(s.depth() == 2);
+    REQUIRE(e2 == 1);
+}
+
+TEST_CASE("ScreenStack: gate intercept consumes candidate", "[app][stack][gate]") {
+    ScreenStack s;
+    int e = 0;
+    s.push(std::make_unique<StubScreen>(&e,nullptr,nullptr));
+    s.setGatePolicy([&](Screen&, std::unique_ptr<Screen>& deferred){
+        deferred.reset();   // pretend KeyboardGateModal swallows it
+        return true;
+    });
+    int e2 = 0;
+    s.push(std::make_unique<StubScreen>(&e2,nullptr,nullptr));
+    REQUIRE(s.depth() == 1);
+    REQUIRE(e2 == 0);   // candidate was reset before onEnter
+}
+
+TEST_CASE("ScreenStack: replaceBypassingGate skips policy", "[app][stack][gate]") {
+    ScreenStack s;
+    int e1=0, x1=0, e2=0, x2=0;
+    s.push(std::make_unique<StubScreen>(&e1,&x1,nullptr));
+    bool policy_called = false;
+    s.setGatePolicy([&](Screen&, std::unique_ptr<Screen>&){
+        policy_called = true;
+        return true;
+    });
+    s.replaceBypassingGate(ScreenStack::BypassToken::forTest(),
+                           std::make_unique<StubScreen>(&e2,&x2,nullptr));
+    REQUIRE_FALSE(policy_called);
+    s.applyPending();
+    REQUIRE(x1 == 1); REQUIRE(e2 == 1);
+    REQUIRE(s.depth() == 1);
+}
