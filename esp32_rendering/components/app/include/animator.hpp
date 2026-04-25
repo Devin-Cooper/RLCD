@@ -1,6 +1,7 @@
 // esp32_rendering/components/app/include/animator.hpp
 #pragma once
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace app {
