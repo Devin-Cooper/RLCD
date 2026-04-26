@@ -21,6 +21,37 @@ namespace app {
 
 static const char* TAG = "editor";
 
+namespace {
+// Erases the current selection in the buffer; writes the start byte-pos and
+// length to out_pos / out_len. Returns false when the selection is empty.
+bool eraseSelectionInBuffer(fb::FileBuffer& buf,
+                            int a_l, int a_c, int b_l, int b_c,
+                            std::size_t& out_pos, std::size_t& out_len) {
+    if (a_l == b_l && a_c == b_c) return false;
+    auto a_off = buf.lineOffset((std::size_t)a_l) + (std::size_t)a_c;
+    auto b_off = buf.lineOffset((std::size_t)b_l) + (std::size_t)b_c;
+    out_pos = a_off;
+    out_len = b_off - a_off;
+    buf.erase(a_off, b_off - a_off);
+    return true;
+}
+
+char* psramAlloc(std::size_t n) {
+#ifdef RLCD_HOST_TEST
+    return (char*)std::malloc(n);
+#else
+    return (char*)heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#endif
+}
+void psramFree(void* p) {
+#ifdef RLCD_HOST_TEST
+    std::free(p);
+#else
+    heap_caps_free(p);
+#endif
+}
+}  // namespace
+
 EditorScreen::EditorScreen(ScreenContext& ctx, std::string path, bool new_file)
     : ctx_(ctx), path_(std::move(path)), new_file_(new_file) {
     updateBreadcrumb();
@@ -28,11 +59,7 @@ EditorScreen::EditorScreen(ScreenContext& ctx, std::string path, bool new_file)
 
 EditorScreen::~EditorScreen() {
     if (clipboard_) {
-#ifdef RLCD_HOST_TEST
-        std::free(clipboard_);
-#else
-        heap_caps_free(clipboard_);
-#endif
+        psramFree(clipboard_);
         clipboard_ = nullptr;
     }
 }
@@ -335,21 +362,6 @@ void EditorScreen::cursorFromByteOffset(std::size_t pos) {
     sticky_display_col_ = displayColForByteCol(line_, byte_col_);
 }
 
-namespace {
-// Erases the current selection in the buffer; writes the start byte-pos and
-// length to out_pos / out_len. Returns false when the selection is empty.
-bool eraseSelectionInBuffer(fb::FileBuffer& buf,
-                            int a_l, int a_c, int b_l, int b_c,
-                            std::size_t& out_pos, std::size_t& out_len) {
-    if (a_l == b_l && a_c == b_c) return false;
-    auto a_off = buf.lineOffset((std::size_t)a_l) + (std::size_t)a_c;
-    auto b_off = buf.lineOffset((std::size_t)b_l) + (std::size_t)b_c;
-    out_pos = a_off;
-    out_len = b_off - a_off;
-    buf.erase(a_off, b_off - a_off);
-    return true;
-}
-}  // namespace
 int EditorScreen::displayColForByteCol(int line, int byte_col) const {
     if (line < 0 || line >= (int)buffer_.lineCount()) return 0;
     auto raw_off = buffer_.lineOffset((std::size_t)line);
@@ -489,9 +501,53 @@ void EditorScreen::onMove(int dline, int dcol, bool extend) {
         sticky_display_col_ = displayColForByteCol(line_, byte_col_);
     }
 }
-void EditorScreen::onCopy() {}
-void EditorScreen::onCut() {}
-void EditorScreen::onPaste() {}
+void EditorScreen::onCopy() {
+    if (!hasSelection()) return;
+    int a_l, a_c, b_l, b_c; normalizeSelection(a_l, a_c, b_l, b_c);
+    std::size_t a = buffer_.lineOffset((std::size_t)a_l) + (std::size_t)a_c;
+    std::size_t b = buffer_.lineOffset((std::size_t)b_l) + (std::size_t)b_c;
+    std::size_t len = b - a;
+    if (len > kClipCapBytes) {
+        ctx_.overlay.showError("Editor", "Selection too large (16 KB cap)");
+        return;
+    }
+    if (clipboard_) psramFree(clipboard_);
+    clipboard_ = psramAlloc(len > 0 ? len : 1);
+    if (!clipboard_) { clipboard_size_ = 0; return; }
+    if (len > 0) std::memcpy(clipboard_, buffer_.data() + a, len);
+    clipboard_size_ = len;
+}
+
+void EditorScreen::onCut() {
+    if (!hasSelection()) return;
+    onCopy();
+    ensureSnapshot();
+    int a_l, a_c, b_l, b_c; normalizeSelection(a_l, a_c, b_l, b_c);
+    std::size_t pos = 0, len = 0;
+    eraseSelectionInBuffer(buffer_, a_l, a_c, b_l, b_c, pos, len);
+    cursorFromByteOffset(pos);
+    invalidateSelection();
+}
+
+void EditorScreen::onPaste() {
+    if (!clipboard_ || clipboard_size_ == 0) return;
+    if (buffer_.size() + clipboard_size_ > fb::FileBuffer::kEditCapBytes) {
+        ctx_.overlay.showError("Editor", "Paste exceeds 256 KB cap");
+        return;
+    }
+    ensureSnapshot();
+    if (hasSelection()) {
+        int a_l, a_c, b_l, b_c; normalizeSelection(a_l, a_c, b_l, b_c);
+        std::size_t pos = 0, len = 0;
+        eraseSelectionInBuffer(buffer_, a_l, a_c, b_l, b_c, pos, len);
+        cursorFromByteOffset(pos);
+        invalidateSelection();
+    }
+    std::size_t pos = cursorByteOffset();
+    if (buffer_.insert(pos, std::string_view(clipboard_, clipboard_size_))) {
+        cursorFromByteOffset(pos + clipboard_size_);
+    }
+}
 void EditorScreen::onUndo() {}
 void EditorScreen::onSave(bool, ScreenStack&) {}
 void EditorScreen::doSaveAtomic(const std::string&) {}
