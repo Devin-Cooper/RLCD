@@ -1,4 +1,6 @@
 #include "screens/settings_screen.hpp"
+#include "screens/set_time_screen.hpp"
+#include "screens/timezone_screen.hpp"
 #include "screen_stack.hpp"
 #include "overlay.hpp"
 #include "settings.hpp"
@@ -83,13 +85,15 @@ void SettingsScreen::handleInput(const input::InputEvent& evt,
     if (evt.source != input::Source::Keyboard ||
         evt.type   != input::EventType::Keypress) return;
 
+    constexpr int kRowCount = 7;  // 0=font 1=sb 2=dash 3=DT 4=TZ 5=Save 6=Cancel
+
     if (evt.data_length == 1 && evt.data[0] == '\t') {
-        focus_ = (focus_ + 1) % 5; return;
+        focus_ = (focus_ + 1) % kRowCount; return;
     }
     if (evt.data_length == 3 && evt.data[0] == 0x1B && evt.data[1] == '[') {
         char c = evt.data[2];
-        if (c == 'A') { focus_ = (focus_ - 1 + 5) % 5; return; }
-        if (c == 'B') { focus_ = (focus_ + 1) % 5; return; }
+        if (c == 'A') { focus_ = (focus_ - 1 + kRowCount) % kRowCount; return; }
+        if (c == 'B') { focus_ = (focus_ + 1) % kRowCount; return; }
         if (focus_ == 0) {
             if (c == 'C') font_sel_ = (font_sel_ + 1) % 3;
             if (c == 'D') font_sel_ = (font_sel_ + 2) % 3;
@@ -101,9 +105,17 @@ void SettingsScreen::handleInput(const input::InputEvent& evt,
         stack.pop(); return;
     }
     if (evt.data_length == 1 && evt.data[0] == '\r') {
-        if (focus_ == 3) { saveAndPop(stack); return; }
-        if (focus_ == 4) { stack.pop(); return; }
-        focus_ = (focus_ + 1) % 5;
+        if (focus_ == 3) {
+            stack.push(std::make_unique<SetTimeScreen>(ctx_, /*from_wizard=*/false));
+            return;
+        }
+        if (focus_ == 4) {
+            stack.push(std::make_unique<TimezoneScreen>(ctx_));
+            return;
+        }
+        if (focus_ == 5) { saveAndPop(stack); return; }
+        if (focus_ == 6) { stack.pop(); return; }
+        focus_ = (focus_ + 1) % kRowCount;
         return;
     }
     if (focus_ == 1) ti_scrollback_.handleKey(evt.data, evt.data_length);
@@ -146,6 +158,17 @@ void SettingsScreen::render(onebit::IFramebuffer& fb,
     onebit::drawBitmapText(fb, font, 30, y, "Dash refresh ms:", onebit::BLACK);
     ti_dash_.render(fb, font, 160, y - 2, 80);
 
+    // Action rows — push child screens; do not participate in saveAndPop.
+    y += font.glyph_height + 8;
+    onebit::drawBitmapText(fb, font, 8, y,
+        (focus_ == 3) ? ">" : " ", onebit::BLACK);
+    onebit::drawBitmapText(fb, font, 30, y, "Date & Time...", onebit::BLACK);
+
+    y += font.glyph_height + 8;
+    onebit::drawBitmapText(fb, font, 8, y,
+        (focus_ == 4) ? ">" : " ", onebit::BLACK);
+    onebit::drawBitmapText(fb, font, 30, y, "Time zone...", onebit::BLACK);
+
     y += font.glyph_height + 16;
     auto drawBtn = [&](int16_t px, const char* txt, bool sel) {
         int16_t w = onebit::getBitmapTextWidth(font, txt) + 4;
@@ -157,8 +180,8 @@ void SettingsScreen::render(onebit::IFramebuffer& fb,
             onebit::drawBitmapText(fb, font, px, y, txt, onebit::BLACK);
         }
     };
-    drawBtn(20, "[ Save ]", focus_ == 3);
-    drawBtn(140, "[ Cancel ]", focus_ == 4);
+    drawBtn(20, "[ Save ]", focus_ == 5);
+    drawBtn(140, "[ Cancel ]", focus_ == 6);
 
     onebit::drawBitmapText(fb, font, 10, fb.height() - font.glyph_height - 4,
         "Tab next  Up/Dn nav  Left/Right font  Esc back", onebit::BLACK);
