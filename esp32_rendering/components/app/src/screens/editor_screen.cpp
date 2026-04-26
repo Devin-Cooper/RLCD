@@ -1,6 +1,9 @@
 #include "screens/editor_screen.hpp"
 #include "overlay.hpp"
 #include "screen_stack.hpp"
+#include "screens/text_input_screen.hpp"
+
+#include <memory>
 
 #include <1bit/render/primitives.hpp>
 #include <1bit/render/bitmap_font.hpp>
@@ -658,8 +661,36 @@ void EditorScreen::onUndo() {
         invalidateSelection();
     }
 }
-void EditorScreen::onSave(bool, ScreenStack&) {}
-void EditorScreen::doSaveAtomic(const std::string&) {}
+void EditorScreen::onSave(bool save_as, ScreenStack& /*stack*/) {
+    if (save_as || new_file_) {
+        ctx_.stack.push(std::make_unique<TextInputScreen>(ctx_,
+            "Save as", path_.c_str(),
+            [this](TextInputResult r, const std::string& v) {
+                if (r != TextInputResult::Submit || v.empty()) return;
+                doSaveAtomic(v);
+            }));
+        return;
+    }
+    doSaveAtomic(path_);
+}
+
+void EditorScreen::doSaveAtomic(const std::string& dest) {
+    // Show a "Saving..." toast for the duration of the synchronous save.
+    // OverlayManager::showInfo is non-blocking; the save below blocks for
+    // ~80 ms on FATFS. The toast will appear on the next frame.
+    ctx_.overlay.showInfo("Saving", dest.c_str());
+    if (buffer_.saveAtomic(dest)) {
+        buffer_.clearDirty();
+        path_ = dest;
+        new_file_ = false;
+        updateBreadcrumb();
+    } else {
+        char body[80];
+        std::snprintf(body, sizeof(body), "Save failed: %s",
+                      std::strerror(buffer_.errnoCode()));
+        ctx_.overlay.showError("Editor", body);
+    }
+}
 void EditorScreen::enterFindMode() {
     find_mode_ = FindMode::Find;
     find_query_.clear();
