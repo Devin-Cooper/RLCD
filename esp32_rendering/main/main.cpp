@@ -45,6 +45,7 @@
 #include "screens/keyboard_gate.hpp"
 #include "screens/wifi_screen.hpp"
 #include "screens/command_palette.hpp"
+#include "screens/set_time_wizard_screen.hpp"
 #include "command_registry.hpp"
 #include "test_console.hpp"
 #include "boot_validator.hpp"
@@ -723,6 +724,12 @@ extern "C" void app_main() {
     app::BleSoftToastWatcher watcher(overlay, stack, bleHost);
 
     stack.push(std::make_unique<app::DashboardScreen>(ctx));
+
+    // First-boot clock-not-set wizard. Pushed on top of Dashboard so back-out
+    // (Esc / "Wait for WiFi") drops the user back into Dashboard normally.
+    if (timeService.wasUnsetAtBoot()) {
+        stack.push(std::make_unique<app::SetTimeWizardScreen>(ctx));
+    }
 
     // Wire WifiManager error callbacks now that overlay is in scope.
     wifiMgr.onSaveError([](void* ctx) {
