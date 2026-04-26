@@ -4,6 +4,7 @@
 #include <1bit/render/bitmap_font.hpp>
 #include "input_queue.hpp"
 #include "animator.hpp"
+#include "screen.hpp"
 #include <array>
 #include <cstdint>
 #include <functional>
@@ -33,6 +34,15 @@ public:
     bool handleInput(const input::InputEvent& evt);
     void render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font);
     void tick(int64_t now_us);
+
+    // Render the bottom-of-screen 12 px keybind footer for `top` if it wants one.
+    // Suppressed when wantsKeybindFooter() == false, when help modal is visible,
+    // when a blocking modal (Error/Info/Confirm) is active, or when any toast
+    // is in flight (toasts overlap the footer y-range).
+    void renderFooter(onebit::IFramebuffer& fb,
+                      const onebit::BitmapFont& font,
+                      const Screen* top,
+                      int64_t now_us);
 
     // Testing seams
     int activeToastCount() const { return toast_count_; }

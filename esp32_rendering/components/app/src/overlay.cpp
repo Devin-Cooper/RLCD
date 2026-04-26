@@ -264,4 +264,57 @@ void OverlayManager::render(onebit::IFramebuffer& fb,
     }
 }
 
+void OverlayManager::renderFooter(onebit::IFramebuffer& fb,
+                                  const onebit::BitmapFont& font,
+                                  const Screen* top,
+                                  int64_t /*now_us*/) {
+    if (!top) return;
+    if (!top->wantsKeybindFooter()) return;
+    if (help_visible_) return;
+    if (modal_.active) return;
+    if (toast_count_ > 0) return;  // toast in flight overlaps footer y-range
+
+    auto hints = top->keybindHints();
+    if (hints.empty()) return;
+
+    constexpr int FOOTER_H = 12;
+    int16_t panel_w = fb.width();
+    int16_t panel_h = fb.height();
+    int16_t y = panel_h - FOOTER_H;
+
+    // Hairline above the footer
+    onebit::fillRect(fb, 0, y - 1, panel_w, 1, onebit::BLACK);
+
+    // Render hints left-to-right, truncating from the right when out of space.
+    int16_t x = 2;
+    constexpr int16_t kInnerPad = 2;     // padding inside the inverted "key" pill
+    constexpr int16_t kGroupGap = 6;     // gap between (pill + label) groups
+    constexpr int16_t kKeyLabelGap = 3;  // gap between pill and its label
+
+    for (size_t i = 0; i < hints.size(); ++i) {
+        const auto& h = hints[i];
+        int16_t key_text_w = onebit::getBitmapTextWidth(font, h.key);
+        int16_t key_pill_w = key_text_w + 2 * kInnerPad;
+        int16_t label_w = onebit::getBitmapTextWidth(font, h.label);
+        int16_t group_w = key_pill_w + kKeyLabelGap + label_w;
+
+        // Truncate if this group won't fit
+        if (x + group_w > panel_w - 2) break;
+
+        // Inverted pill: black box, white text
+        int16_t pill_y = y + 1;
+        int16_t pill_h = FOOTER_H - 2;
+        onebit::fillRect(fb, x, pill_y, key_pill_w, pill_h, onebit::BLACK);
+        // Vertically center the text in the pill
+        int16_t text_y = pill_y + (pill_h - font.glyph_height) / 2;
+        onebit::drawBitmapText(fb, font, x + kInnerPad, text_y, h.key, onebit::WHITE);
+
+        // Label in normal black-on-white
+        onebit::drawBitmapText(fb, font, x + key_pill_w + kKeyLabelGap, text_y,
+                               h.label, onebit::BLACK);
+
+        x += group_w + kGroupGap;
+    }
+}
+
 } // namespace app
