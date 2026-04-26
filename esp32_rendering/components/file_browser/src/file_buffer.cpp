@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <sys/stat.h>
+#include <unistd.h>   // fsync
 
 #ifndef RLCD_HOST_TEST
 #include "esp_heap_caps.h"
@@ -313,6 +314,32 @@ bool FileBuffer::restoreFromSnapshot() {
     snapshot_size_ = 0;
     dirty_ = true;
     index_dirty_ = true;
+    return true;
+}
+
+bool FileBuffer::saveAtomic(const std::string& path) {
+    errno_ = 0;
+    std::string tmp = path + ".tmp";
+    FILE* f = std::fopen(tmp.c_str(), "wb");
+    if (!f) { errno_ = errno; return false; }
+
+    if (size_ > 0) {
+        if (std::fwrite(data_, 1, size_, f) != size_) {
+            errno_ = errno;
+            std::fclose(f);
+            // Leave tmp for forensics.
+            return false;
+        }
+    }
+    std::fflush(f);
+    int fd = fileno(f);
+    if (fd >= 0) ::fsync(fd);    // FATFS: vfs_fat_fsync → f_sync
+    std::fclose(f);
+
+    if (std::rename(tmp.c_str(), path.c_str()) != 0) {
+        errno_ = errno;
+        return false;   // tmp left on disk
+    }
     return true;
 }
 

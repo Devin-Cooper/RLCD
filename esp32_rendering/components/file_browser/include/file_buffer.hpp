@@ -51,6 +51,11 @@ public:
     bool snapshot();
     bool restoreFromSnapshot();
 
+    // Atomic save: write to <path>.tmp, fsync, rename. On failure, the .tmp
+    // file is left on disk for forensics. errnoCode() carries the failing
+    // POSIX errno on false return.
+    bool saveAtomic(const std::string& path);
+
     // Search (text mode). Returns line numbers of matches (case-insensitive).
     std::vector<std::uint32_t> findAll(std::string_view needle) const;
 

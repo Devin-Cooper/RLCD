@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <fstream>
 #include <string>
+#include <unistd.h>   // unlink for cleanup
+#include <sys/stat.h>
 
 namespace {
 std::string tmpFile(const std::string& contents) {
@@ -107,4 +109,56 @@ TEST_CASE("FileBuffer snapshot of empty buffer", "[mutation]") {
     REQUIRE(b.insert(0, "abc"));
     REQUIRE(b.restoreFromSnapshot());
     REQUIRE(b.size() == 0);
+}
+
+TEST_CASE("FileBuffer::saveAtomic writes verbatim", "[mutation]") {
+    fb::FileBuffer b;
+    auto src = tmpFile("hello\nworld\n");
+    REQUIRE(b.load(src));
+    REQUIRE(b.insert(5, "!"));
+    auto dst = tmpFile("");
+    REQUIRE(b.saveAtomic(dst));
+
+    std::ifstream f(dst, std::ios::binary);
+    std::string out((std::istreambuf_iterator<char>(f)), {});
+    REQUIRE(out == "hello!\nworld\n");
+
+    // No leftover .tmp
+    std::string tmp = dst + ".tmp";
+    struct stat st;
+    REQUIRE(::stat(tmp.c_str(), &st) != 0);
+
+    ::unlink(dst.c_str());
+}
+
+TEST_CASE("FileBuffer::saveAtomic preserves CRLF bytes", "[mutation]") {
+    fb::FileBuffer b;
+    auto src = tmpFile("a\r\nb\r\n");
+    REQUIRE(b.load(src));
+    REQUIRE(b.crlf());
+    auto dst = tmpFile("");
+    REQUIRE(b.saveAtomic(dst));
+
+    std::ifstream f(dst, std::ios::binary);
+    std::string out((std::istreambuf_iterator<char>(f)), {});
+    REQUIRE(out == "a\r\nb\r\n");
+
+    ::unlink(dst.c_str());
+}
+
+TEST_CASE("FileBuffer::saveAtomic rename failure leaves tmp", "[mutation]") {
+    fb::FileBuffer b;
+    REQUIRE(b.load(tmpFile("x")));
+    // Pre-create dst as a directory to make rename fail (POSIX: rename
+    // file-onto-directory is EISDIR).
+    char dirpath[L_tmpnam];
+    std::tmpnam(dirpath);
+    REQUIRE(::mkdir(dirpath, 0755) == 0);
+    REQUIRE_FALSE(b.saveAtomic(dirpath));
+    REQUIRE(b.errnoCode() != 0);
+    std::string tmp = std::string(dirpath) + ".tmp";
+    struct stat st;
+    REQUIRE(::stat(tmp.c_str(), &st) == 0);
+    ::unlink(tmp.c_str());
+    ::rmdir(dirpath);
 }
