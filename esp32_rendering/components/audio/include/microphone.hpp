@@ -46,7 +46,7 @@ private:
     audio_bus::AudioBus& bus_;
     i2c_bsp::I2cMasterBus& i2c_;
     uint8_t addr_;
-    void* codec_handle_ = nullptr;
+    i2c_master_dev_handle_t codec_dev_ = nullptr;
     int8_t gain_l_ = 15, gain_r_ = 15;
     bool alc_ = false;
     SemaphoreHandle_t mtx_;
