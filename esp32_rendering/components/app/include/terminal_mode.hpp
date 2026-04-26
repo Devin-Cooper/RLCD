@@ -48,6 +48,17 @@ public:
     int cols() const;
     int rows() const;
 
+    /// Direct access to the renderer (used by TerminalScreen for the
+    /// scrollback view to call setScrollOffset / setRenderYOffset).
+    onebit::TerminalRenderer& renderer();
+
+    /// Mark all rows dirty for the next render. Forwards to the
+    /// underlying TerminalBuffer.
+    void markAllDirty();
+
+    /// Scrollback ring buffer fill level (line count, capped at capacity).
+    int scrollbackSize() const;
+
 private:
     onebit::IFramebuffer& fb_;
     std::unique_ptr<onebit::TerminalBuffer> buffer_;

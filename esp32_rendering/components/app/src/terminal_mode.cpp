@@ -99,4 +99,16 @@ int TerminalMode::rows() const {
     return buffer_ ? buffer_->rows() : 0;
 }
 
+onebit::TerminalRenderer& TerminalMode::renderer() {
+    return *renderer_;
+}
+
+void TerminalMode::markAllDirty() {
+    if (buffer_) buffer_->markAllDirty();
+}
+
+int TerminalMode::scrollbackSize() const {
+    return buffer_ ? buffer_->scrollbackSize() : 0;
+}
+
 } // namespace app
