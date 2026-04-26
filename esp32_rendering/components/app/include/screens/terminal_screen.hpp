@@ -2,6 +2,7 @@
 
 #include "screen.hpp"
 #include "screen_context.hpp"
+#include "command_registry.hpp"
 #include "terminal_mode.hpp"
 
 namespace app {
@@ -22,6 +23,9 @@ public:
     ScreenKind screenKind() const override { return ScreenKind::Terminal; }
     const char* breadcrumbLabel() const override { return "Terminal"; }
     bool wantsKeybindFooter() const override { return false; }
+
+    app::SpanView<const app::Command> getContextualCommands() override;
+    void dispatchContextual(uint16_t id) override;
 
     void feedSshData(const uint8_t* data, size_t len);
 
