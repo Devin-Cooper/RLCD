@@ -133,3 +133,8 @@ CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=4096
 # Larger TCP receive buffer for interactive SSH redraws.
 CONFIG_LWIP_SO_RCVBUF=y
 CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384
+
+# ESP_LOG timestamp source — wall-clock (HH:MM:SS.mmm) once SNTP/RTC sets
+# the system time. Falls back to "00:00:00.xxx" until then.
+CONFIG_LOG_TIMESTAMP_SOURCE_RTOS=n
+CONFIG_LOG_TIMESTAMP_SOURCE_SYSTEM=y
