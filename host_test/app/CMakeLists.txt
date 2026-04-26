@@ -47,10 +47,14 @@ add_host_test(
         test_overlay_manager.cpp
         "${APP_DIR}/src/overlay.cpp"
         "${APP_DIR}/src/animator.cpp"
+        "${APP_DIR}/src/screen_stack.cpp"
+        "${APP_DIR}/src/breadcrumb.cpp"
     INCLUDES
         "${APP_DIR}/include"
         "${RLCD_COMPONENTS}/input_queue/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
+    DEFINES
+        RLCD_HOST_TEST
 )
 
 add_host_test(

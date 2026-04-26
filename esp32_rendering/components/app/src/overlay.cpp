@@ -1,5 +1,8 @@
 #include "overlay.hpp"
+#include "screen_context.hpp"
+#include "screen_stack.hpp"
 #include <1bit/render/primitives.hpp>
+#include <cstdio>
 #include <cstring>
 #include <esp_log.h>
 
@@ -80,7 +83,72 @@ void OverlayManager::showConfirm(const char* title, const char* body,
     animator_.start(tag, 0, 100, kModalScaleUs, now_us_);
 }
 
+// --- Help modal (Phase 9) ---
+void OverlayManager::showHelp(const ScreenContext& ctx) {
+    if (modal_.active) return;                              // yield to Error/Info/Confirm
+    if (help_scale_state_ != HelpScaleState::Hidden) return; // already up
+
+    buildBreadcrumb(ctx.stack, help_breadcrumb_, sizeof(help_breadcrumb_));
+    auto* top = ctx.stack.top();
+    current_top_hints_ = top ? top->keybindHints()
+                             : SpanView<const KeybindHint>{};
+
+    help_scale_state_ = HelpScaleState::ScalingIn;
+    help_scale_complete_us_ = now_us_ + static_cast<int64_t>(kModalScaleUs);
+    auto tag = makeTag(TweenKind::ModalScale, 0);
+    animator_.start(tag, 0, 100, kModalScaleUs, now_us_);
+}
+
+void OverlayManager::hideHelp() {
+    if (help_scale_state_ != HelpScaleState::ScalingIn
+        && help_scale_state_ != HelpScaleState::Visible) return;
+    help_scale_state_ = HelpScaleState::ScalingOut;
+    help_scale_complete_us_ = now_us_ + static_cast<int64_t>(kModalScaleUs);
+    auto tag = makeTag(TweenKind::ModalScale, 0);
+    animator_.start(tag, 100, 0, kModalScaleUs, now_us_);
+}
+
+#ifdef RLCD_HOST_TEST
+void OverlayManager::showHelpForTest(const char* breadcrumb,
+                                     SpanView<const KeybindHint> hints) {
+    if (modal_.active) return;
+    if (help_scale_state_ != HelpScaleState::Hidden) return;
+    if (breadcrumb) {
+        std::strncpy(help_breadcrumb_, breadcrumb,
+                     sizeof(help_breadcrumb_) - 1);
+        help_breadcrumb_[sizeof(help_breadcrumb_) - 1] = '\0';
+    } else {
+        help_breadcrumb_[0] = '\0';
+    }
+    current_top_hints_ = hints;
+    help_scale_state_ = HelpScaleState::ScalingIn;
+    help_scale_complete_us_ = now_us_ + static_cast<int64_t>(kModalScaleUs);
+    auto tag = makeTag(TweenKind::ModalScale, 0);
+    animator_.start(tag, 0, 100, kModalScaleUs, now_us_);
+}
+#endif
+
 bool OverlayManager::handleInput(const input::InputEvent& evt) {
+    // Help modal: any input (button or keypress) dismisses. Modals take
+    // precedence — showHelp's guard prevents help opening over a modal,
+    // so help and modal are never both up simultaneously.
+    if (help_scale_state_ != HelpScaleState::Hidden
+        && help_scale_state_ != HelpScaleState::ScalingOut) {
+        // Only react to "real" input — ignore button release/none events.
+        if (evt.source == input::Source::Keyboard ||
+            (evt.source == input::Source::Button &&
+             (evt.type == input::EventType::ButtonShort ||
+              evt.type == input::EventType::ButtonLong))) {
+            hideHelp();
+            return true;  // consume; the same input doesn't fall through
+        }
+        return true;  // help up — swallow other event types too
+    }
+    if (help_scale_state_ == HelpScaleState::ScalingOut) {
+        // Tween settling — swallow to prevent double-trigger flicker.
+        return true;
+    }
+
     if (!modal_.active) return false;
 
     // Helper: kick off scale-out tween. The modal stays "active" until the
@@ -176,11 +244,24 @@ void OverlayManager::tick(int64_t now_us) {
         && now_us >= modal_.scale_complete_us) {
         modal_.active = false;
     }
+
+    // Help-modal scale-state advancement (mirrors Modal's lifecycle).
+    if (help_scale_state_ == HelpScaleState::ScalingIn
+        && now_us >= help_scale_complete_us_) {
+        help_scale_state_ = HelpScaleState::Visible;
+    }
+    if (help_scale_state_ == HelpScaleState::ScalingOut
+        && now_us >= help_scale_complete_us_) {
+        help_scale_state_ = HelpScaleState::Hidden;
+        current_top_hints_ = {};
+        help_breadcrumb_[0] = '\0';
+    }
 }
 
 void OverlayManager::render(onebit::IFramebuffer& fb,
                             const onebit::BitmapFont& font) {
-    if (toast_count_ == 0 && !modal_.active) return;
+    if (toast_count_ == 0 && !modal_.active
+        && help_scale_state_ == HelpScaleState::Hidden) return;
 
     const int16_t margin = 4;
     const int16_t pad = 3;
@@ -262,6 +343,78 @@ void OverlayManager::render(onebit::IFramebuffer& fb,
             }
         }
     }
+
+    // Help modal (Phase 9). Shares the ModalScale tween tag with the regular
+    // modal — safe because showHelp's guard ensures only one is active at a
+    // time. Drawn AFTER toasts/modal so its panel sits on top.
+    if (help_scale_state_ != HelpScaleState::Hidden && !modal_.active) {
+        auto tag = makeTag(TweenKind::ModalScale, 0);
+        int16_t scale = animator_.value(tag, now_us_);
+        if (scale > 0) renderHelpModal(fb, font, scale);
+    }
+}
+
+void OverlayManager::renderHelpModal(onebit::IFramebuffer& fb,
+                                     const onebit::BitmapFont& font,
+                                     int16_t scale) {
+    // Full-size dimensions tuned for 384x168 panel — leave a small frame.
+    int16_t panel_w = fb.width();
+    int16_t panel_h = fb.height();
+    int16_t full_w = (panel_w * 11) / 12;
+    int16_t full_h = (panel_h * 11) / 12;
+    int16_t cur_w = static_cast<int16_t>((full_w * scale) / 100);
+    int16_t cur_h = static_cast<int16_t>((full_h * scale) / 100);
+    int16_t x = (panel_w - cur_w) / 2;
+    int16_t y = (panel_h - cur_h) / 2;
+
+    onebit::fillRect(fb, x, y, cur_w, cur_h, onebit::WHITE);
+    onebit::drawRect(fb, x, y, cur_w, cur_h, onebit::BLACK);
+    if (scale < 80) return;  // scale-in still in progress: skip text
+
+    int16_t row_y = y + 4;
+    onebit::drawBitmapText(fb, font, x + 6, row_y, "Help", onebit::BLACK);
+    row_y += font.glyph_height + 3;
+    onebit::fillRect(fb, x + 4, row_y, cur_w - 8, 1, onebit::BLACK);
+    row_y += 3;
+
+    onebit::drawBitmapText(fb, font, x + 6, row_y,
+                           "Where you are:", onebit::BLACK);
+    row_y += font.glyph_height + 1;
+    onebit::drawBitmapText(fb, font, x + 12, row_y,
+                           help_breadcrumb_, onebit::BLACK);
+    row_y += font.glyph_height + 4;
+
+    onebit::drawBitmapText(fb, font, x + 6, row_y,
+                           "Keys on this screen:", onebit::BLACK);
+    row_y += font.glyph_height + 1;
+    // Reserve 4 lines worth of space at the bottom for the always-on chord
+    // cheatsheet so per-screen hints don't clobber it.
+    int16_t cheat_block_h = (font.glyph_height + 1) * 4 + 4;
+    int16_t per_screen_max_y = y + cur_h - cheat_block_h - 4;
+    for (size_t i = 0; i < current_top_hints_.size(); ++i) {
+        const auto& h = current_top_hints_[i];
+        char line[40];
+        std::snprintf(line, sizeof(line), "%-10s %s", h.key, h.label);
+        if (row_y + font.glyph_height > per_screen_max_y) break;
+        onebit::drawBitmapText(fb, font, x + 12, row_y, line, onebit::BLACK);
+        row_y += font.glyph_height + 1;
+    }
+
+    // Always-on chord cheatsheet at the bottom.
+    int16_t cheat_y = y + cur_h - cheat_block_h;
+    onebit::fillRect(fb, x + 4, cheat_y, cur_w - 8, 1, onebit::BLACK);
+    cheat_y += 2;
+    onebit::drawBitmapText(fb, font, x + 6, cheat_y,
+                           "Always available:", onebit::BLACK);
+    cheat_y += font.glyph_height + 1;
+    onebit::drawBitmapText(fb, font, x + 12, cheat_y,
+                           "Ctrl+K     command palette", onebit::BLACK);
+    cheat_y += font.glyph_height + 1;
+    onebit::drawBitmapText(fb, font, x + 12, cheat_y,
+                           "Ctrl+/     this help", onebit::BLACK);
+    cheat_y += font.glyph_height + 1;
+    onebit::drawBitmapText(fb, font, x + 12, cheat_y,
+                           "Btn A long pair keyboard", onebit::BLACK);
 }
 
 void OverlayManager::renderFooter(onebit::IFramebuffer& fb,
@@ -270,7 +423,7 @@ void OverlayManager::renderFooter(onebit::IFramebuffer& fb,
                                   int64_t /*now_us*/) {
     if (!top) return;
     if (!top->wantsKeybindFooter()) return;
-    if (help_visible_) return;
+    if (help_scale_state_ != HelpScaleState::Hidden) return;
     if (modal_.active) return;
     if (toast_count_ > 0) return;  // toast in flight overlaps footer y-range
 
