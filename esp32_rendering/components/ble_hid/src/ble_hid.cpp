@@ -178,6 +178,15 @@ void BleHidHost::disconnect() {
     setState(State::Disconnected);
 }
 
+bool BleHidHost::hasBond() const {
+    int count = 0;
+    if (ble_store_util_count(BLE_STORE_OBJ_TYPE_PEER_SEC, &count) == 0
+        && count > 0) {
+        return true;
+    }
+    return false;
+}
+
 void BleHidHost::autoReconnect() {
     int num_peers = 0;
     ble_store_util_count(BLE_STORE_OBJ_TYPE_PEER_SEC, &num_peers);

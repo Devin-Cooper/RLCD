@@ -68,6 +68,9 @@ public:
 
     State state() const { return state_.load(std::memory_order_acquire); }
 
+    /// True iff NimBLE bond storage has at least one peer-security entry.
+    bool hasBond() const;
+
 private:
     std::atomic<State> state_;
     KeyCallback key_cb_;
