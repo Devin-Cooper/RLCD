@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include "screen.hpp"
 #include "screen_context.hpp"
 #include "command_registry.hpp"
@@ -30,7 +32,22 @@ public:
     void feedSshData(const uint8_t* data, size_t len);
 
 private:
+    enum class Mode : uint8_t { Live, Scrollback };
+
     ScreenContext& ctx_;
+    Mode mode_           = Mode::Live;
+    int  scroll_offset_  = 0;
+
+    void enterScrollback(int initial_page_lines);
+    void exitScrollback();
+    void scrollBy(int delta_lines);
+    void scrollToTop();
+    void scrollToLive();             // also exits if successful
+    void bounceUp();
+    void bounceDown();
+    void triggerBounce(int16_t from_dy);
+    int  pageLines() const;
+    int  maxOffset() const;
 };
 
 } // namespace app
