@@ -16,6 +16,7 @@ public:
 
     bool isTransparent() const override { return true; }
     bool wantsKeybindFooter() const override { return false; }
+    bool wantsStatusBar() const override { return false; }
     bool bypassesKeyboardGate() const override { return true; }
     ScreenKind screenKind() const override { return ScreenKind::KeyboardGate; }
     const char* breadcrumbLabel() const override { return "Keyboard"; }

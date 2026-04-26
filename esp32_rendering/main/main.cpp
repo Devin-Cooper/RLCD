@@ -36,6 +36,7 @@
 #include "screen_stack.hpp"
 #include "screen_context.hpp"
 #include "overlay.hpp"
+#include "status_row.hpp"
 #include "ble_soft_toast_watcher.hpp"
 #include "font_for_size.hpp"
 #include "screens/dashboard_screen.hpp"
@@ -680,6 +681,7 @@ extern "C" void app_main() {
     app::ScreenStack stack;
     app::Animator animator;
     app::OverlayManager overlay(animator);
+    static app::StatusRow statusRow(timeService);
 
     app::ScreenContext ctx{
         fb, display, sshClient, wifiMgr, *configMgr, keyStore, bleHost, settings,
@@ -952,6 +954,9 @@ extern "C" void app_main() {
         // Render — fully stack-driven
         // ----------------------------------------------------------
         stack.renderAll(fb, fontForSize(currentFontSize), frameStart);
+        if (auto* top = stack.top(); !top || top->wantsStatusBar()) {
+            statusRow.render(fb, fontForSize(currentFontSize));
+        }
         overlay.renderFooter(fb, fontForSize(currentFontSize), stack.top(), frameStart);
         overlay.render(fb, fontForSize(currentFontSize));
 

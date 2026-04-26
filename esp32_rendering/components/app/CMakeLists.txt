@@ -6,6 +6,7 @@ idf_component_register(
         "src/settings.cpp"
         "src/screen_stack.cpp"
         "src/overlay.cpp"
+        "src/status_row.cpp"
         "src/text_input.cpp"
         "src/font_for_size.cpp"
         "src/animator.cpp"
