@@ -124,7 +124,42 @@ void AudioBus::rxFlush() {
 
 void AudioBus::txTaskTramp(void* arg) { static_cast<AudioBus*>(arg)->txLoop(); }
 void AudioBus::rxTaskTramp(void* arg) { static_cast<AudioBus*>(arg)->rxLoop(); }
-void AudioBus::txLoop() {}
-void AudioBus::rxLoop() {}
+
+void AudioBus::txLoop() {
+    constexpr size_t kFrameBytes = 240 * 2;  // 240 frames * 2 bytes (mono 16-bit)
+    static uint8_t buf[kFrameBytes];
+
+    while (running_.load()) {
+        size_t got = xStreamBufferReceive(tx_ring_, buf, kFrameBytes, pdMS_TO_TICKS(10));
+        if (got == 0) {
+            // Underrun — write silence so MCLK keeps flowing for the codecs.
+            std::memset(buf, 0, kFrameBytes);
+            tx_underruns_.fetch_add(1);
+            got = kFrameBytes;
+        }
+        size_t written = 0;
+        i2s_channel_write(tx_chan_, buf, got, &written, portMAX_DELAY);
+        tx_frames_.fetch_add(written / 2);
+    }
+}
+
+void AudioBus::rxLoop() {
+    constexpr size_t kFrameBytes = 240 * 4;  // 240 frames * 4 bytes (stereo 16-bit)
+    static uint8_t buf[kFrameBytes];
+
+    while (running_.load()) {
+        size_t got = 0;
+        i2s_channel_read(rx_chan_, buf, kFrameBytes, &got, portMAX_DELAY);
+        if (got == 0) continue;
+        rx_frames_.fetch_add(got / 4);
+
+        // Drop frames if no consumer or still in mic warm-up.
+        if (!rx_consumer_active_.load()) continue;
+        if (rxWarmupRemainingUs() > 0) continue;
+
+        size_t sent = xStreamBufferSend(rx_ring_, buf, got, 0);
+        if (sent < got) rx_overruns_.fetch_add(1);
+    }
+}
 
 }  // namespace audio_bus
