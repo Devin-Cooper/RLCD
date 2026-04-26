@@ -219,3 +219,12 @@ add_host_test(
     INCLUDES
         "${RLCD_COMPONENTS}/file_browser/include"
 )
+
+add_host_test(
+    NAME test_dir_listing
+    SOURCES
+        test_dir_listing.cpp
+        "${RLCD_COMPONENTS}/file_browser/src/dir_listing.cpp"
+    INCLUDES
+        "${RLCD_COMPONENTS}/file_browser/include"
+)
