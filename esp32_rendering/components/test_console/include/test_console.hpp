@@ -10,6 +10,7 @@ namespace sdcard  { class ConfigManager; }
 namespace ble_hid { class BleHidHost; }
 namespace ssh      { class SshClient; }
 namespace ssh_keys { class KeyStore; }
+namespace audio    { class Speaker; class Microphone; }
 
 namespace test_console {
 
@@ -23,6 +24,8 @@ struct Context {
     ssh::SshClient&        sshClient;
     ssh_keys::KeyStore&    keyStore;
     app::Settings&         settings;
+    audio::Speaker&        speaker;
+    audio::Microphone&     microphone;
 };
 
 /// Initialize esp_console on UART0, register all commands, start REPL

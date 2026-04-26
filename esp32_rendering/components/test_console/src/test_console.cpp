@@ -66,6 +66,7 @@ void registerInjectionCommands();
 void registerNvsCommands();
 void registerFsCommands();
 void registerSshCommands();
+void registerAudioCommands();
 } // namespace test_console
 
 namespace ssh_keys { void registerSshKeysCommands(); }
@@ -104,6 +105,7 @@ void init(Context& ctx) {
     registerNvsCommands();
     registerFsCommands();
     registerSshCommands();
+    registerAudioCommands();
     ssh_keys::registerSshKeysCommands();
 
     ESP_ERROR_CHECK(esp_console_start_repl(repl));

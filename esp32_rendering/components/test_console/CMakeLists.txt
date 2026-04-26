@@ -8,6 +8,7 @@ if(CONFIG_TEST_CONSOLE_ENABLED)
         "src/commands_fs.cpp"
         "src/commands_fs_write.cpp"
         "src/commands_ssh.cpp"
+        "src/commands_audio.cpp"
     )
 else()
     set(TEST_CONSOLE_SRCS "")
@@ -33,6 +34,7 @@ idf_component_register(
         vfs
         onebit
         json
+        audio
 )
 if(CONFIG_TEST_CONSOLE_ENABLED)
     target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)

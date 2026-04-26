@@ -815,7 +815,8 @@ extern "C" void app_main() {
 
 #if CONFIG_TEST_CONSOLE_ENABLED
     static test_console::Context tctx{
-        fb, stack, overlay, wifiMgr, *configMgr, bleHost, sshClient, keyStore, settings
+        fb, stack, overlay, wifiMgr, *configMgr, bleHost, sshClient, keyStore, settings,
+        speaker, microphone
     };
     test_console::init(tctx);
 #endif
