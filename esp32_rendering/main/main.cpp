@@ -41,6 +41,7 @@
 #include "screens/terminal_screen.hpp"
 #include "screens/pairing_screen.hpp"
 #include "screens/wifi_screen.hpp"
+#include "screens/command_palette.hpp"
 #include "test_console.hpp"
 #include "boot_validator.hpp"
 
@@ -843,6 +844,20 @@ extern "C" void app_main() {
                     overlay.hideHelp();
                 } else {
                     overlay.showHelp(ctx);
+                }
+                continue;
+            }
+            // Phase 11: Ctrl+K (byte 0x0B) opens the command palette.
+            // Refused if the palette is already top, or if the keyboard
+            // gate is still up (palette needs a keyboard to be useful).
+            if (evt.source == input::Source::Keyboard &&
+                evt.type   == input::EventType::Keypress &&
+                evt.data_length >= 1 &&
+                evt.data[0] == 0x0B) {
+                auto kind = stack.top()->screenKind();
+                if (kind != app::ScreenKind::CommandPalette &&
+                    kind != app::ScreenKind::KeyboardGate) {
+                    stack.push(std::make_unique<app::CommandPalette>(ctx));
                 }
                 continue;
             }
