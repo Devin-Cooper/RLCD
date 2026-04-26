@@ -2,6 +2,7 @@
 
 #include "screen.hpp"
 #include "screen_context.hpp"
+#include "command_registry.hpp"
 #include "ssh_key_types.hpp"
 
 namespace app {
@@ -17,6 +18,9 @@ public:
     void render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font) override;
 
     app::SpanView<const app::KeybindHint> keybindHints() const override;
+
+    app::SpanView<const app::Command> getContextualCommands() override;
+    void dispatchContextual(uint16_t id) override;
 
 private:
     ScreenContext& ctx_;

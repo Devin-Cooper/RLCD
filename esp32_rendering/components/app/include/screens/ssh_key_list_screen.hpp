@@ -4,6 +4,7 @@
 #include "screen_context.hpp"
 #include "animator.hpp"
 #include "command_ids.hpp"
+#include "command_registry.hpp"
 
 #include <functional>
 #include <string>
@@ -32,6 +33,9 @@ public:
     void render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font) override;
 
     app::SpanView<const app::KeybindHint> keybindHints() const override;
+
+    app::SpanView<const app::Command> getContextualCommands() override;
+    void dispatchContextual(uint16_t id) override;
 
 private:
     ScreenContext& ctx_;

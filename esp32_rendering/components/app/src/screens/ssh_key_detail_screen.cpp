@@ -32,10 +32,36 @@ constexpr std::array<app::KeybindHint, 5> kHints = {{
 }};
 static_assert(sizeof("Ctrl+/") <= 12 && sizeof("delete") <= 16,
               "kHints contains a string longer than KeybindHint capacity");
+
+constexpr std::array<app::Command, 3> kContextual = {{
+    {"Show pubkey QR",   "Q",    0xFF51},
+    {"Show pubkey text", "T",    0xFF52},
+    {"Delete this key",  "Sh-D", 0xFF53},
+}};
 } // namespace
 
 app::SpanView<const app::KeybindHint> SshKeyDetailScreen::keybindHints() const {
     return kHints;
+}
+
+app::SpanView<const app::Command> SshKeyDetailScreen::getContextualCommands() {
+    return app::SpanView<const app::Command>(kContextual.data(),
+                                              kContextual.size());
+}
+
+void SshKeyDetailScreen::dispatchContextual(uint16_t id) {
+    switch (id) {
+        case 0xFF51:
+            ctx_.stack.push(std::make_unique<SshKeyPubkeyQrScreen>(ctx_, id_));
+            break;
+        case 0xFF52:
+            ctx_.stack.push(std::make_unique<SshKeyPubkeyTextScreen>(ctx_, id_));
+            break;
+        case 0xFF53:
+            confirmDelete();
+            break;
+        default: break;
+    }
 }
 
 static const char* type_full_name(ssh_keys::KeyType t, uint16_t rsa_bits) {

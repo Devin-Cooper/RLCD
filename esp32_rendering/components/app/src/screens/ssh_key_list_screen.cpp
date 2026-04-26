@@ -33,10 +33,39 @@ constexpr std::array<app::KeybindHint, 7> kHints = {{
 }};
 static_assert(sizeof("[up/dn]") <= 12 && sizeof("generate") <= 16,
               "kHints contains a string longer than KeybindHint capacity");
+
+constexpr std::array<app::Command, 3> kContextual = {{
+    {"Generate",           "G",    0xFF41},
+    {"Import",             "I",    0xFF42},
+    {"Delete highlighted", "Sh-D", 0xFF43},
+}};
 } // namespace
 
 app::SpanView<const app::KeybindHint> SshKeyListScreen::keybindHints() const {
     return kHints;
+}
+
+app::SpanView<const app::Command> SshKeyListScreen::getContextualCommands() {
+    return app::SpanView<const app::Command>(kContextual.data(),
+                                              kContextual.size());
+}
+
+void SshKeyListScreen::dispatchContextual(uint16_t id) {
+    // Browse-mode actions only; in Picker mode the palette is a no-op.
+    // (Picker mode stays accessible to its own navigation.)
+    if (mode_ != Mode::Browse) return;
+    switch (id) {
+        case 0xFF41:
+            ctx_.stack.push(std::make_unique<SshKeyGenerateScreen>(ctx_));
+            break;
+        case 0xFF42:
+            ctx_.stack.push(std::make_unique<SshKeyImportScreen>(ctx_));
+            break;
+        case 0xFF43:
+            confirmDelete();
+            break;
+        default: break;
+    }
 }
 
 SshKeyListScreen::SshKeyListScreen(ScreenContext& ctx)
