@@ -4,6 +4,7 @@ idf_component_register(
         "src/microphone.cpp"
         "src/pa_ctrl.cpp"
         "src/audio_helpers.cpp"
+        "src/audio_helpers_pure.cpp"
     INCLUDE_DIRS
         "include"
     REQUIRES
