@@ -243,11 +243,61 @@ SpanView<const KeybindHint> EditorScreen::keybindHints() const { return {}; }
 SpanView<const Command> EditorScreen::getContextualCommands() { return {}; }
 void EditorScreen::dispatchContextual(uint16_t /*id*/) {}
 
-// Stubs filled in by later tasks:
 void EditorScreen::invalidateSelection() { anchor_line_ = -1; anchor_byte_col_ = 0; }
-void EditorScreen::normalizeSelection(int&, int&, int&, int&) const {}
-std::size_t EditorScreen::cursorByteOffset() const { return 0; }
-void EditorScreen::cursorFromByteOffset(std::size_t) {}
+
+void EditorScreen::normalizeSelection(int& a_l, int& a_c, int& b_l, int& b_c) const {
+    a_l = anchor_line_; a_c = anchor_byte_col_;
+    b_l = line_;        b_c = byte_col_;
+    if (a_l > b_l || (a_l == b_l && a_c > b_c)) {
+        std::swap(a_l, b_l);
+        std::swap(a_c, b_c);
+    }
+}
+
+std::size_t EditorScreen::cursorByteOffset() const {
+    if (line_ >= (int)buffer_.lineCount()) return buffer_.size();
+    auto off = buffer_.lineOffset((std::size_t)line_);
+    return off + (std::size_t)byte_col_;
+}
+
+void EditorScreen::cursorFromByteOffset(std::size_t pos) {
+    int total = (int)buffer_.lineCount();
+    if (total == 0) {
+        line_ = 0; byte_col_ = 0; sticky_display_col_ = 0;
+        return;
+    }
+    for (int i = 0; i < total; ++i) {
+        std::size_t a = buffer_.lineOffset((std::size_t)i);
+        std::size_t b = (i + 1 < total) ? buffer_.lineOffset((std::size_t)i + 1)
+                                         : buffer_.size();
+        if (pos >= a && pos <= b) {
+            line_ = i;
+            byte_col_ = (int)(pos - a);
+            sticky_display_col_ = displayColForByteCol(line_, byte_col_);
+            return;
+        }
+    }
+    // Fallback: clamp to end of last line.
+    line_ = total - 1;
+    byte_col_ = (int)buffer_.line((std::size_t)line_).size();
+    sticky_display_col_ = displayColForByteCol(line_, byte_col_);
+}
+
+namespace {
+// Erases the current selection in the buffer; writes the start byte-pos and
+// length to out_pos / out_len. Returns false when the selection is empty.
+bool eraseSelectionInBuffer(fb::FileBuffer& buf,
+                            int a_l, int a_c, int b_l, int b_c,
+                            std::size_t& out_pos, std::size_t& out_len) {
+    if (a_l == b_l && a_c == b_c) return false;
+    auto a_off = buf.lineOffset((std::size_t)a_l) + (std::size_t)a_c;
+    auto b_off = buf.lineOffset((std::size_t)b_l) + (std::size_t)b_c;
+    out_pos = a_off;
+    out_len = b_off - a_off;
+    buf.erase(a_off, b_off - a_off);
+    return true;
+}
+}  // namespace
 int EditorScreen::displayColForByteCol(int line, int byte_col) const {
     if (line < 0 || line >= (int)buffer_.lineCount()) return 0;
     auto raw_off = buffer_.lineOffset((std::size_t)line);
@@ -279,12 +329,87 @@ void EditorScreen::ensureCursorVisible() {
     if (dc < hscroll_) hscroll_ = dc;
     if (dc >= hscroll_ + kCols) hscroll_ = dc - kCols + 1;
 }
-bool EditorScreen::ensureSnapshot() { return buffer_.snapshot(); }
+bool EditorScreen::ensureSnapshot() {
+    if (buffer_.hasSnapshot()) return true;
+    if (!buffer_.snapshot()) {
+        ctx_.overlay.showError("Editor", "Undo unavailable (low PSRAM)");
+    }
+    return buffer_.hasSnapshot();
+}
 
-void EditorScreen::onPrintable(char) {}
-void EditorScreen::onEnterKey() {}
-void EditorScreen::onBackspace() {}
-void EditorScreen::onDelete() {}
+void EditorScreen::onPrintable(char c) {
+    ensureSnapshot();
+    if (hasSelection()) {
+        int a_l, a_c, b_l, b_c; normalizeSelection(a_l, a_c, b_l, b_c);
+        std::size_t pos = 0, len = 0;
+        eraseSelectionInBuffer(buffer_, a_l, a_c, b_l, b_c, pos, len);
+        cursorFromByteOffset(pos);
+        invalidateSelection();
+    }
+    char tmp[1] = { c };
+    std::size_t pos = cursorByteOffset();
+    if (buffer_.insert(pos, std::string_view(tmp, 1))) {
+        cursorFromByteOffset(pos + 1);
+    } else {
+        ctx_.overlay.showError("Editor", "File size limit reached");
+    }
+}
+
+void EditorScreen::onEnterKey() {
+    ensureSnapshot();
+    if (hasSelection()) {
+        int a_l, a_c, b_l, b_c; normalizeSelection(a_l, a_c, b_l, b_c);
+        std::size_t pos = 0, len = 0;
+        eraseSelectionInBuffer(buffer_, a_l, a_c, b_l, b_c, pos, len);
+        cursorFromByteOffset(pos);
+        invalidateSelection();
+    }
+    std::size_t pos = cursorByteOffset();
+    std::string_view nl = buffer_.crlf() ? std::string_view("\r\n", 2)
+                                          : std::string_view("\n", 1);
+    if (buffer_.insert(pos, nl)) {
+        cursorFromByteOffset(pos + nl.size());
+    }
+}
+
+void EditorScreen::onBackspace() {
+    ensureSnapshot();
+    if (hasSelection()) {
+        int a_l, a_c, b_l, b_c; normalizeSelection(a_l, a_c, b_l, b_c);
+        std::size_t pos = 0, len = 0;
+        eraseSelectionInBuffer(buffer_, a_l, a_c, b_l, b_c, pos, len);
+        cursorFromByteOffset(pos);
+        invalidateSelection();
+        return;
+    }
+    std::size_t pos = cursorByteOffset();
+    if (pos == 0) return;
+    std::size_t back = 1;
+    if (buffer_.crlf() && pos >= 2
+        && buffer_.data()[pos - 2] == '\r'
+        && buffer_.data()[pos - 1] == '\n') back = 2;
+    if (buffer_.erase(pos - back, back)) {
+        cursorFromByteOffset(pos - back);
+    }
+}
+
+void EditorScreen::onDelete() {
+    ensureSnapshot();
+    if (hasSelection()) {
+        int a_l, a_c, b_l, b_c; normalizeSelection(a_l, a_c, b_l, b_c);
+        std::size_t pos = 0, len = 0;
+        eraseSelectionInBuffer(buffer_, a_l, a_c, b_l, b_c, pos, len);
+        cursorFromByteOffset(pos);
+        invalidateSelection();
+        return;
+    }
+    std::size_t pos = cursorByteOffset();
+    if (pos >= buffer_.size()) return;
+    std::size_t fwd = 1;
+    if (buffer_.crlf() && pos + 1 < buffer_.size()
+        && buffer_.data()[pos] == '\r' && buffer_.data()[pos + 1] == '\n') fwd = 2;
+    buffer_.erase(pos, fwd);
+}
 void EditorScreen::onMove(int dline, int dcol, bool extend) {
     if (!extend) invalidateSelection();
     else if (anchor_line_ < 0) { anchor_line_ = line_; anchor_byte_col_ = byte_col_; }
