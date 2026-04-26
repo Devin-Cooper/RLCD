@@ -36,6 +36,7 @@
 #include "screen_stack.hpp"
 #include "screen_context.hpp"
 #include "overlay.hpp"
+#include "ble_soft_toast_watcher.hpp"
 #include "font_for_size.hpp"
 #include "screens/dashboard_screen.hpp"
 #include "screens/terminal_screen.hpp"
@@ -704,6 +705,11 @@ extern "C" void app_main() {
         return true;
     });
 
+    // Phase 14: soft-toast watcher fires "Keyboard offline" when a bonded
+    // keyboard transitions Connected/Connecting -> Disconnected and the top
+    // screen is non-primary (i.e. not Dashboard/Terminal).
+    app::BleSoftToastWatcher watcher(overlay, stack, bleHost);
+
     stack.push(std::make_unique<app::DashboardScreen>(ctx));
 
     // Wire WifiManager error callbacks now that overlay is in scope.
@@ -845,6 +851,7 @@ extern "C" void app_main() {
             // modals never swallow backend state transitions.
             if (evt.source == input::Source::System) {
                 stack.top()->handleInput(evt, stack);
+                watcher.observe(evt);   // Phase 14: soft-toast on bond+disconnect
                 continue;
             }
             // Phase 9: Ctrl+/ (byte 0x1F) toggles the global help modal.
