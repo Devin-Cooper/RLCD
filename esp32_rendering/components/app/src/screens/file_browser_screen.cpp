@@ -6,7 +6,13 @@
 #include "command_ids.hpp"
 #include "sdcard_manager.hpp"
 #include "path_helpers.hpp"
+#include "command_registry.hpp"
 #include <memory>
+#include <dirent.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <cerrno>
+#include <cstring>
 
 #include <1bit/render/primitives.hpp>
 #include <1bit/render/bitmap_font.hpp>
@@ -262,8 +268,33 @@ void FileBrowserScreen::goUp(ScreenStack& stack) {
     reload();
 }
 
-void FileBrowserScreen::runDelete(const std::string& /*full_path*/, bool /*is_dir*/) {
-    // Task 12.
+void FileBrowserScreen::runDelete(const std::string& full_path, bool is_dir) {
+    int rc;
+    if (is_dir) {
+        // Pre-check: empty?
+        DIR* d = opendir(full_path.c_str());
+        if (d) {
+            int n = 0;
+            struct dirent* de;
+            while ((de = readdir(d)) != nullptr) {
+                if (std::strcmp(de->d_name, ".") == 0
+                    || std::strcmp(de->d_name, "..") == 0) continue;
+                ++n; if (n > 0) break;
+            }
+            closedir(d);
+            if (n > 0) { ctx_.overlay.showError("Cannot delete", "Directory not empty"); return; }
+        }
+        rc = ::rmdir(full_path.c_str());
+    } else {
+        rc = ::unlink(full_path.c_str());
+    }
+    if (rc != 0) {
+        last_failed_op_ = [this, full_path, is_dir]() { runDelete(full_path, is_dir); };
+        showMidOpError(is_dir ? "rmdir" : "unlink", errno);
+        return;
+    }
+    ESP_LOGI(TAG, "deleted %s", full_path.c_str());
+    reload();
 }
 
 void FileBrowserScreen::runRename(const std::string& /*old_full*/, const std::string& /*new_name*/) {
@@ -284,8 +315,55 @@ const char* FileBrowserScreen::validateName(const std::string& /*n*/) {
     return nullptr;
 }
 
+namespace {
+constexpr Command kBrowserContextual[] = {
+    { "Delete current entry", "", 0xFF50 },
+    { "Rename current entry", "", 0xFF51 },
+    { "New folder...",        "", 0xFF52 },
+    { "Show/Hide hidden",     "", 0xFF53 },
+};
+}  // namespace
+
 SpanView<const KeybindHint> FileBrowserScreen::keybindHints() const { return {}; }
-SpanView<const Command> FileBrowserScreen::getContextualCommands() { return {}; }
-void FileBrowserScreen::dispatchContextual(uint16_t /*id*/) {}
+
+SpanView<const Command> FileBrowserScreen::getContextualCommands() {
+    return SpanView<const Command>(kBrowserContextual, 4);
+}
+
+void FileBrowserScreen::dispatchContextual(uint16_t id) {
+    if (selected_ < 0 || selected_ >= (int)listing_.entries().size()) return;
+    const auto& e = listing_.entries()[selected_];
+
+    switch (id) {
+        case 0xFF50: {  // Delete
+            if (!e.bookmark_target.empty()) {
+                ctx_.overlay.showError("Cannot modify", "Bookmark row");
+                return;
+            }
+            std::string full = fb::path::join(current_path_, e.name);
+            char body[80];
+            char sz[16]; formatSize(e.size, sz);
+            std::snprintf(body, sizeof(body), "Delete '%s' (%s)?",
+                          e.name.c_str(), e.is_dir ? "folder" : sz);
+            bool was_dir = e.is_dir;
+            ctx_.overlay.showConfirm("Confirm delete", body,
+                [this, full, was_dir](bool yes) {
+                    if (!yes) return;
+                    runDelete(full, was_dir);
+                });
+            return;
+        }
+        case 0xFF53: {  // Toggle hidden
+            hidden_ = (hidden_ == fb::DirListing::HiddenMode::Hide)
+                ? fb::DirListing::HiddenMode::Show
+                : fb::DirListing::HiddenMode::Hide;
+            reload();
+            return;
+        }
+        case 0xFF51:    // Rename — Task 13
+        case 0xFF52:    // Mkdir — Task 13
+        default: return;
+    }
+}
 
 }  // namespace app
