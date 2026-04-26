@@ -8,8 +8,11 @@
 #include "ssh_client.hpp"
 #include "animator.hpp"
 #include "command_ids.hpp"
+#include <1bit/render/primitives.hpp>
+#include <1bit/render/bitmap_font.hpp>
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <cstring>
 #include <esp_log.h>
 #include <esp_timer.h>
@@ -278,11 +281,49 @@ void TerminalScreen::handleInput(const input::InputEvent& evt,
 }
 
 void TerminalScreen::render(onebit::IFramebuffer& fb,
-                            const onebit::BitmapFont&) {
-    (void)fb;
-    // TerminalMode::render() writes to its constructor-held fb ref.
-    // Accepted wart — TerminalScreen is a thin pass-through.
+                            const onebit::BitmapFont& term_font) {
+    // 1. Read bounce y-offset (0 if no bounce in flight).
+    int64_t now = esp_timer_get_time();
+    auto bt = makeTag(TweenKind::ScrollbackBounce,
+                      bounce_id::TerminalScrollback);
+    int16_t dy = ctx_.animator.inProgress(bt, now)
+               ? ctx_.animator.value(bt, now)
+               : 0;
+
+    // 2. Apply render-y-offset to the renderer (gated by mode).
+    auto& tr = ctx_.terminalMode.renderer();
+    tr.setRenderYOffset(mode_ == Mode::Scrollback ? dy : 0);
+
+    // 3. Render the terminal grid (live or scrollback per current offset).
     ctx_.terminalMode.render();
+
+    // 4. In scrollback mode, draw overlay (caret + indicator).
+    if (mode_ == Mode::Scrollback) {
+        // Viewing-position caret '>' at row 0 col 0 (with bounce dy).
+        int16_t cell_w = term_font.glyph_width;
+        int16_t cell_h = term_font.glyph_height + 1;
+        int16_t cx = 0;
+        int16_t cy = 0 + dy;
+        onebit::fillRect(fb, cx, cy, cell_w, cell_h, onebit::BLACK);
+        onebit::drawBitmapText(fb, term_font, cx, cy, ">", onebit::WHITE);
+
+        // Floating indicator at top-right (5x7 font, regardless of term font).
+        constexpr int16_t kIndW = 60;
+        constexpr int16_t kIndH = 12;
+        int16_t panel_w = fb.width();
+        int16_t ix = panel_w - kIndW - 4;
+        int16_t iy = 4;
+        onebit::fillRect(fb, ix, iy, kIndW, kIndH, onebit::WHITE);
+        onebit::drawRect(fb, ix, iy, kIndW, kIndH, onebit::BLACK);
+
+        const auto& small_font = app::fontForSize(0);
+        char text[16];
+        std::snprintf(text, sizeof(text), "BACK -%d", scroll_offset_);
+        int16_t tw = onebit::getBitmapTextWidth(small_font, text);
+        int16_t tx = ix + (kIndW - tw) / 2;
+        int16_t ty = iy + (kIndH - small_font.glyph_height) / 2 + 1;
+        onebit::drawBitmapText(fb, small_font, tx, ty, text, onebit::BLACK);
+    }
 }
 
 } // namespace app
