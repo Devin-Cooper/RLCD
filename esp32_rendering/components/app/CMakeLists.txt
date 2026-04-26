@@ -19,6 +19,7 @@ idf_component_register(
         "src/screens/terminal_screen.cpp"
         "src/screens/menu_screen.cpp"
         "src/screens/pairing_screen.cpp"
+        "src/screens/keyboard_gate.cpp"
         "src/screens/about_screen.cpp"
         "src/screens/wifi_screen.cpp"
         "src/screens/password_screen.cpp"
