@@ -167,7 +167,13 @@ bool Speaker::init() {
     return true;
 }
 
-bool Speaker::play(const int16_t*, size_t, TickType_t) { return false; }
+bool Speaker::play(const int16_t* pcm, size_t frames, TickType_t timeout) {
+    if (!codec_dev_) return false;
+    if (!awake_.load()) wake();
+    size_t bytes = frames * sizeof(int16_t);
+    size_t sent = bus_.write(pcm, bytes, timeout);
+    return sent == bytes;
+}
 
 void Speaker::setVolume(uint8_t v) {
     if (v > 100) v = 100;
