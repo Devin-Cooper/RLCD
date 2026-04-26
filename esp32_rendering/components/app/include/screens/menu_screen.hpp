@@ -30,6 +30,8 @@ public:
     void render(onebit::IFramebuffer& fb,
                 const onebit::BitmapFont& font) override;
 
+    app::SpanView<const app::KeybindHint> keybindHints() const override;
+
     Item selected() const { return static_cast<Item>(selected_index_); }
 
 private:

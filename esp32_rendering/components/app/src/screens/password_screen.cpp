@@ -2,10 +2,26 @@
 #include "screen_stack.hpp"
 #include "overlay.hpp"
 #include <1bit/render/primitives.hpp>
+#include <array>
 #include <cstring>
 #include <cstdio>
 
 namespace app {
+
+namespace {
+constexpr std::array<app::KeybindHint, 4> kHints = {{
+    {"Enter",  "connect"},
+    {"Tab",    "show"},
+    {"Esc",    "cancel"},
+    {"Ctrl+/", "help"},
+}};
+static_assert(sizeof("Ctrl+/") <= 12 && sizeof("connect") <= 16,
+              "kHints contains a string longer than KeybindHint capacity");
+} // namespace
+
+app::SpanView<const app::KeybindHint> PasswordScreen::keybindHints() const {
+    return kHints;
+}
 
 static bool isTerminalDisconnectReason(uint8_t reason) {
     // Reasons that indicate we should stop waiting for a connect and

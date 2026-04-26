@@ -9,12 +9,29 @@
 #include "screen_stack.hpp"
 #include "overlay.hpp"
 #include <1bit/render/primitives.hpp>
+#include <array>
 #include <esp_log.h>
 #include <esp_timer.h>
 
 static const char* TAG = "menu_screen";
 
 namespace app {
+
+namespace {
+constexpr std::array<app::KeybindHint, 5> kHints = {{
+    {"[up/dn]", "nav"},
+    {"Enter",   "run"},
+    {"Esc",     "close"},
+    {"Ctrl+K",  "palette"},
+    {"Ctrl+/",  "help"},
+}};
+static_assert(sizeof("[up/dn]") <= 12 && sizeof("palette") <= 16,
+              "kHints contains a string longer than KeybindHint capacity");
+} // namespace
+
+app::SpanView<const app::KeybindHint> MenuScreen::keybindHints() const {
+    return kHints;
+}
 
 const char* MenuScreen::itemLabel(int index) {
     switch (static_cast<Item>(index)) {
