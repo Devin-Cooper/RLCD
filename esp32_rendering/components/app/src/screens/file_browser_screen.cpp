@@ -335,9 +335,27 @@ void FileBrowserScreen::runMkdir(const std::string& parent,
     }
 }
 
-void FileBrowserScreen::showMidOpError(const char*, int) {
-    // Task 14.
-    ctx_.overlay.showError("SD error", "(retry path: Task 14)");
+void FileBrowserScreen::showMidOpError(const char* op, int err_code) {
+    char body[120];
+    std::snprintf(body, sizeof(body), "%s: %s\nRetry? (No -> /sdcard)", op, std::strerror(err_code));
+    ctx_.overlay.showConfirm("SD card error", body,
+        [this](bool yes) {
+            if (yes && last_failed_op_) {
+                auto op = std::move(last_failed_op_);
+                last_failed_op_ = nullptr;
+                op();
+            } else {
+                last_failed_op_ = nullptr;
+                nav_history_.clear();
+                current_path_ = "/sdcard";
+                if (!ensureMounted()) {
+                    state_ = State::NoSdcard;
+                } else {
+                    selected_ = 0; scroll_top_ = 0;
+                    reload();
+                }
+            }
+        });
 }
 
 const char* FileBrowserScreen::validateName(const std::string& n) {
