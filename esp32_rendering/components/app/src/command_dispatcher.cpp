@@ -12,6 +12,8 @@
 #include "screens/settings_screen.hpp"
 #include "screens/about_screen.hpp"
 #include "screens/pairing_screen.hpp"
+#include "screens/speaker_test_screen.hpp"
+#include "screens/mic_test_screen.hpp"
 #include "config_manager.hpp"
 #include "overlay.hpp"
 #include <esp_log.h>
@@ -89,6 +91,12 @@ DispatchResult dispatchCommand(uint16_t id, ScreenContext& ctx) {
         case cmd_id::SwitchToNextServer:
             if (ctx.switchToNextServer) ctx.switchToNextServer();
             return DispatchResult::ScreenStays;
+        case cmd_id::SpeakerTest:
+            ctx.stack.push(std::make_unique<SpeakerTestScreen>(ctx));
+            return DispatchResult::StackChanged;
+        case cmd_id::MicTest:
+            ctx.stack.push(std::make_unique<MicTestScreen>(ctx));
+            return DispatchResult::StackChanged;
     }
 
     ESP_LOGW(TAG, "dispatchCommand: unknown id 0x%04x", id);

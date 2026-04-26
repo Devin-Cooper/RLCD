@@ -7,11 +7,12 @@
 
 namespace app {
 
-const std::array<uint16_t, 29> kAllDispatchableIds = {
+const std::array<uint16_t, 31> kAllDispatchableIds = {
     cmd_id::OpenDashboard, cmd_id::OpenTerminal, cmd_id::WifiNetworks,
     cmd_id::Servers, cmd_id::AddServer, cmd_id::SshKeys, cmd_id::Settings,
     cmd_id::PairKeyboard, cmd_id::ForgetAllKeyboards, cmd_id::About,
     cmd_id::CycleFontSize, cmd_id::ReconnectSsh, cmd_id::SwitchToNextServer,
+    cmd_id::SpeakerTest, cmd_id::MicTest,
     static_cast<uint16_t>(cmd_id::ConnectServerBase + 0),
     static_cast<uint16_t>(cmd_id::ConnectServerBase + 1),
     static_cast<uint16_t>(cmd_id::ConnectServerBase + 2),
@@ -61,6 +62,8 @@ void CommandRegistry::registerGlobals() {
     put(g[globals_count_++], "Cycle font size",       "Btn B short", cmd_id::CycleFontSize);
     put(g[globals_count_++], "Reconnect SSH",                   "", cmd_id::ReconnectSsh);
     put(g[globals_count_++], "Switch to next server",  "Btn B long", cmd_id::SwitchToNextServer);
+    put(g[globals_count_++], "Speaker test",                     "", cmd_id::SpeakerTest);
+    put(g[globals_count_++], "Mic test",                         "", cmd_id::MicTest);
 }
 
 SpanView<const Command> CommandRegistry::globals() const {
