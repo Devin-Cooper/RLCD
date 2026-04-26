@@ -882,7 +882,8 @@ extern "C" void app_main() {
         // ----------------------------------------------------------
         // Render — fully stack-driven
         // ----------------------------------------------------------
-        stack.renderAll(fb, fontForSize(currentFontSize));
+        stack.renderAll(fb, fontForSize(currentFontSize), frameStart);
+        overlay.renderFooter(fb, fontForSize(currentFontSize), stack.top(), frameStart);
         overlay.render(fb, fontForSize(currentFontSize));
 
         // ----------------------------------------------------------
