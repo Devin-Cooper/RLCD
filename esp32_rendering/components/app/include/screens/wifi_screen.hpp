@@ -4,6 +4,7 @@
 #include "screen_context.hpp"
 #include "animator.hpp"
 #include "command_ids.hpp"
+#include "command_registry.hpp"
 #include "wifi_manager.hpp"
 #include <algorithm>
 
@@ -23,6 +24,9 @@ public:
 
     app::SpanView<const app::KeybindHint> keybindHints() const override;
 
+    app::SpanView<const app::Command> getContextualCommands() override;
+    void dispatchContextual(uint16_t id) override;
+
 private:
     ScreenContext& ctx_;
     Tab tab_ = Tab::Available;
@@ -38,6 +42,8 @@ private:
     void startScan();
     void refreshScanResults();
     void onEnterTab(Tab t);
+    void requestForgetCurrent();   // Shift+D / contextual 0xFF01
+    void toggleTab();              // arrow / contextual 0xFF03
 
     static void sanitize(char* dst, const char* src, size_t dst_cap);
 

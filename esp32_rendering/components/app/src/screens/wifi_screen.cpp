@@ -26,10 +26,37 @@ constexpr std::array<app::KeybindHint, 7> kHints = {{
 }};
 static_assert(sizeof("[up/dn]") <= 12 && sizeof("connect") <= 16,
               "kHints contains a string longer than KeybindHint capacity");
+
+constexpr std::array<app::Command, 3> kContextual = {{
+    {"Forget this network", "Sh-D",    0xFF01},
+    {"Rescan",              "R",       0xFF02},
+    {"Toggle tab",          "[lt/rt]", 0xFF03},
+}};
 } // namespace
 
 app::SpanView<const app::KeybindHint> WifiScreen::keybindHints() const {
     return kHints;
+}
+
+app::SpanView<const app::Command> WifiScreen::getContextualCommands() {
+    return app::SpanView<const app::Command>(kContextual.data(),
+                                              kContextual.size());
+}
+
+void WifiScreen::dispatchContextual(uint16_t id) {
+    switch (id) {
+        case 0xFF01: requestForgetCurrent(); break;
+        case 0xFF02:
+            if (tab_ != Tab::Available) onEnterTab(Tab::Available);
+            startScan();
+            break;
+        case 0xFF03: toggleTab();            break;
+        default: break;
+    }
+}
+
+void WifiScreen::toggleTab() {
+    onEnterTab(tab_ == Tab::Known ? Tab::Available : Tab::Known);
 }
 
 WifiScreen::WifiScreen(ScreenContext& ctx) : ctx_(ctx) {}
@@ -156,24 +183,8 @@ void WifiScreen::handleInput(const input::InputEvent& evt, ScreenStack& stack) {
             return;
         }
         // Shift+D (capital D only): forget with confirm, Known tab only
-        if (evt.data_length == 1 && evt.data[0] == 'D' &&
-            tab_ == Tab::Known && sel_ < known_count_) {
-            char raw_ssid[33];
-            std::strncpy(raw_ssid, known_[sel_].ssid, sizeof(raw_ssid) - 1);
-            raw_ssid[sizeof(raw_ssid) - 1] = '\0';
-
-            std::string forgotten_ssid(raw_ssid);
-
-            char body[64];
-            snprintf(body, sizeof(body), "Forget %s?", raw_ssid);
-            ctx_.overlay.showConfirm("Confirm", body,
-                [this, forgotten_ssid](bool yes) {
-                    if (!yes) return;
-                    ctx_.wifiMgr.forgetNetwork(forgotten_ssid.c_str());
-                    refreshKnown();
-                    if (sel_ >= known_count_) sel_ = std::max(0, known_count_ - 1);
-                    ctx_.overlay.showToast("Forgotten", 1500);
-                });
+        if (evt.data_length == 1 && evt.data[0] == 'D') {
+            requestForgetCurrent();
             return;
         }
     }
@@ -191,6 +202,31 @@ void WifiScreen::handleInput(const input::InputEvent& evt, ScreenStack& stack) {
             }
         }
     }
+}
+
+void WifiScreen::requestForgetCurrent() {
+    // Only meaningful on the Known tab with a valid selection. From the
+    // Available tab the action is a no-op; the palette user sees nothing
+    // happen, which matches the existing keypress behavior.
+    if (tab_ != Tab::Known) return;
+    if (sel_ < 0 || sel_ >= known_count_) return;
+
+    char raw_ssid[33];
+    std::strncpy(raw_ssid, known_[sel_].ssid, sizeof(raw_ssid) - 1);
+    raw_ssid[sizeof(raw_ssid) - 1] = '\0';
+
+    std::string forgotten_ssid(raw_ssid);
+
+    char body[64];
+    snprintf(body, sizeof(body), "Forget %s?", raw_ssid);
+    ctx_.overlay.showConfirm("Confirm", body,
+        [this, forgotten_ssid](bool yes) {
+            if (!yes) return;
+            ctx_.wifiMgr.forgetNetwork(forgotten_ssid.c_str());
+            refreshKnown();
+            if (sel_ >= known_count_) sel_ = std::max(0, known_count_ - 1);
+            ctx_.overlay.showToast("Forgotten", 1500);
+        });
 }
 
 void WifiScreen::connectSelected(ScreenStack& stack) {
