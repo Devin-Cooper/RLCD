@@ -44,6 +44,7 @@ idf_component_register(
         "src/screens/mic_test_screen.cpp"
         "src/screens/file_browser_screen.cpp"
         "src/screens/file_viewer_screen.cpp"
+        "src/screens/editor_screen.cpp"
     INCLUDE_DIRS "include"
     REQUIRES onebit ssh_client sdcard_config nvs_flash input_queue ble_hid wifi_manager ssh_keys libssh time_service file_browser
     PRIV_REQUIRES audio

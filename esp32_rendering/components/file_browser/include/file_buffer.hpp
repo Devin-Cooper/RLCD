@@ -19,16 +19,51 @@ public:
 
     bool load(const std::string& path);
 
+    // Initialize an empty Text-mode buffer (for editor "new file" path).
+    bool loadEmptyText();
+
     Mode mode() const { return mode_; }
     const char* data() const { return data_; }
     std::size_t size() const { return size_; }
     std::size_t fileSize() const { return file_size_; }
 
-    std::size_t lineCount() const { return line_offsets_.size(); }
+    std::size_t lineCount() const;
     std::size_t lineOffset(std::size_t line) const;
     std::string_view line(std::size_t line) const;
 
     int errnoCode() const { return errno_; }
+
+    // Mutation API (Text mode only; returns false on Hex/TooLarge/Error).
+    bool insert(std::size_t pos, std::string_view text);
+    bool erase(std::size_t pos, std::size_t len);
+
+    bool dirty() const { return dirty_; }
+    void clearDirty() { dirty_ = false; }
+
+    // Force a line-index rebuild now. Otherwise the index is rebuilt lazily on
+    // the next lineCount() / line() / lineOffset() call.
+    void rebuildLineIndex();
+
+    // CRLF convention. Sniffed during load; preserved on save.
+    bool crlf() const { return crlf_; }
+
+    static constexpr std::size_t kEditCapBytes = 256u * 1024u;
+
+    // Single-level snapshot for undo.
+    bool hasSnapshot() const { return snapshot_data_ != nullptr; }
+    bool snapshot();
+    bool restoreFromSnapshot();
+
+    // Swap data_ ↔ snapshot_data_. After call: snapshot holds the previous
+    // current state; current holds the previous snapshot state. dirty_=true
+    // (current still differs from on-disk). index_dirty_=true. Returns false
+    // if no snapshot exists. Used by editor Ctrl-Z toggle.
+    bool swapWithSnapshot();
+
+    // Atomic save: write to <path>.tmp, fsync, rename. On failure, the .tmp
+    // file is left on disk for forensics. errnoCode() carries the failing
+    // POSIX errno on false return.
+    bool saveAtomic(const std::string& path);
 
     // Search (text mode). Returns line numbers of matches (case-insensitive).
     std::vector<std::uint32_t> findAll(std::string_view needle) const;
@@ -44,6 +79,12 @@ private:
     std::size_t file_size_ = 0;
     std::vector<std::uint32_t> line_offsets_;
     int errno_ = 0;
+    bool dirty_       = false;
+    bool crlf_        = false;
+    bool index_dirty_ = false;  // set by insert/erase; cleared by rebuildLineIndex
+    char*       snapshot_data_ = nullptr;
+    std::size_t snapshot_size_ = 0;
+    bool        snapshot_crlf_ = false;
     void freeBuffer();
 };
 

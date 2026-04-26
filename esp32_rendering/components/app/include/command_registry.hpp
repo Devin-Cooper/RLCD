@@ -50,7 +50,7 @@ private:
 /// registry. Used by host tests to verify that registerGlobals() emits
 /// commands that are all reachable through dispatchCommand.
 ///
-/// 16 globals + 16 ConnectServerBase+i slots = 32 entries.
-extern const std::array<uint16_t, 32> kAllDispatchableIds;
+/// 17 globals + 16 ConnectServerBase+i slots = 33 entries.
+extern const std::array<uint16_t, 33> kAllDispatchableIds;
 
 } // namespace app
