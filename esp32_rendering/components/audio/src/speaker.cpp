@@ -17,6 +17,13 @@ static constexpr const char* kNvsNs = "audio";
 static constexpr const char* kNvsVol = "volume";
 static constexpr const char* kNvsMute = "mute";
 
+namespace {
+    inline uint8_t vol_to_byte(uint8_t v_0_100) {
+        if (v_0_100 == 0) return 0;
+        return (uint8_t)((unsigned)v_0_100 * 256u / 100u - 1u);
+    }
+}
+
 namespace audio {
 
 Speaker::Speaker(audio_bus::AudioBus& bus, i2c_bsp::I2cMasterBus& i2c,
@@ -161,9 +168,76 @@ bool Speaker::init() {
 }
 
 bool Speaker::play(const int16_t*, size_t, TickType_t) { return false; }
-void Speaker::setVolume(uint8_t v) { volume_ = v; }
-void Speaker::mute(bool on) { muted_ = on; }
-void Speaker::wake() {}
-void Speaker::sleep() {}
+
+void Speaker::setVolume(uint8_t v) {
+    if (v > 100) v = 100;
+    volume_ = v;
+    if (awake_.load() && codec_dev_) {
+        writeReg(0x32, vol_to_byte(muted_ ? 0 : volume_));
+    }
+    persist();
+}
+
+void Speaker::mute(bool on) {
+    muted_ = on;
+    if (awake_.load() && codec_dev_) {
+        writeReg(0x32, vol_to_byte(muted_ ? 0 : volume_));
+    }
+    persist();
+}
+
+void Speaker::wake() {
+    if (awake_.load()) return;
+    if (!codec_dev_) return;
+
+    // Bring DAC analog stack out of PDN. Init powers up the common analog;
+    // sleep() only PDNs DAC + VMID, so wake() inverts only those.
+    writeReg(0x0D, readReg(0x0D) & ~((1 << 7) | (1 << 6) | (1 << 3) | (1 << 2)));
+    {
+        uint8_t r = readReg(0x0D);
+        writeReg(0x0D, (r & ~0x03) | 0x02);  // VMIDSEL = 2 (normal vmid)
+    }
+    writeReg(0x12, readReg(0x12) & ~(1 << 1));   // PDN_DAC = 0
+
+    vTaskDelay(pdMS_TO_TICKS(15));               // VMID settle
+
+    audio::pa_ctrl::enable(pa_ctrl_);
+    vTaskDelay(pdMS_TO_TICKS(8));                // NS4150B soft-start
+
+    // Release soft-mute and ramp DAC volume from 0 → setpoint over 20 ms.
+    writeReg(0x31, readReg(0x31) & ~((1 << 6) | (1 << 5)));
+    uint8_t target = muted_ ? 0 : volume_;
+    constexpr int kSteps = 20;
+    for (int i = 1; i <= kSteps; ++i) {
+        uint8_t step_v = (uint8_t)((unsigned)target * i / kSteps);
+        writeReg(0x32, vol_to_byte(step_v));
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+
+    awake_.store(true);
+}
+
+void Speaker::sleep() {
+    if (!awake_.load()) return;
+    if (!codec_dev_) return;
+
+    uint8_t cur = muted_ ? 0 : volume_;
+    constexpr int kSteps = 20;
+    for (int i = kSteps - 1; i >= 0; --i) {
+        uint8_t step_v = (uint8_t)((unsigned)cur * i / kSteps);
+        writeReg(0x32, vol_to_byte(step_v));
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    // Soft-mute on.
+    writeReg(0x31, readReg(0x31) | (1 << 6) | (1 << 5));
+    audio::pa_ctrl::disable(pa_ctrl_);
+    vTaskDelay(pdMS_TO_TICKS(5));
+    // Power down DAC analog stage.
+    writeReg(0x12, readReg(0x12) | (1 << 1));    // PDN_DAC = 1
+    writeReg(0x0D, readReg(0x0D) | (1 << 7) | (1 << 6) | (1 << 3) | (1 << 2));
+    writeReg(0x0D, readReg(0x0D) & ~0x03);       // VMIDSEL = 0 (vmid OFF)
+
+    awake_.store(false);
+}
 
 }  // namespace audio
