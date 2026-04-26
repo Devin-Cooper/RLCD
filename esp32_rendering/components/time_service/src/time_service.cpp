@@ -75,6 +75,12 @@ bool TimeService::init() {
     struct timeval tv{ .tv_sec = ts, .tv_usec = 0 };
     settimeofday(&tv, nullptr);
     ESP_LOGI(TAG, "System time set from RTC: %lld (UTC)", (long long)ts);
+
+    xTaskCreatePinnedToCore(&TimeService::writebackTaskTrampoline,
+                            "time_wb", 3072, this,
+                            /*priority*/ 4,
+                            &writebackTask_,
+                            /*core*/ tskNO_AFFINITY);
     return true;
 }
 
@@ -135,7 +141,13 @@ const char* TimeService::timezone() const { return tz_; }
 void TimeService::writebackTaskTrampoline(void* arg) {
     static_cast<TimeService*>(arg)->writebackLoop();
 }
-void TimeService::writebackLoop() {}
+void TimeService::writebackLoop() {
+    constexpr uint32_t kHourMs = 60 * 60 * 1000;
+    while (true) {
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(kHourMs));
+        writeRtcFromSystemTime();
+    }
+}
 
 void TimeService::persistTz() {
     nvs_handle_t h;
@@ -155,7 +167,25 @@ void TimeService::loadTzFromNvs() {
     nvs_close(h);
 }
 
-void TimeService::writeRtcFromSystemTime() {}
+void TimeService::writeRtcFromSystemTime() {
+    time_t now = time(nullptr);
+    if (now < 1700000000) {
+        ESP_LOGW(TAG, "Skipping RTC write — system time looks invalid (%lld)", (long long)now);
+        return;
+    }
+    struct tm tm_utc{};
+    gmtime_r(&now, &tm_utc);
+    sensors::RtcTime utc{};
+    utc.year   = tm_utc.tm_year + 1900;
+    utc.month  = tm_utc.tm_mon + 1;
+    utc.day    = tm_utc.tm_mday;
+    utc.hour   = tm_utc.tm_hour;
+    utc.minute = tm_utc.tm_min;
+    utc.second = tm_utc.tm_sec;
+    utc.weekday = tm_utc.tm_wday;
+    rtc_.setTime(utc);
+    ESP_LOGI(TAG, "RTC written from system time (%lld)", (long long)now);
+}
 void TimeService::sntpSyncCb(struct timeval*) {}
 
 }  // namespace time_service
