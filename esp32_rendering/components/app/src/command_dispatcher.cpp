@@ -14,6 +14,7 @@
 #include "screens/pairing_screen.hpp"
 #include "screens/speaker_test_screen.hpp"
 #include "screens/mic_test_screen.hpp"
+#include "screens/file_browser_screen.hpp"
 #include "config_manager.hpp"
 #include "overlay.hpp"
 #include <esp_log.h>
@@ -96,6 +97,9 @@ DispatchResult dispatchCommand(uint16_t id, ScreenContext& ctx) {
             return DispatchResult::StackChanged;
         case cmd_id::MicTest:
             ctx.stack.push(std::make_unique<MicTestScreen>(ctx));
+            return DispatchResult::StackChanged;
+        case cmd_id::OpenFiles:
+            ctx.stack.replace(std::make_unique<FileBrowserScreen>(ctx));
             return DispatchResult::StackChanged;
     }
 

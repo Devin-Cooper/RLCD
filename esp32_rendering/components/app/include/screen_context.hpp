@@ -8,6 +8,7 @@ namespace st7305 { class Display; }
 namespace ssh    { class SshClient; }
 namespace wifi   { class WifiManager; }
 namespace sdcard { class ConfigManager; }
+namespace sdcard { class SDCardManager; }
 namespace ble_hid { class BleHidHost; }
 namespace ssh_keys { class KeyStore; }
 namespace time_service { class TimeService; }
@@ -30,6 +31,7 @@ struct ScreenContext {
     st7305::Display&       display;
     ssh::SshClient&        sshClient;
     wifi::WifiManager&     wifiMgr;
+    sdcard::SDCardManager& sdcard;
     sdcard::ConfigManager& configMgr;
     ssh_keys::KeyStore&    keyStore;
     ble_hid::BleHidHost&   bleHost;

@@ -723,7 +723,7 @@ extern "C" void app_main() {
     static app::StatusRow statusRow(timeService);
 
     app::ScreenContext ctx{
-        fb, display, sshClient, wifiMgr, *configMgr, keyStore, bleHost, settings,
+        fb, display, sshClient, wifiMgr, sdcard, *configMgr, keyStore, bleHost, settings,
         stack, overlay, dashboard, terminalMode, currentFontSize, animator,
         speaker, microphone, timeService
     };

@@ -14,6 +14,7 @@ public:
         Terminal,
         Servers,
         SshKeys,
+        Files,
         Settings,
         Audio,
         WiFi,
