@@ -51,6 +51,9 @@ bool detectText(const char* sample, std::size_t n) {
 
 void FileBuffer::freeBuffer() {
     if (data_) { psramFree(data_); data_ = nullptr; }
+    if (snapshot_data_) { psramFree(snapshot_data_); snapshot_data_ = nullptr; }
+    snapshot_size_ = 0;
+    snapshot_crlf_ = false;
     size_ = 0;
     file_size_ = 0;
     line_offsets_.clear();
@@ -269,6 +272,45 @@ bool FileBuffer::erase(std::size_t pos, std::size_t len) {
     psramFree(data_);
     data_ = nb;
     size_ = new_size;
+    dirty_ = true;
+    index_dirty_ = true;
+    return true;
+}
+
+bool FileBuffer::snapshot() {
+    if (snapshot_data_) return true;
+    if (size_ == 0) {
+        snapshot_data_ = (char*)psramAlloc(1);
+        if (!snapshot_data_) return false;
+        snapshot_size_ = 0;
+    } else {
+        snapshot_data_ = (char*)psramAlloc(size_);
+        if (!snapshot_data_) return false;
+        std::memcpy(snapshot_data_, data_, size_);
+        snapshot_size_ = size_;
+    }
+    snapshot_crlf_ = crlf_;
+    return true;
+}
+
+bool FileBuffer::restoreFromSnapshot() {
+    if (!snapshot_data_) return false;
+    char* nb = nullptr;
+    if (snapshot_size_ > 0) {
+        nb = (char*)psramAlloc(snapshot_size_);
+        if (!nb) return false;
+        std::memcpy(nb, snapshot_data_, snapshot_size_);
+    } else {
+        nb = (char*)psramAlloc(1);
+        if (!nb) return false;
+    }
+    psramFree(data_);
+    data_ = nb;
+    size_ = snapshot_size_;
+    crlf_ = snapshot_crlf_;
+    psramFree(snapshot_data_);
+    snapshot_data_ = nullptr;
+    snapshot_size_ = 0;
     dirty_ = true;
     index_dirty_ = true;
     return true;

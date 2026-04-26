@@ -46,6 +46,11 @@ public:
 
     static constexpr std::size_t kEditCapBytes = 256u * 1024u;
 
+    // Single-level snapshot for undo.
+    bool hasSnapshot() const { return snapshot_data_ != nullptr; }
+    bool snapshot();
+    bool restoreFromSnapshot();
+
     // Search (text mode). Returns line numbers of matches (case-insensitive).
     std::vector<std::uint32_t> findAll(std::string_view needle) const;
 
@@ -63,6 +68,9 @@ private:
     bool dirty_       = false;
     bool crlf_        = false;
     bool index_dirty_ = false;  // set by insert/erase; cleared by rebuildLineIndex
+    char*       snapshot_data_ = nullptr;
+    std::size_t snapshot_size_ = 0;
+    bool        snapshot_crlf_ = false;
     void freeBuffer();
 };
 

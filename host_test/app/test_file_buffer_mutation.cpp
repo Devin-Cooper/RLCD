@@ -77,3 +77,34 @@ TEST_CASE("FileBuffer CRLF sniffed on load", "[mutation]") {
     REQUIRE(b2.load(tmpFile("hello\nworld\n")));
     REQUIRE_FALSE(b2.crlf());
 }
+
+TEST_CASE("FileBuffer snapshot/restore roundtrip", "[mutation]") {
+    fb::FileBuffer b;
+    REQUIRE(b.load(tmpFile("orig\n")));
+    REQUIRE(b.snapshot());
+    REQUIRE(b.hasSnapshot());
+    REQUIRE(b.insert(0, "X"));
+    REQUIRE(b.size() == 6);
+    REQUIRE(b.restoreFromSnapshot());
+    REQUIRE(b.size() == 5);
+    REQUIRE(b.line(0) == "orig");
+    REQUIRE_FALSE(b.hasSnapshot());
+    REQUIRE(b.dirty());   // restored != on-disk pre-state, still dirty
+}
+
+TEST_CASE("FileBuffer snapshot is idempotent", "[mutation]") {
+    fb::FileBuffer b;
+    REQUIRE(b.load(tmpFile("a\n")));
+    REQUIRE(b.snapshot());
+    REQUIRE(b.snapshot());   // no-op when already have one
+    REQUIRE(b.hasSnapshot());
+}
+
+TEST_CASE("FileBuffer snapshot of empty buffer", "[mutation]") {
+    fb::FileBuffer b;
+    REQUIRE(b.load(tmpFile("")));
+    REQUIRE(b.snapshot());
+    REQUIRE(b.insert(0, "abc"));
+    REQUIRE(b.restoreFromSnapshot());
+    REQUIRE(b.size() == 0);
+}
