@@ -1,6 +1,7 @@
 #include "time_service.hpp"
 
 #include <esp_log.h>
+#include <esp_sntp.h>
 #include <nvs.h>
 #include <sys/time.h>
 #include <time.h>
@@ -13,12 +14,15 @@ static constexpr const char* kNvsKeyTz = "tz";
 
 namespace time_service {
 
+namespace { TimeService* g_instance = nullptr; }
+
 TimeService::TimeService(i2c_bsp::I2cMasterBus& bus) : rtc_(bus) {}
 TimeService::~TimeService() {
     if (writebackTask_) vTaskDelete(writebackTask_);
 }
 
 bool TimeService::init() {
+    g_instance = this;
     if (!rtc_.init()) {
         ESP_LOGE(TAG, "Pcf85063 init failed");
         wasUnset_.store(true);
@@ -86,7 +90,17 @@ bool TimeService::init() {
 
 bool TimeService::wasUnsetAtBoot() const { return wasUnset_.load(); }
 bool TimeService::isTimeValid() const { return !wasUnset_.load(); }
-void TimeService::onWifiUp() {}
+void TimeService::onWifiUp() {
+    bool expected = false;
+    if (!sntpStarted_.compare_exchange_strong(expected, true)) {
+        return;
+    }
+    ESP_LOGI(TAG, "Starting SNTP");
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "pool.ntp.org");
+    sntp_set_time_sync_notification_cb(&TimeService::sntpSyncCb);
+    esp_sntp_init();
+}
 bool TimeService::setManual(const sensors::RtcTime& local) {
     if (local.year < 2024 || local.year > 2099) return false;
     if (local.month < 1 || local.month > 12) return false;
@@ -186,6 +200,13 @@ void TimeService::writeRtcFromSystemTime() {
     rtc_.setTime(utc);
     ESP_LOGI(TAG, "RTC written from system time (%lld)", (long long)now);
 }
-void TimeService::sntpSyncCb(struct timeval*) {}
+void TimeService::sntpSyncCb(struct timeval* /*tv*/) {
+    if (!g_instance) return;
+    g_instance->wasUnset_.store(false);
+    if (g_instance->writebackTask_) {
+        xTaskNotifyGive(g_instance->writebackTask_);
+    }
+    ESP_LOGI(TAG, "SNTP sync — system time updated, RTC writeback notified");
+}
 
 }  // namespace time_service
