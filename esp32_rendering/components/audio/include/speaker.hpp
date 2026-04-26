@@ -39,7 +39,7 @@ private:
     bool muted_ = false;
     std::atomic<bool> awake_{false};
 
-    void* codec_handle_ = nullptr;  // espressif/es8311 handle
+    i2c_master_dev_handle_t codec_dev_ = nullptr;
     void writeReg(uint8_t reg, uint8_t v);
     uint8_t readReg(uint8_t reg);
     bool probeAddress();
