@@ -3,11 +3,27 @@
 #include "overlay.hpp"
 #include "settings.hpp"
 #include <1bit/render/primitives.hpp>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
 namespace app {
+
+namespace {
+constexpr std::array<app::KeybindHint, 4> kHints = {{
+    {"Tab",    "field"},
+    {"Enter",  "save"},
+    {"Esc",    "cancel"},
+    {"Ctrl+/", "help"},
+}};
+static_assert(sizeof("Ctrl+/") <= 12 && sizeof("cancel") <= 16,
+              "kHints contains a string longer than KeybindHint capacity");
+} // namespace
+
+app::SpanView<const app::KeybindHint> SettingsScreen::keybindHints() const {
+    return kHints;
+}
 
 SettingsScreen::SettingsScreen(ScreenContext& ctx)
     : ctx_(ctx),

@@ -4,12 +4,30 @@
 #include "overlay.hpp"
 #include "config_manager.hpp"
 #include <1bit/render/primitives.hpp>
+#include <array>
 #include <cstring>
 #include <cstdio>
 #include <string>
 #include <esp_timer.h>
 
 namespace app {
+
+namespace {
+constexpr std::array<app::KeybindHint, 6> kHints = {{
+    {"[up/dn]", "nav"},
+    {"Enter",   "edit"},
+    {"Sh-A",    "active"},
+    {"Esc",     "back"},
+    {"Sh-D",    "delete"},
+    {"Ctrl+/",  "help"},
+}};
+static_assert(sizeof("[up/dn]") <= 12 && sizeof("active") <= 16,
+              "kHints contains a string longer than KeybindHint capacity");
+} // namespace
+
+app::SpanView<const app::KeybindHint> ServerListScreen::keybindHints() const {
+    return kHints;
+}
 
 ServerListScreen::ServerListScreen(ScreenContext& ctx) : ctx_(ctx) {}
 

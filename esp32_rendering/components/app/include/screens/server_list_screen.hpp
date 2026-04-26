@@ -18,6 +18,8 @@ public:
     void render(onebit::IFramebuffer& fb,
                 const onebit::BitmapFont& font) override;
 
+    app::SpanView<const app::KeybindHint> keybindHints() const override;
+
 private:
     ScreenContext& ctx_;
     int sel_ = 0;     // 0..count-1 = servers; count = "[+ Add new...]"

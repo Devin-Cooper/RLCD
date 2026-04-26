@@ -6,6 +6,7 @@
 #include "ssh_keys.hpp"
 #include "ssh_key_types.hpp"
 #include <1bit/render/primitives.hpp>
+#include <array>
 #include <cstring>
 #include <cstdlib>
 #include <cstdio>
@@ -13,6 +14,22 @@
 #include <string>
 
 namespace app {
+
+namespace {
+constexpr std::array<app::KeybindHint, 5> kHints = {{
+    {"Tab",    "field"},
+    {"Enter",  "save"},
+    {"Ctrl+R", "reveal"},
+    {"Esc",    "cancel"},
+    {"Ctrl+/", "help"},
+}};
+static_assert(sizeof("Ctrl+R") <= 12 && sizeof("reveal") <= 16,
+              "kHints contains a string longer than KeybindHint capacity");
+} // namespace
+
+app::SpanView<const app::KeybindHint> ServerEditScreen::keybindHints() const {
+    return kHints;
+}
 
 ServerEditScreen::ServerEditScreen(ScreenContext& ctx, int index)
     : ctx_(ctx), index_(index),
