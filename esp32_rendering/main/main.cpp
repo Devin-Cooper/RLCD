@@ -818,6 +818,10 @@ extern "C" void app_main() {
                 evt.type == input::EventType::ButtonLong &&
                 evt.button_id == 0 &&
                 dynamic_cast<app::PairingScreen*>(stack.top()) == nullptr) {
+                // Help modal sits above the stack — dismiss it before the
+                // pairing transition so the user isn't left with a stale
+                // overlay covering the new PairingScreen.
+                if (overlay.isHelpVisible()) overlay.hideHelp();
                 stack.clearToBaseAndPush(std::make_unique<app::PairingScreen>(ctx));
                 continue;
             }
@@ -825,6 +829,21 @@ extern "C" void app_main() {
             // modals never swallow backend state transitions.
             if (evt.source == input::Source::System) {
                 stack.top()->handleInput(evt, stack);
+                continue;
+            }
+            // Phase 9: Ctrl+/ (byte 0x1F) toggles the global help modal.
+            // Intercepted before overlay.handleInput so it works even when
+            // a screen would otherwise capture the byte. showHelp's own
+            // guards yield to active Error/Info/Confirm modals.
+            if (evt.source == input::Source::Keyboard &&
+                evt.type   == input::EventType::Keypress &&
+                evt.data_length >= 1 &&
+                evt.data[0] == 0x1F) {
+                if (overlay.isHelpVisible()) {
+                    overlay.hideHelp();
+                } else {
+                    overlay.showHelp(ctx);
+                }
                 continue;
             }
             if (!overlay.handleInput(evt)) {
