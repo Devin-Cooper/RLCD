@@ -38,6 +38,7 @@ idf_component_register(
         "src/screens/ssh_key_enroll_screen.cpp"
         "src/screens/set_time_wizard_screen.cpp"
         "src/screens/set_time_screen.cpp"
+        "src/screens/timezone_screen.cpp"
     INCLUDE_DIRS "include"
     REQUIRES onebit ssh_client sdcard_config nvs_flash input_queue ble_hid wifi_manager ssh_keys libssh time_service
 )
