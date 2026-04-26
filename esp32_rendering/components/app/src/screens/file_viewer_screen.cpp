@@ -4,6 +4,7 @@
 #include "overlay.hpp"
 #include "command_registry.hpp"
 #include "screens/text_input_screen.hpp"
+#include "screens/editor_screen.hpp"
 #include <cstdlib>
 #include <memory>
 
@@ -333,6 +334,7 @@ constexpr Command kViewerTextContextual[] = {
     { "Find",            "", 0xFF60 },
     { "Top of file",     "", 0xFF62 },
     { "Bottom of file",  "", 0xFF63 },
+    { "Edit",            "", 0xFF64 },
 };
 constexpr Command kViewerHexContextual[] = {
     { "Go to offset...", "", 0xFF61 },
@@ -345,7 +347,7 @@ SpanView<const KeybindHint> FileViewerScreen::keybindHints() const { return {}; 
 
 SpanView<const Command> FileViewerScreen::getContextualCommands() {
     if (buffer_.mode() == fb::FileBuffer::Mode::Text) {
-        return SpanView<const Command>(kViewerTextContextual, 3);
+        return SpanView<const Command>(kViewerTextContextual, 4);
     }
     if (buffer_.mode() == fb::FileBuffer::Mode::Hex
         || buffer_.mode() == fb::FileBuffer::Mode::TooLarge) {
@@ -392,6 +394,12 @@ void FileViewerScreen::dispatchContextual(uint16_t id) {
                 ? (int)buffer_.lineCount()
                 : (int)((buffer_.size() + 15) / 16);
             cursor_ = std::max(0, total - 1);
+            return;
+        }
+        case 0xFF64: {  // Edit
+            if (buffer_.mode() != fb::FileBuffer::Mode::Text) return;
+            auto path = path_;
+            ctx_.stack.replace(std::make_unique<EditorScreen>(ctx_, path, /*new_file=*/false));
             return;
         }
     }
