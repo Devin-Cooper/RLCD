@@ -22,6 +22,7 @@ namespace cmd_id {
     constexpr uint16_t SpeakerTest         = 0x10D;
     constexpr uint16_t MicTest             = 0x10E;
     constexpr uint16_t OpenFiles           = 0x10F;
+    constexpr uint16_t NewFile             = 0x110;
     constexpr uint16_t ConnectServerBase   = 0x200;
     constexpr uint16_t ConnectServerEnd    = 0x20F;
 }

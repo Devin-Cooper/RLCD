@@ -8,6 +8,7 @@
 #include "path_helpers.hpp"
 #include "command_registry.hpp"
 #include "screens/text_input_screen.hpp"
+#include "screens/editor_screen.hpp"
 #include <memory>
 #include <dirent.h>
 #include <unistd.h>
@@ -372,16 +373,34 @@ constexpr Command kBrowserContextual[] = {
     { "Rename current entry", "", 0xFF51 },
     { "New folder...",        "", 0xFF52 },
     { "Show/Hide hidden",     "", 0xFF53 },
+    { "New file...",          "", 0xFF54 },
 };
 }  // namespace
 
 SpanView<const KeybindHint> FileBrowserScreen::keybindHints() const { return {}; }
 
 SpanView<const Command> FileBrowserScreen::getContextualCommands() {
-    return SpanView<const Command>(kBrowserContextual, 4);
+    return SpanView<const Command>(kBrowserContextual, 5);
 }
 
 void FileBrowserScreen::dispatchContextual(uint16_t id) {
+    // "New file..." is not row-bound — handle before the row-guard below.
+    if (id == 0xFF54) {
+        std::string parent = current_path_;
+        ctx_.stack.push(std::make_unique<TextInputScreen>(ctx_,
+            "New file (name)", "",
+            [this, parent](TextInputResult r, const std::string& v) {
+                if (r != TextInputResult::Submit || v.empty()) return;
+                if (auto err = validateName(v)) {
+                    ctx_.overlay.showError("Invalid name", err);
+                    return;
+                }
+                std::string full = fb::path::join(parent, v);
+                ctx_.stack.push(std::make_unique<EditorScreen>(ctx_, full, /*new_file=*/true));
+            }));
+        return;
+    }
+
     if (selected_ < 0 || selected_ >= (int)listing_.entries().size()) return;
     const auto& e = listing_.entries()[selected_];
 
