@@ -46,6 +46,7 @@ add_host_test(
     SOURCES
         test_overlay_manager.cpp
         "${APP_DIR}/src/overlay.cpp"
+        "${APP_DIR}/src/animator.cpp"
     INCLUDES
         "${APP_DIR}/include"
         "${RLCD_COMPONENTS}/input_queue/include"

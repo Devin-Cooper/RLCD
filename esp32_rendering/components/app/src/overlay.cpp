@@ -30,10 +30,16 @@ bool OverlayManager::showToast(const char* msg, uint32_t ms) {
         return false;
     }
 
-    Toast& t = toasts_[toast_count_++];
+    int idx = toast_count_++;
+    Toast& t = toasts_[idx];
     std::strncpy(t.msg, msg, TOAST_MSG_MAX - 1);
     t.msg[TOAST_MSG_MAX - 1] = '\0';
     t.expires_us = now_us_ + static_cast<int64_t>(ms) * 1000;
+    t.slide_state = ToastSlideState::SlidingIn;
+    t.slide_complete_us = now_us_ + static_cast<int64_t>(kToastSlideUs);
+
+    auto tag = makeTag(TweenKind::ToastSlide, static_cast<uint32_t>(idx));
+    animator_.start(tag, /*from=*/16, /*to=*/0, kToastSlideUs, now_us_);
 
     std::strncpy(last_toast_msg_, msg, TOAST_MSG_MAX - 1);
     last_toast_msg_[TOAST_MSG_MAX - 1] = '\0';
@@ -114,20 +120,44 @@ bool OverlayManager::handleInput(const input::InputEvent& evt) {
 void OverlayManager::tick(int64_t now_us) {
     now_us_ = now_us;
 
-    // Expire toasts — compact in-place.
-    int write = 0;
-    for (int read = 0; read < toast_count_; ++read) {
-        if (toasts_[read].expires_us > now_us_) {
-            if (write != read) toasts_[write] = toasts_[read];
-            ++write;
+    // Walk toasts, advancing slide state and dropping ones that have
+    // finished sliding out.
+    for (int i = 0; i < toast_count_; ) {
+        Toast& t = toasts_[i];
+        // SlidingIn -> Visible once the slide-in tween settles.
+        if (t.slide_state == ToastSlideState::SlidingIn
+            && now_us >= t.slide_complete_us) {
+            t.slide_state = ToastSlideState::Visible;
         }
+        // Visible -> SlidingOut kToastSlideUs before expiry.
+        int64_t slide_out_start = t.expires_us - static_cast<int64_t>(kToastSlideUs);
+        if (t.slide_state == ToastSlideState::Visible
+            && now_us >= slide_out_start) {
+            auto tag = makeTag(TweenKind::ToastSlide, static_cast<uint32_t>(i));
+            animator_.start(tag, 0, 16, kToastSlideUs, slide_out_start);
+            t.slide_state = ToastSlideState::SlidingOut;
+            t.slide_complete_us = slide_out_start + static_cast<int64_t>(kToastSlideUs);
+        }
+        // SlidingOut complete -> drop and shift down.
+        if (t.slide_state == ToastSlideState::SlidingOut
+            && now_us >= t.slide_complete_us) {
+            for (int j = i; j < toast_count_ - 1; ++j) toasts_[j] = toasts_[j + 1];
+            --toast_count_;
+            continue;
+        }
+        ++i;
     }
-    toast_count_ = write;
+
+    // Modal scale-out completion: deactivate when the retract tween settles.
+    if (modal_.active && modal_.scale_state == ModalScaleState::ScalingOut
+        && now_us >= modal_.scale_complete_us) {
+        modal_.active = false;
+    }
 }
 
 void OverlayManager::render(onebit::IFramebuffer& fb,
                             const onebit::BitmapFont& font) {
-    if (toast_count_ == 0) return;
+    if (toast_count_ == 0 && !modal_.active) return;
 
     const int16_t margin = 4;
     const int16_t pad = 3;
@@ -139,13 +169,15 @@ void OverlayManager::render(onebit::IFramebuffer& fb,
         int16_t box_w = w + pad * 2;
         int16_t box_h = font.glyph_height + pad * 2;
         int16_t box_x = (fb.width() - box_w) / 2;
-        int16_t box_y = y - box_h;
+        auto tag = makeTag(TweenKind::ToastSlide, static_cast<uint32_t>(i));
+        int16_t y_offset = animator_.value(tag, now_us_);
+        int16_t box_y = y - box_h + y_offset;
 
         onebit::fillRect(fb, box_x, box_y, box_w, box_h, onebit::WHITE);
         onebit::drawRect(fb, box_x, box_y, box_w, box_h, onebit::BLACK);
         onebit::drawBitmapText(fb, font, box_x + pad, box_y + pad,
                                msg, onebit::BLACK);
-        y = box_y - 2;
+        y = (box_y - y_offset) - 2;  // next toast stacks on the un-offset position
     }
 
     if (modal_.active) {

@@ -37,11 +37,12 @@ TEST_CASE("Overlay: tick expires toasts", "[app][overlay][toast]") {
     Animator anim;
     OverlayManager o(anim);
     o.tick(0);
-    o.showToast("short", 100);
+    o.showToast("short", 1000);  // 1s lifetime (>= 2 * kToastSlideUs)
     REQUIRE(o.activeToastCount() == 1);
-    o.tick(50 * 1000);
+    o.tick(500 * 1000);          // mid-life: still visible
     REQUIRE(o.activeToastCount() == 1);
-    o.tick(150 * 1000);
+    // Past expiry + slide-out duration: toast finishes sliding out and is dropped.
+    o.tick(1000 * 1000 + static_cast<int64_t>(app::kToastSlideUs) + 1000);
     REQUIRE(o.activeToastCount() == 0);
 }
 
@@ -100,4 +101,18 @@ TEST_CASE("Overlay: Confirm arrow toggles selection", "[app][overlay][modal]") {
     o.handleInput(right);
     o.handleInput(kbd("\r"));
     REQUIRE_FALSE(got_result);
+}
+
+TEST_CASE("OverlayManager: toast triggers ToastSlide tween",
+          "[app][overlay][anim]") {
+    Animator anim;
+    OverlayManager om(anim);
+    om.tick(1000);
+    REQUIRE(om.showToast("hello", 2500));
+    auto tag = makeTag(TweenKind::ToastSlide, 0);
+    REQUIRE(anim.inProgress(tag, 1000));
+    int16_t mid = anim.value(tag, 91'000);
+    REQUIRE(mid > 0);
+    REQUIRE(mid < 16);
+    REQUIRE(anim.value(tag, 181'000 + 1000) == 0);
 }
