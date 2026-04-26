@@ -3,6 +3,7 @@
 #include "screen_stack.hpp"
 #include "overlay.hpp"
 #include <1bit/render/primitives.hpp>
+#include <array>
 #include <cstring>
 #include <cstdio>
 #include <string>
@@ -12,6 +13,24 @@
 static const char* TAG = "wifi_screen";
 
 namespace app {
+
+namespace {
+constexpr std::array<app::KeybindHint, 7> kHints = {{
+    {"[up/dn]", "nav"},
+    {"[lt/rt]", "tab"},
+    {"Enter",   "connect"},
+    {"Esc",     "back"},
+    {"R",       "rescan"},
+    {"Sh-D",    "forget"},
+    {"Ctrl+/",  "help"},
+}};
+static_assert(sizeof("[up/dn]") <= 12 && sizeof("connect") <= 16,
+              "kHints contains a string longer than KeybindHint capacity");
+} // namespace
+
+app::SpanView<const app::KeybindHint> WifiScreen::keybindHints() const {
+    return kHints;
+}
 
 WifiScreen::WifiScreen(ScreenContext& ctx) : ctx_(ctx) {}
 
