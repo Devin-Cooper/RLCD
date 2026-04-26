@@ -140,7 +140,28 @@ std::string_view FileBuffer::line(std::size_t line) const {
     return std::string_view(buf, out);
 }
 
-std::vector<std::uint32_t> FileBuffer::findAll(std::string_view) const { return {}; }
+std::vector<std::uint32_t> FileBuffer::findAll(std::string_view needle) const {
+    std::vector<std::uint32_t> out;
+    if (needle.empty() || mode_ != Mode::Text || size_ == 0) return out;
+
+    auto to_lower = [](char c) -> char {
+        return (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+    };
+
+    for (std::uint32_t li = 0; li < line_offsets_.size(); ++li) {
+        std::size_t a = line_offsets_[li];
+        std::size_t b = (li + 1 < line_offsets_.size()) ? line_offsets_[li + 1] : size_;
+        if (b - a < needle.size()) continue;
+        for (std::size_t i = a; i + needle.size() <= b; ++i) {
+            bool eq = true;
+            for (std::size_t k = 0; k < needle.size(); ++k) {
+                if (to_lower(data_[i + k]) != to_lower(needle[k])) { eq = false; break; }
+            }
+            if (eq) { out.push_back(li); break; }
+        }
+    }
+    return out;
+}
 
 void FileBuffer::formatHexRow(const char* base, std::size_t base_size,
                               std::uint32_t offset, char out[80]) {
