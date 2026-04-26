@@ -14,6 +14,7 @@ idf_component_register(
         "src/command_registry_dynamic.cpp"
         "src/command_dispatcher.cpp"
         "src/command_palette_filter.cpp"
+        "src/ble_soft_toast_watcher.cpp"
         "src/screens/command_palette.cpp"
         "src/screens/dashboard_screen.cpp"
         "src/screens/terminal_screen.cpp"
