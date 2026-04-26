@@ -154,27 +154,66 @@ int64_t Microphone::warmupRemainingUs() const {
     return bus_.rxWarmupRemainingUs();
 }
 
-// ---- Stubs retained from earlier task; will be replaced in Task 11. ----
-Microphone::Handle& Microphone::Handle::operator=(Microphone::Handle&& o) noexcept {
+void Microphone::retain() {
+    xSemaphoreTake(mtx_, portMAX_DELAY);
+    if (refcount_++ == 0) wake();
+    xSemaphoreGive(mtx_);
+}
+void Microphone::release() {
+    xSemaphoreTake(mtx_, portMAX_DELAY);
+    if (--refcount_ <= 0) {
+        refcount_ = 0;
+        sleep();
+    }
+    xSemaphoreGive(mtx_);
+}
+
+Microphone::Handle Microphone::open() {
+    retain();
+    return Handle(this);
+}
+Microphone::Handle& Microphone::Handle::operator=(Handle&& o) noexcept {
     if (this != &o) {
+        if (m_) m_->release();
         m_ = o.m_;
         o.m_ = nullptr;
     }
     return *this;
 }
-Microphone::Handle::~Handle() {}
+Microphone::Handle::~Handle() { if (m_) m_->release(); }
 
-Microphone::Handle Microphone::open() { return Handle{}; }
-bool Microphone::capture(int16_t*, size_t, TickType_t) { return false; }
-void Microphone::setGainDb(uint8_t channel, int8_t db) {
-    if (channel == 0) gain_l_ = db; else gain_r_ = db;
+bool Microphone::capture(int16_t* pcm, size_t frames, TickType_t timeout) {
+    if (refcount_ == 0) return false;
+    size_t bytes = frames * 2 * sizeof(int16_t);
+    size_t got = bus_.read(pcm, bytes, timeout);
+    return got == bytes;
 }
+
+void Microphone::setGainDb(uint8_t channel, int8_t db) {
+    if (channel > 1) return;
+    if (channel == 0) gain_l_ = db; else gain_r_ = db;
+    if (codec_dev_) {
+        // Per ES7210 driver source (es7210.c set_mic_gain): write
+        // `(gain_field & 0x0F) | 0x10` to MIC<n>_GAIN reg (0x43..0x46).
+        // The 0x10 bit is the analog PGA enable flag.
+        uint8_t reg_val = (gain_db_to_es7210_register(db) & 0x0F) | 0x10;
+        writeReg(channel == 0 ? 0x43 : 0x44, reg_val);
+    }
+    persist();
+}
+
 int8_t Microphone::gainDb(uint8_t channel) const {
     return channel == 0 ? gain_l_ : gain_r_;
 }
-void Microphone::setAlc(bool on) { alc_ = on; }
 
-void Microphone::retain() {}
-void Microphone::release() {}
+void Microphone::setAlc(bool on) {
+    alc_ = on;
+    if (codec_dev_) {
+        // ES7210 reg 0x16 ALC_SEL: bit7 = ALC enable; lower bits select channel
+        // mask. Set bit7 = on, mask = 0x03 (MIC1/MIC2 only) when enabled.
+        writeReg(0x16, on ? (0x80 | 0x03) : 0x00);
+    }
+    persist();
+}
 
 }  // namespace audio
