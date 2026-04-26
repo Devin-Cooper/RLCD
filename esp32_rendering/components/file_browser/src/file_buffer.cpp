@@ -317,6 +317,19 @@ bool FileBuffer::restoreFromSnapshot() {
     return true;
 }
 
+bool FileBuffer::loadEmptyText() {
+    freeBuffer();
+    data_ = (char*)psramAlloc(1);
+    if (!data_) { mode_ = Mode::Error; errno_ = ENOMEM; return false; }
+    size_ = 0;
+    mode_ = Mode::Text;
+    crlf_ = false;
+    dirty_ = false;
+    index_dirty_ = false;
+    errno_ = 0;
+    return true;
+}
+
 bool FileBuffer::saveAtomic(const std::string& path) {
     errno_ = 0;
     std::string tmp = path + ".tmp";

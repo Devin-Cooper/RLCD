@@ -19,6 +19,9 @@ public:
 
     bool load(const std::string& path);
 
+    // Initialize an empty Text-mode buffer (for editor "new file" path).
+    bool loadEmptyText();
+
     Mode mode() const { return mode_; }
     const char* data() const { return data_; }
     std::size_t size() const { return size_; }
