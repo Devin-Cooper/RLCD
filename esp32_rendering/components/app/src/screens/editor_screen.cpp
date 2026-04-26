@@ -745,6 +745,30 @@ void EditorScreen::doReplaceCurrent() {
     line_ = (int)find_matches_[find_match_idx_];
     byte_col_ = 0;
 }
-void EditorScreen::onEscape(ScreenStack& stack) { stack.pop(); }
+void EditorScreen::onEscape(ScreenStack& stack) {
+    if (find_mode_ != FindMode::Off) {
+        // Esc is handled inside the find/replace handler (Task 12).
+        return;
+    }
+    if (hasSelection()) { invalidateSelection(); return; }
+    if (!buffer_.dirty()) { stack.pop(); return; }
+
+    char body[140];
+    std::snprintf(body, sizeof(body), "%s\nSave before closing?", path_.c_str());
+    ScreenStack* stack_ptr = &stack;
+    ctx_.overlay.showThreeWay("Unsaved changes", body,
+        std::array<const char*, 3>{ "Save", "Discard", "Cancel" },
+        [this, stack_ptr](int choice) {
+            if (choice == 0) {
+                doSaveAtomic(path_);
+                if (!buffer_.dirty()) stack_ptr->pop();
+            } else if (choice == 1) {
+                if (buffer_.hasSnapshot()) buffer_.restoreFromSnapshot();
+                buffer_.clearDirty();
+                stack_ptr->pop();
+            }
+            // choice == 2: cancel — stay
+        });
+}
 
 }  // namespace app
