@@ -22,6 +22,15 @@ static const char* TAG = "cmd_dispatch";
 namespace app {
 
 DispatchResult dispatchCommand(uint16_t id, ScreenContext& ctx) {
+    // Contextual ids (0xFF00..0xFFFE) target the current top screen.
+    // CommandPalette pops itself + applyPending() before calling
+    // dispatchCommand, so `top()` here is the underlying screen that
+    // owns the contextual command.
+    if (id >= 0xFF00 && id < 0xFFFF) {
+        if (auto* top = ctx.stack.top()) top->dispatchContextual(id);
+        return DispatchResult::ScreenStays;
+    }
+
     // ConnectServerBase..ConnectServerEnd → set active + reconnect.
     if (id >= cmd_id::ConnectServerBase && id <= cmd_id::ConnectServerEnd) {
         int idx = static_cast<int>(id - cmd_id::ConnectServerBase);

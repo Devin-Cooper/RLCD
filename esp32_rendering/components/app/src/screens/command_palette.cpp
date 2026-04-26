@@ -71,19 +71,26 @@ void CommandPalette::handleInput(const input::InputEvent& evt, ScreenStack& stac
         return;
     }
 
-    // Enter → dispatch + (maybe) self-pop. Intercepted BEFORE TextInput so
-    // the line never gets "submitted" into the query buffer.
+    // Enter → pop palette FIRST (and apply the pop immediately) so the
+    // dispatcher sees the underlying screen as `top()`. This matters for:
+    //   - contextual ids (0xFF00..0xFFFE) that target the screen under
+    //     the palette;
+    //   - global push commands that would otherwise be eaten by the
+    //     deferred palette pop firing after the synchronous push
+    //     (Plan Amendment C).
+    // Intercepted BEFORE TextInput so the line never gets "submitted"
+    // into the query buffer.
     if (evt.source == input::Source::Keyboard
         && evt.type == input::EventType::Keypress
         && evt.data_length == 1
         && (evt.data[0] == '\r' || evt.data[0] == '\n')) {
         if (selected_ >= 0 && selected_ < static_cast<int>(filtered_.size())) {
             uint16_t id = filtered_[selected_].id;
-            DispatchResult r = dispatchCommand(id, ctx_);
-            if (r == DispatchResult::ScreenStays) {
-                stack.pop();   // close palette; dispatcher didn't change stack
-            }
-            // else: dispatcher already did stack.replace(), palette is gone
+            stack.pop();
+            stack.applyPending();   // palette is gone before dispatch
+            (void)dispatchCommand(id, ctx_);
+            // Dispatcher's return value is no longer load-bearing — palette
+            // already popped. Enum kept for future callers.
         }
         return;
     }
