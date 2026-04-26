@@ -60,6 +60,25 @@ void FileViewerScreen::handleInput(const input::InputEvent& evt, ScreenStack& st
             }
         }
     }
+
+    if ((buffer_.mode() == fb::FileBuffer::Mode::Hex
+         || buffer_.mode() == fb::FileBuffer::Mode::TooLarge)
+        && evt.source == Source::Keyboard && evt.type == EventType::Keypress) {
+        int total = (buffer_.mode() == fb::FileBuffer::Mode::Hex)
+            ? (int)((buffer_.size() + 15) / 16)
+            : (int)(2 * (32*1024/16) + 1);
+        int rows = std::max(1, (ctx_.fb.height() - 24) / 10);
+        if (evt.data_length >= 6 && evt.data[0] == 0x1B && evt.data[1] == 0x5B
+            && evt.data[2] == 0x31 && evt.data[3] == 0x3B && evt.data[4] == 0x32) {
+            if (evt.data[5] == 'A') cursor_ = std::max(0, cursor_ - rows);
+            else if (evt.data[5] == 'B') cursor_ = std::min(total - 1, cursor_ + rows);
+            return;
+        }
+        if (evt.data_length >= 3 && evt.data[0] == 0x1B && evt.data[1] == 0x5B) {
+            if (evt.data[2] == 'A') { if (cursor_ > 0) --cursor_; return; }
+            if (evt.data[2] == 'B') { if (cursor_ < total - 1) ++cursor_; return; }
+        }
+    }
 }
 
 void FileViewerScreen::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font) {
@@ -109,8 +128,112 @@ void FileViewerScreen::renderText(onebit::IFramebuffer& fb,
                            "up/dn line  Sh+up/dn page  Ctrl-F find  Esc back",
                            onebit::BLACK);
 }
-void FileViewerScreen::renderHex(onebit::IFramebuffer&, const onebit::BitmapFont&) {}
-void FileViewerScreen::renderTooLarge(onebit::IFramebuffer&, const onebit::BitmapFont&) {}
+void FileViewerScreen::renderHex(onebit::IFramebuffer& fb,
+                                 const onebit::BitmapFont& font) {
+    int rows = std::max(1, (fb.height() - 24) / 10);
+    int total_rows = (int)((buffer_.size() + 15) / 16);
+    if (cursor_ < scroll_top_) scroll_top_ = cursor_;
+    if (cursor_ >= scroll_top_ + rows) scroll_top_ = cursor_ - rows + 1;
+
+    char head[80];
+    std::snprintf(head, sizeof(head), "%s   offset 0x%04X",
+                  path_.c_str(), (unsigned)cursor_ * 16);
+    onebit::drawBitmapText(fb, font, 2, 1, head, onebit::BLACK);
+    onebit::fillRect(fb, 0, 11, fb.width(), 1, onebit::BLACK);
+
+    int y = 13;
+    char rowbuf[80];
+    for (int i = 0; i < rows; ++i) {
+        int idx = scroll_top_ + i;
+        if (idx >= total_rows) break;
+        std::uint32_t off = (std::uint32_t)idx * 16;
+        fb::FileBuffer::formatHexRow(buffer_.data(), buffer_.size(), off, rowbuf);
+        bool sel = (idx == cursor_);
+        if (sel) onebit::fillRect(fb, 0, y, fb.width(), 10, onebit::BLACK);
+        onebit::drawBitmapText(fb, font, 2, y + 1, rowbuf,
+                               sel ? onebit::WHITE : onebit::BLACK);
+        y += 10;
+    }
+
+    int fh = fb.height() - 12;
+    onebit::fillRect(fb, 0, fh, fb.width(), 1, onebit::BLACK);
+    onebit::drawBitmapText(fb, font, 2, fh + 2,
+                           "up/dn row  Sh+up/dn page  Ctrl-G goto  Esc back",
+                           onebit::BLACK);
+}
+
+void FileViewerScreen::renderTooLarge(onebit::IFramebuffer& fb,
+                                      const onebit::BitmapFont& font) {
+    constexpr std::size_t kChunk = 32 * 1024;
+    int head_rows = (int)(kChunk / 16);
+    int banner_row = head_rows;
+    int tail_rows = (int)(kChunk / 16);
+    int total_rows = head_rows + 1 + tail_rows;
+
+    int rows = std::max(1, (fb.height() - 24) / 10);
+    if (cursor_ < 0) cursor_ = 0;
+    if (cursor_ >= total_rows) cursor_ = total_rows - 1;
+    if (cursor_ < scroll_top_) scroll_top_ = cursor_;
+    if (cursor_ >= scroll_top_ + rows) scroll_top_ = cursor_ - rows + 1;
+
+    char head[80];
+    std::snprintf(head, sizeof(head), "%s   too large -- head/tail only",
+                  path_.c_str());
+    onebit::drawBitmapText(fb, font, 2, 1, head, onebit::BLACK);
+    onebit::fillRect(fb, 0, 11, fb.width(), 1, onebit::BLACK);
+
+    // For tail rows we want the *absolute* file offset, not the in-buffer
+    // offset. Compute it from the real file size (FileBuffer tracks this).
+    std::size_t file_size = buffer_.fileSize();
+    std::uint32_t tail_abs_base = (std::uint32_t)(file_size > kChunk ? file_size - kChunk : 0);
+
+    int y = 13;
+    char rowbuf[80];
+    for (int i = 0; i < rows; ++i) {
+        int idx = scroll_top_ + i;
+        if (idx >= total_rows) break;
+        bool sel = (idx == cursor_);
+        if (sel) onebit::fillRect(fb, 0, y, fb.width(), 10, onebit::BLACK);
+        if (idx == banner_row) {
+            onebit::drawBitmapText(fb, font, 2, y + 1,
+                "... [too large; tail follows] ...",
+                sel ? onebit::WHITE : onebit::BLACK);
+        } else if (idx < head_rows) {
+            fb::FileBuffer::formatHexRow(buffer_.data(), buffer_.size(),
+                                         (std::uint32_t)idx * 16, rowbuf);
+            onebit::drawBitmapText(fb, font, 2, y + 1, rowbuf,
+                                   sel ? onebit::WHITE : onebit::BLACK);
+        } else {
+            // Tail row k of tail_rows lives in the buffer at kChunk + k*16,
+            // and corresponds to absolute file offset tail_abs_base + k*16.
+            // formatHexRow renders the address column from the offset arg, so
+            // we render from a temp buffer that starts at the tail's slice
+            // with the absolute offset as the displayed address.
+            int k = idx - banner_row - 1;
+            // Build a temp buffer view: copy 16 bytes from buffer_'s tail
+            // region into a small stack buffer addressed at tail_abs_base+k*16.
+            char slice[16];
+            std::size_t buf_off = kChunk + (std::size_t)k * 16;
+            std::size_t avail = (buf_off + 16 <= buffer_.size())
+                                ? 16
+                                : (buffer_.size() > buf_off ? buffer_.size() - buf_off : 0);
+            std::memcpy(slice, buffer_.data() + buf_off, avail);
+            // Pass the slice with a synthesized base/offset such that
+            // formatHexRow's address column shows tail_abs_base + k*16.
+            // formatHexRow indexes base[offset+i]; passing base = slice -
+            // (tail_abs_base + k*16) lets `slice[i]` line up with index
+            // `tail_abs_base + k*16 + i`. base_size is set so the same i's
+            // are valid.
+            std::uint32_t abs_off = tail_abs_base + (std::uint32_t)k * 16;
+            const char* virt_base = slice - abs_off;
+            std::size_t virt_size = (std::size_t)abs_off + avail;
+            fb::FileBuffer::formatHexRow(virt_base, virt_size, abs_off, rowbuf);
+            onebit::drawBitmapText(fb, font, 2, y + 1, rowbuf,
+                                   sel ? onebit::WHITE : onebit::BLACK);
+        }
+        y += 10;
+    }
+}
 
 void FileViewerScreen::renderError(onebit::IFramebuffer& fb, const onebit::BitmapFont& font) {
     char title[80];
