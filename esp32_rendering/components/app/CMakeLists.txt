@@ -36,6 +36,6 @@ idf_component_register(
         "src/screens/ssh_key_pubkey_qr_screen.cpp"
         "src/screens/ssh_key_enroll_screen.cpp"
     INCLUDE_DIRS "include"
-    REQUIRES onebit ssh_client sdcard_config nvs_flash input_queue ble_hid wifi_manager ssh_keys libssh
+    REQUIRES onebit ssh_client sdcard_config nvs_flash input_queue ble_hid wifi_manager ssh_keys libssh time_service
 )
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
