@@ -40,6 +40,7 @@
 #include "screens/dashboard_screen.hpp"
 #include "screens/terminal_screen.hpp"
 #include "screens/pairing_screen.hpp"
+#include "screens/keyboard_gate.hpp"
 #include "screens/wifi_screen.hpp"
 #include "screens/command_palette.hpp"
 #include "test_console.hpp"
@@ -688,6 +689,20 @@ extern "C" void app_main() {
     ctx.switchToActiveServer = [&]() {
         reconnectActiveServer(configMgr.get(), sshClient, dashboard);
     };
+
+    // Phase 13: install the keyboard-gate policy. Pushes of any non-bypass
+    // screen are intercepted when no BLE keyboard has ever been bonded — the
+    // candidate screen is wrapped in a KeyboardGateModal which offers a
+    // pair-or-cancel choice and forwards the deferred screen on success.
+    stack.setGatePolicy([&](app::Screen& candidate,
+                            std::unique_ptr<app::Screen>& deferred) {
+        if (bleHost.hasBond()) return false;
+        if (candidate.bypassesKeyboardGate()) return false;
+        stack.pushBypassingGate(
+            app::KeyboardGateModal::installerToken(),
+            std::make_unique<app::KeyboardGateModal>(ctx, std::move(deferred)));
+        return true;
+    });
 
     stack.push(std::make_unique<app::DashboardScreen>(ctx));
 
