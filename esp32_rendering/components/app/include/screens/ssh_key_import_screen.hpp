@@ -22,6 +22,8 @@ public:
     void handleInput(const input::InputEvent& evt, ScreenStack& stack) override;
     void render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font) override;
 
+    app::SpanView<const app::KeybindHint> keybindHints() const override;
+
 private:
     struct Candidate {
         std::string filename;     // basename, e.g. "id_ed25519"

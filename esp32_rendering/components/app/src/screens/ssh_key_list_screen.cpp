@@ -11,6 +11,7 @@
 
 #include <1bit/render/primitives.hpp>
 
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -19,6 +20,24 @@
 #include <esp_timer.h>
 
 namespace app {
+
+namespace {
+constexpr std::array<app::KeybindHint, 7> kHints = {{
+    {"[up/dn]", "nav"},
+    {"Enter",   "detail"},
+    {"G",       "generate"},
+    {"I",       "import"},
+    {"Esc",     "back"},
+    {"Sh-D",    "delete"},
+    {"Ctrl+/",  "help"},
+}};
+static_assert(sizeof("[up/dn]") <= 12 && sizeof("generate") <= 16,
+              "kHints contains a string longer than KeybindHint capacity");
+} // namespace
+
+app::SpanView<const app::KeybindHint> SshKeyListScreen::keybindHints() const {
+    return kHints;
+}
 
 SshKeyListScreen::SshKeyListScreen(ScreenContext& ctx)
     : ctx_(ctx), mode_(Mode::Browse) {}

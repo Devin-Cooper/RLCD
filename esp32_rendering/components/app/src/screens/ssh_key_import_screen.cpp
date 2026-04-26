@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -21,6 +22,21 @@
 #include <esp_timer.h>
 
 namespace app {
+
+namespace {
+constexpr std::array<app::KeybindHint, 4> kHints = {{
+    {"[up/dn]", "nav"},
+    {"Enter",   "import"},
+    {"Esc",     "back"},
+    {"Ctrl+/",  "help"},
+}};
+static_assert(sizeof("[up/dn]") <= 12 && sizeof("import") <= 16,
+              "kHints contains a string longer than KeybindHint capacity");
+} // namespace
+
+app::SpanView<const app::KeybindHint> SshKeyImportScreen::keybindHints() const {
+    return kHints;
+}
 
 static constexpr const char* SD_IMPORT_DIR = "/sdcard/ssh_keys";
 

@@ -8,12 +8,27 @@
 
 #include <1bit/render/primitives.hpp>
 
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <memory>
 #include <string>
 
 namespace app {
+
+namespace {
+constexpr std::array<app::KeybindHint, 3> kHints = {{
+    {"Enter",  "next"},
+    {"Esc",    "cancel"},
+    {"Ctrl+/", "help"},
+}};
+static_assert(sizeof("Ctrl+/") <= 12 && sizeof("cancel") <= 16,
+              "kHints contains a string longer than KeybindHint capacity");
+} // namespace
+
+app::SpanView<const app::KeybindHint> SshKeyEnrollScreen::keybindHints() const {
+    return kHints;
+}
 
 SshKeyEnrollScreen::SshKeyEnrollScreen(ScreenContext& ctx,
                                         const ssh_keys::KeyId& id)

@@ -12,6 +12,7 @@
 
 #include <1bit/render/primitives.hpp>
 
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -20,6 +21,22 @@
 #include <vector>
 
 namespace app {
+
+namespace {
+constexpr std::array<app::KeybindHint, 5> kHints = {{
+    {"Q",      "QR"},
+    {"T",      "text"},
+    {"Esc",    "back"},
+    {"Sh-D",   "delete"},
+    {"Ctrl+/", "help"},
+}};
+static_assert(sizeof("Ctrl+/") <= 12 && sizeof("delete") <= 16,
+              "kHints contains a string longer than KeybindHint capacity");
+} // namespace
+
+app::SpanView<const app::KeybindHint> SshKeyDetailScreen::keybindHints() const {
+    return kHints;
+}
 
 static const char* type_full_name(ssh_keys::KeyType t, uint16_t rsa_bits) {
     switch (t) {
