@@ -103,6 +103,18 @@ TEST_CASE("Overlay: Confirm arrow toggles selection", "[app][overlay][modal]") {
     REQUIRE_FALSE(got_result);
 }
 
+TEST_CASE("OverlayManager: modal triggers ModalScale tween",
+          "[app][overlay][anim]") {
+    Animator anim;
+    OverlayManager om(anim);
+    om.tick(0);
+    om.showError("Oops", "It broke");
+    auto tag = makeTag(TweenKind::ModalScale, 0);
+    REQUIRE(anim.inProgress(tag, 1));
+    REQUIRE(anim.value(tag, 0) == 0);
+    REQUIRE(anim.value(tag, 140'000) == 100);
+}
+
 TEST_CASE("OverlayManager: toast triggers ToastSlide tween",
           "[app][overlay][anim]") {
     Animator anim;
