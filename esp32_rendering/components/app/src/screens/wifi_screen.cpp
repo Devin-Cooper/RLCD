@@ -7,12 +7,27 @@
 #include <cstdio>
 #include <string>
 #include <esp_log.h>
+#include <esp_timer.h>
 
 static const char* TAG = "wifi_screen";
 
 namespace app {
 
 WifiScreen::WifiScreen(ScreenContext& ctx) : ctx_(ctx) {}
+
+int16_t WifiScreen::computeRowY(int index) const {
+    return list_start_y_ + static_cast<int16_t>(index) * row_h_;
+}
+
+void WifiScreen::onSelectionChange(int old_index, int new_index) {
+    if (old_index == new_index) return;
+    if (!focus_y_initialized_) return;
+    int16_t old_y = computeRowY(old_index);
+    int16_t new_y = computeRowY(new_index);
+    auto tag = makeTag(TweenKind::FocusRect, focus_id::WifiScreen);
+    ctx_.animator.start(tag, old_y, new_y, kFocusRectUs, esp_timer_get_time());
+    prev_selected_y_ = new_y;
+}
 
 void WifiScreen::onEnter() {
     wifi::ConnectionInfo ci = ctx_.wifiMgr.connectionInfo();
@@ -30,6 +45,10 @@ void WifiScreen::onEnterTab(Tab t) {
     if (t == Tab::Known) {
         refreshKnown();
     }
+    // Tab change: cancel any in-flight focus-rect tween and snap to row 0.
+    auto tag = makeTag(TweenKind::FocusRect, focus_id::WifiScreen);
+    ctx_.animator.cancel(tag);
+    focus_y_initialized_ = false;
 }
 
 void WifiScreen::refreshKnown() {
@@ -56,6 +75,10 @@ void WifiScreen::refreshScanResults() {
     scan_count_ = w;
     scan_in_flight_ = false;
     sel_ = 0;
+    // Result list refreshed; cancel in-flight tween and re-init y.
+    auto tag = makeTag(TweenKind::FocusRect, focus_id::WifiScreen);
+    ctx_.animator.cancel(tag);
+    focus_y_initialized_ = false;
 }
 
 void WifiScreen::sanitize(char* dst, const char* src, size_t dst_cap) {
@@ -90,8 +113,13 @@ void WifiScreen::handleInput(const input::InputEvent& evt, ScreenStack& stack) {
         if (evt.data_length == 3 && evt.data[0] == 0x1B && evt.data[1] == '[') {
             char c = evt.data[2];
             int count = visibleCount();
+            int old_sel = sel_;
             if (c == 'A' && count > 0) sel_ = (sel_ - 1 + count) % count;
             if (c == 'B' && count > 0) sel_ = (sel_ + 1) % count;
+            if (c == 'A' || c == 'B') {
+                onSelectionChange(old_sel, sel_);
+                return;
+            }
             if (c == 'C') onEnterTab(tab_ == Tab::Known ? Tab::Available : Tab::Known);
             if (c == 'D') onEnterTab(tab_ == Tab::Available ? Tab::Known : Tab::Available);
             return;
@@ -137,7 +165,11 @@ void WifiScreen::handleInput(const input::InputEvent& evt, ScreenStack& stack) {
             stack.pop();
         } else if (evt.button_id == 1) {
             int count = visibleCount();
-            if (count > 0) sel_ = (sel_ + 1) % count;
+            if (count > 0) {
+                int old_sel = sel_;
+                sel_ = (sel_ + 1) % count;
+                onSelectionChange(old_sel, sel_);
+            }
         }
     }
 }
@@ -177,6 +209,22 @@ void WifiScreen::render(onebit::IFramebuffer& fb,
     onebit::fillRect(fb, 10, y, fb.width() - 20, 1, onebit::BLACK);
     y += 4;
 
+    // Cache list layout for the focus-rect animation.
+    list_start_y_ = y - 1;                 // top y of focus rect for row 0
+    row_h_        = font.glyph_height + 2;
+
+    // Compute the focus-rect y. Animate if a tween is in progress.
+    auto tag = makeTag(TweenKind::FocusRect, focus_id::WifiScreen);
+    int64_t now = esp_timer_get_time();
+    int count = visibleCount();
+    if (count > 0 && !focus_y_initialized_) {
+        prev_selected_y_ = computeRowY(sel_);
+        focus_y_initialized_ = true;
+    }
+    int16_t cur_y = ctx_.animator.inProgress(tag, now)
+                  ? ctx_.animator.value(tag, now)
+                  : prev_selected_y_;
+
     if (tab_ == Tab::Available) {
         if (scan_in_flight_) {
             onebit::drawBitmapText(fb, font, 10, y, "Scanning...", onebit::BLACK);
@@ -187,6 +235,9 @@ void WifiScreen::render(onebit::IFramebuffer& fb,
                                    "No networks. 'r' to rescan.", onebit::BLACK);
             return;
         }
+        // Draw the focus rect at the (possibly interpolated) y.
+        onebit::fillRect(fb, 8, cur_y, fb.width() - 16,
+                         font.glyph_height + 2, onebit::BLACK);
         for (int i = 0; i < scan_count_ && y + font.glyph_height < fb.height() - 20; ++i) {
             char disp[48];
             sanitize(disp, scan_[i].ssid, sizeof(disp));
@@ -197,13 +248,8 @@ void WifiScreen::render(onebit::IFramebuffer& fb,
                      disp, scan_[i].rssi,
                      scan_[i].auth == WIFI_AUTH_OPEN ? "" : " [P]");
 
-            if (i == sel_) {
-                onebit::fillRect(fb, 8, y - 1, fb.width() - 16,
-                                 font.glyph_height + 2, onebit::BLACK);
-                onebit::drawBitmapText(fb, font, 10, y, line, onebit::WHITE);
-            } else {
-                onebit::drawBitmapText(fb, font, 10, y, line, onebit::BLACK);
-            }
+            onebit::drawBitmapText(fb, font, 10, y, line,
+                                   i == sel_ ? onebit::WHITE : onebit::BLACK);
             y += font.glyph_height + 2;
         }
     } else {
@@ -212,18 +258,16 @@ void WifiScreen::render(onebit::IFramebuffer& fb,
             onebit::drawBitmapText(fb, font, 10, y,
                                    "No saved networks.", onebit::BLACK);
         } else {
+            // Draw the focus rect at the (possibly interpolated) y.
+            onebit::fillRect(fb, 8, cur_y, fb.width() - 16,
+                             font.glyph_height + 2, onebit::BLACK);
             for (int i = 0; i < known_count_ &&
                  y + font.glyph_height < fb.height() - 20; ++i) {
                 char line[48];
                 snprintf(line, sizeof(line), "%c %s",
                          i == sel_ ? '>' : ' ', known_[i].ssid);
-                if (i == sel_) {
-                    onebit::fillRect(fb, 8, y - 1, fb.width() - 16,
-                                     font.glyph_height + 2, onebit::BLACK);
-                    onebit::drawBitmapText(fb, font, 10, y, line, onebit::WHITE);
-                } else {
-                    onebit::drawBitmapText(fb, font, 10, y, line, onebit::BLACK);
-                }
+                onebit::drawBitmapText(fb, font, 10, y, line,
+                                       i == sel_ ? onebit::WHITE : onebit::BLACK);
                 y += font.glyph_height + 2;
             }
         }
