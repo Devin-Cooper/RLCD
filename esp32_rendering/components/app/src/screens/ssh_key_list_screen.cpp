@@ -16,6 +16,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <esp_timer.h>
 
 namespace app {
 
@@ -26,8 +27,25 @@ SshKeyListScreen::SshKeyListScreen(ScreenContext& ctx,
                                     std::function<void(const std::string&)> on_pick)
     : ctx_(ctx), mode_(Mode::Picker), on_pick_(std::move(on_pick)) {}
 
+int16_t SshKeyListScreen::computeRowY(int index) const {
+    return list_start_y_ + static_cast<int16_t>(index) * row_h_;
+}
+
+void SshKeyListScreen::onSelectionChange(int old_index, int new_index) {
+    if (old_index == new_index) return;
+    if (!focus_y_initialized_) return;
+    int16_t old_y = computeRowY(old_index);
+    int16_t new_y = computeRowY(new_index);
+    auto tag = makeTag(TweenKind::FocusRect, focus_id::SshKeyListScreen);
+    ctx_.animator.start(tag, old_y, new_y, kFocusRectUs, esp_timer_get_time());
+    prev_selected_y_ = new_y;
+}
+
 void SshKeyListScreen::onEnter() {
     sel_ = 0;
+    focus_y_initialized_ = false;
+    auto tag = makeTag(TweenKind::FocusRect, focus_id::SshKeyListScreen);
+    ctx_.animator.cancel(tag);
 }
 
 int SshKeyListScreen::rowCount() const {
@@ -99,6 +117,11 @@ void SshKeyListScreen::confirmDelete() {
         else    ctx_.overlay.showError("Delete failed", "NVS write error");
         int max_idx = rowCount() - 1;
         if (sel_ > max_idx) sel_ = max_idx < 0 ? 0 : max_idx;
+        // Row count changed; cancel tween and re-init y.
+        auto tag = makeTag(TweenKind::FocusRect,
+                           focus_id::SshKeyListScreen);
+        ctx_.animator.cancel(tag);
+        focus_y_initialized_ = false;
     });
 }
 
@@ -130,8 +153,11 @@ void SshKeyListScreen::handleInput(const input::InputEvent& evt,
         // Arrow keys: 3-byte CSI
         if (evt.data_length == 3 && evt.data[0] == 0x1B && evt.data[1] == '[') {
             if (count > 0) {
+                int old_sel = sel_;
                 if (evt.data[2] == 'A') sel_ = (sel_ - 1 + count) % count;
                 if (evt.data[2] == 'B') sel_ = (sel_ + 1) % count;
+                if (evt.data[2] == 'A' || evt.data[2] == 'B')
+                    onSelectionChange(old_sel, sel_);
             }
             return;
         }
@@ -166,8 +192,10 @@ void SshKeyListScreen::handleInput(const input::InputEvent& evt,
     // Button fallback: A=up, B=down, long-A=Esc, long-B=Enter
     if (evt.source == input::Source::Button) {
         if (evt.type == input::EventType::ButtonShort && count > 0) {
+            int old_sel = sel_;
             if (evt.button_id == 0) sel_ = (sel_ - 1 + count) % count;
             if (evt.button_id == 1) sel_ = (sel_ + 1) % count;
+            onSelectionChange(old_sel, sel_);
         }
         if (evt.type == input::EventType::ButtonLong) {
             if (evt.button_id == 0) stack.pop();
@@ -191,19 +219,35 @@ void SshKeyListScreen::render(onebit::IFramebuffer& fb,
                       fb.width() - 20, 1, onebit::BLACK);
 
     int16_t y = 8 + font.glyph_height + 8;
+
+    // Cache list layout for the focus-rect animation.
+    list_start_y_ = y - 1;
+    row_h_        = font.glyph_height + 4;
+
+    // Compute the focus-rect y. Animate if a tween is in progress.
+    auto tag = makeTag(TweenKind::FocusRect, focus_id::SshKeyListScreen);
+    int64_t now = esp_timer_get_time();
+    int row_total = rowCount();
+    if (row_total > 0 && !focus_y_initialized_) {
+        prev_selected_y_ = computeRowY(sel_);
+        focus_y_initialized_ = true;
+    }
+    int16_t cur_y = ctx_.animator.inProgress(tag, now)
+                  ? ctx_.animator.value(tag, now)
+                  : prev_selected_y_;
+    if (row_total > 0) {
+        onebit::fillRect(fb, 8, cur_y, fb.width() - 16,
+                         font.glyph_height + 2, onebit::BLACK);
+    }
+
     int row = 0;
 
     if (mode_ == Mode::Picker) {
         char line[48];
         std::snprintf(line, sizeof(line), "%c (password auth)",
                        row == sel_ ? '>' : ' ');
-        if (row == sel_) {
-            onebit::fillRect(fb, 8, y - 1, fb.width() - 16,
-                              font.glyph_height + 2, onebit::BLACK);
-            onebit::drawBitmapText(fb, font, 10, y, line, onebit::WHITE);
-        } else {
-            onebit::drawBitmapText(fb, font, 10, y, line, onebit::BLACK);
-        }
+        onebit::drawBitmapText(fb, font, 10, y, line,
+                               row == sel_ ? onebit::WHITE : onebit::BLACK);
         y += font.glyph_height + 4;
         ++row;
     }
@@ -230,13 +274,8 @@ void SshKeyListScreen::render(onebit::IFramebuffer& fb,
                        m.name,
                        ssh_keys::key_type_glyph(m.type, m.rsa_bits),
                        fp_head, ref_n);
-        if (row == sel_) {
-            onebit::fillRect(fb, 8, y - 1, fb.width() - 16,
-                              font.glyph_height + 2, onebit::BLACK);
-            onebit::drawBitmapText(fb, font, 10, y, line, onebit::WHITE);
-        } else {
-            onebit::drawBitmapText(fb, font, 10, y, line, onebit::BLACK);
-        }
+        onebit::drawBitmapText(fb, font, 10, y, line,
+                               row == sel_ ? onebit::WHITE : onebit::BLACK);
         y += font.glyph_height + 4;
     }
 
