@@ -6,7 +6,6 @@
 #include <esp_heap_caps.h>
 #include <nvs_flash.h>
 #include <nvs.h>
-#include <esp_sntp.h>
 #include <esp_littlefs.h>
 #include <sys/stat.h>
 #include <dirent.h>
@@ -16,6 +15,7 @@
 // Display and sensors
 #include "st7305.hpp"
 #include "i2c_bsp.hpp"
+#include "time_service.hpp"
 #include "pcf85063.hpp"
 #include "shtc3.hpp"
 #include "battery.hpp"
@@ -36,6 +36,7 @@
 #include "screen_stack.hpp"
 #include "screen_context.hpp"
 #include "overlay.hpp"
+#include "status_row.hpp"
 #include "ble_soft_toast_watcher.hpp"
 #include "font_for_size.hpp"
 #include "screens/dashboard_screen.hpp"
@@ -44,6 +45,7 @@
 #include "screens/keyboard_gate.hpp"
 #include "screens/wifi_screen.hpp"
 #include "screens/command_palette.hpp"
+#include "screens/set_time_wizard_screen.hpp"
 #include "command_registry.hpp"
 #include "test_console.hpp"
 #include "boot_validator.hpp"
@@ -281,17 +283,6 @@ static bool initLittleFs() {
 }
 
 // ============================================================================
-// NTP time sync
-// ============================================================================
-
-static void startNtpSync() {
-    ESP_LOGI(TAG, "Starting NTP sync");
-    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    esp_sntp_setservername(0, "pool.ntp.org");
-    esp_sntp_init();
-}
-
-// ============================================================================
 // Main entry point
 // ============================================================================
 
@@ -343,6 +334,19 @@ extern "C" void app_main() {
     // ------------------------------------------------------------------
     showStatus(fb, display, "Mounting LittleFS...");
     initLittleFs();
+
+    // ------------------------------------------------------------------
+    // Step 3a-pre: I²C bus (long-lived) + TimeService
+    // ------------------------------------------------------------------
+    // SCL=GPIO14, SDA=GPIO13 (board: ESP32-S3-RLCD-4.2; same I²C bus
+    // serves PCF85063 RTC, SHTC3, and the future audio codec).
+    static i2c_bsp::I2cMasterBus i2cBus(/*scl*/ GPIO_NUM_14,
+                                        /*sda*/ GPIO_NUM_13,
+                                        I2C_NUM_0);
+    static time_service::TimeService timeService(i2cBus);
+    if (!timeService.init()) {
+        ESP_LOGW(TAG, "TimeService init returned false — clock will start unset");
+    }
 
     // ------------------------------------------------------------------
     // Step 3a: Physical buttons (early — before blocking network waits)
@@ -598,8 +602,8 @@ extern "C" void app_main() {
     if (wifiConnected) {
         ESP_LOGI(TAG, "WiFi connected");
 
-        // NTP sync
-        startNtpSync();
+        // NTP sync (TimeService owns SNTP and writes back to PCF85063 RTC)
+        timeService.onWifiUp();
 
         // SSH connect — use SD card server config if available, else NVS settings
         if (hasServers) {
@@ -678,10 +682,12 @@ extern "C" void app_main() {
     app::ScreenStack stack;
     app::Animator animator;
     app::OverlayManager overlay(animator);
+    static app::StatusRow statusRow(timeService);
 
     app::ScreenContext ctx{
         fb, display, sshClient, wifiMgr, *configMgr, keyStore, bleHost, settings,
-        stack, overlay, dashboard, terminalMode, currentFontSize, animator
+        stack, overlay, dashboard, terminalMode, currentFontSize, animator,
+        timeService
     };
 
     // Amendment K: wire switchToNextServer and switchToActiveServer into ctx.
@@ -718,6 +724,12 @@ extern "C" void app_main() {
     app::BleSoftToastWatcher watcher(overlay, stack, bleHost);
 
     stack.push(std::make_unique<app::DashboardScreen>(ctx));
+
+    // First-boot clock-not-set wizard. Pushed on top of Dashboard so back-out
+    // (Esc / "Wait for WiFi") drops the user back into Dashboard normally.
+    if (timeService.wasUnsetAtBoot()) {
+        stack.push(std::make_unique<app::SetTimeWizardScreen>(ctx));
+    }
 
     // Wire WifiManager error callbacks now that overlay is in scope.
     wifiMgr.onSaveError([](void* ctx) {
@@ -949,6 +961,9 @@ extern "C" void app_main() {
         // Render — fully stack-driven
         // ----------------------------------------------------------
         stack.renderAll(fb, fontForSize(currentFontSize), frameStart);
+        if (auto* top = stack.top(); !top || top->wantsStatusBar()) {
+            statusRow.render(fb, fontForSize(currentFontSize));
+        }
         overlay.renderFooter(fb, fontForSize(currentFontSize), stack.top(), frameStart);
         overlay.render(fb, fontForSize(currentFontSize));
 

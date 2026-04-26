@@ -1918,8 +1918,8 @@ CONFIG_LOG_TAG_LEVEL_IMPL_CACHE_SIZE=31
 # Format
 #
 # CONFIG_LOG_COLORS is not set
-CONFIG_LOG_TIMESTAMP_SOURCE_RTOS=y
-# CONFIG_LOG_TIMESTAMP_SOURCE_SYSTEM is not set
+# CONFIG_LOG_TIMESTAMP_SOURCE_RTOS is not set
+CONFIG_LOG_TIMESTAMP_SOURCE_SYSTEM=y
 # end of Format
 
 #
@@ -2567,6 +2567,41 @@ CONFIG_WIFI_PROV_STA_ALL_CHANNEL_SCAN=y
 # end of Wi-Fi Provisioning Manager
 
 #
+# libssh (vendored libssh 0.11.4)
+#
+CONFIG_LIBSSH_LOG_LEVEL=1
+CONFIG_LIBSSH_MAX_PACKET_SIZE=32768
+
+#
+# Multi-session SSH sessions require CONFIG_MBEDTLS_HARDWARE_SHA=n
+#
+
+#
+# due to an ewpa-documented concurrency bug. This firmware uses
+#
+
+#
+# only one SSH session at a time, so the flag is left at the default.
+#
+
+#
+# See the future multi-session spec.
+#
+# end of libssh (vendored libssh 0.11.4)
+
+#
+# SSH Keys (components/ssh_keys/)
+#
+CONFIG_SSH_KEYS_MAX=32
+# end of SSH Keys (components/ssh_keys/)
+
+#
+# Test Console
+#
+# CONFIG_TEST_CONSOLE_ENABLED is not set
+# end of Test Console
+
+#
 # LittleFS
 #
 # CONFIG_LITTLEFS_SDMMC_SUPPORT is not set
@@ -2595,13 +2630,6 @@ CONFIG_LITTLEFS_ASSERTS=y
 # CONFIG_LITTLEFS_MMAP_PARTITION is not set
 # CONFIG_LITTLEFS_WDT_RESET is not set
 # end of LittleFS
-
-#
-# libssh2
-#
-CONFIG_LIBSSH2_CRYPTO_ENGINE_MBEDTLS=y
-CONFIG_LIBSSH2_DEBUG_ENABLE=y
-# end of libssh2
 # end of Component config
 
 # CONFIG_IDF_EXPERIMENTAL_FEATURES is not set

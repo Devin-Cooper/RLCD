@@ -25,6 +25,7 @@ public:
     ScreenKind screenKind() const override { return ScreenKind::Terminal; }
     const char* breadcrumbLabel() const override { return "Terminal"; }
     bool wantsKeybindFooter() const override { return false; }
+    bool wantsStatusBar() const override { return false; }
 
     app::SpanView<const app::Command> getContextualCommands() override;
     void dispatchContextual(uint16_t id) override;

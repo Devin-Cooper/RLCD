@@ -24,8 +24,16 @@ public:
     /// Initialize the RTC (resets OS flag, starts oscillator)
     bool init();
 
-    /// Read current time
+    /// True if the OS (oscillator stop) flag was set when init() ran.
+    /// Latched at init time so callers can detect "RTC unset at boot".
+    bool oscillatorStoppedAtBoot() const;
+
+    /// Read current time (legacy, no error reporting)
     RtcTime getTime();
+
+    /// Read current time with error/bounds checking.
+    /// Returns false on I2C error or out-of-range BCD values.
+    bool getTime(RtcTime& out);
 
     /// Set time
     void setTime(const RtcTime& time);
@@ -33,6 +41,7 @@ public:
 private:
     i2c_bsp::I2cMasterBus& bus_;
     i2c_master_dev_handle_t dev_;
+    bool osStoppedAtBoot_ = false;
 
     static constexpr uint8_t ADDR = 0x51;
     static constexpr uint32_t SPEED_HZ = 300000;  // 300 kHz

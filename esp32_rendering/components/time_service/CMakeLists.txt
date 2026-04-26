@@ -1,0 +1,13 @@
+idf_component_register(
+    SRCS
+        "src/time_service.cpp"
+        "src/tz_catalog.cpp"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        i2c_bsp
+        sensors
+        nvs_flash
+        esp_netif
+        lwip
+)

@@ -87,6 +87,12 @@ public:
     /// on Dashboard, Terminal, Pairing, KeyboardGate, and CommandPalette.
     virtual bool wantsKeybindFooter() const { return true; }
 
+    /// True (default) → 12 px top status row (clock) drawn over this
+    /// screen. Override false on full-screen modes that own row 0
+    /// (TerminalScreen) or modals that should suppress chrome
+    /// (KeyboardGateModal, future SetTimeWizardScreen).
+    virtual bool wantsStatusBar() const { return true; }
+
     /// True → ScreenStack's gate policy will not block a push of this
     /// Screen even if no BLE keyboard is bonded. Override true on
     /// Dashboard, Terminal, Pairing, KeyboardGate, CommandPalette.

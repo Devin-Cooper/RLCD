@@ -28,7 +28,9 @@ private:
     char dash_ms_[6] = {};
     TextInput ti_scrollback_;
     TextInput ti_dash_;
-    int focus_ = 0;   // 0 font, 1 scrollback, 2 dash, 3 Save, 4 Cancel
+    // Focus rows: 0 font, 1 scrollback, 2 dash, 3 Date & Time,
+    // 4 Time zone, 5 Save, 6 Cancel.
+    int focus_ = 0;
     bool dirty_ = false;
 
     void saveAndPop(ScreenStack& stack);

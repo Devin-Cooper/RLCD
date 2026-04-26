@@ -6,6 +6,7 @@ idf_component_register(
         "src/settings.cpp"
         "src/screen_stack.cpp"
         "src/overlay.cpp"
+        "src/status_row.cpp"
         "src/text_input.cpp"
         "src/font_for_size.cpp"
         "src/animator.cpp"
@@ -35,7 +36,10 @@ idf_component_register(
         "src/screens/ssh_key_pubkey_text_screen.cpp"
         "src/screens/ssh_key_pubkey_qr_screen.cpp"
         "src/screens/ssh_key_enroll_screen.cpp"
+        "src/screens/set_time_wizard_screen.cpp"
+        "src/screens/set_time_screen.cpp"
+        "src/screens/timezone_screen.cpp"
     INCLUDE_DIRS "include"
-    REQUIRES onebit ssh_client sdcard_config nvs_flash input_queue ble_hid wifi_manager ssh_keys libssh
+    REQUIRES onebit ssh_client sdcard_config nvs_flash input_queue ble_hid wifi_manager ssh_keys libssh time_service
 )
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
