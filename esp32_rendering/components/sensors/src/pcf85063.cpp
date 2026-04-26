@@ -34,7 +34,8 @@ bool Pcf85063::init() {
     }
 
     // Bit 5 = OS (oscillator stop). If set, clock integrity is not guaranteed.
-    if (ctrl1 & 0x20) {
+    osStoppedAtBoot_ = (ctrl1 & 0x20) != 0;
+    if (osStoppedAtBoot_) {
         ESP_LOGW(TAG, "Oscillator was stopped, clearing OS flag");
         ctrl1 &= ~0x20;
         bus_.writeReg(dev_, REG_CONTROL1, &ctrl1, 1);
@@ -42,6 +43,10 @@ bool Pcf85063::init() {
 
     ESP_LOGI(TAG, "PCF85063 initialized (Control_1=0x%02X)", ctrl1);
     return true;
+}
+
+bool Pcf85063::oscillatorStoppedAtBoot() const {
+    return osStoppedAtBoot_;
 }
 
 RtcTime Pcf85063::getTime() {
@@ -65,6 +70,28 @@ RtcTime Pcf85063::getTime() {
     time.year = 2000 + bcdToDec(regs[6]);
 
     return time;
+}
+
+bool Pcf85063::getTime(RtcTime& out) {
+    uint8_t regs[7];
+    esp_err_t err = bus_.readReg(dev_, REG_SECONDS, regs, 7);
+    if (err != ESP_OK) return false;
+
+    out.second  = bcdToDec(regs[0] & 0x7F);
+    out.minute  = bcdToDec(regs[1] & 0x7F);
+    out.hour    = bcdToDec(regs[2] & 0x3F);
+    out.day     = bcdToDec(regs[3] & 0x3F);
+    out.weekday = regs[4] & 0x07;
+    out.month   = bcdToDec(regs[5] & 0x1F);
+    out.year    = 2000 + bcdToDec(regs[6]);
+
+    if (out.month < 1 || out.month > 12) return false;
+    if (out.day   < 1 || out.day   > 31) return false;
+    if (out.hour  > 23) return false;
+    if (out.minute > 59) return false;
+    if (out.second > 59) return false;
+    if (out.year < 2024 || out.year > 2099) return false;
+    return true;
 }
 
 void Pcf85063::setTime(const RtcTime& time) {
