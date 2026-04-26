@@ -148,6 +148,15 @@ add_host_test(
 )
 
 add_host_test(
+    NAME test_command_palette_filter
+    SOURCES
+        test_command_palette_filter.cpp
+        "${APP_DIR}/src/command_palette_filter.cpp"
+    INCLUDES
+        "${APP_DIR}/include"
+)
+
+add_host_test(
     NAME test_command_registry
     SOURCES
         test_command_registry.cpp
