@@ -7,6 +7,7 @@
 #include "sdcard_manager.hpp"
 #include "path_helpers.hpp"
 #include "command_registry.hpp"
+#include "screens/text_input_screen.hpp"
 #include <memory>
 #include <dirent.h>
 #include <unistd.h>
@@ -297,12 +298,41 @@ void FileBrowserScreen::runDelete(const std::string& full_path, bool is_dir) {
     reload();
 }
 
-void FileBrowserScreen::runRename(const std::string& /*old_full*/, const std::string& /*new_name*/) {
-    // Task 13.
+void FileBrowserScreen::runRename(const std::string& old_full,
+                                  const std::string& new_name) {
+    std::string parent = fb::path::parent(old_full);
+    std::string new_full = fb::path::join(parent, new_name);
+    if (::rename(old_full.c_str(), new_full.c_str()) != 0) {
+        last_failed_op_ = [this, old_full, new_name]() { runRename(old_full, new_name); };
+        showMidOpError("rename", errno);
+        return;
+    }
+    ESP_LOGI(TAG, "renamed %s -> %s", old_full.c_str(), new_full.c_str());
+    reload();
+    // Place cursor on the renamed entry.
+    for (int i = 0; i < (int)listing_.entries().size(); ++i) {
+        if (listing_.entries()[i].name == new_name) { selected_ = i; break; }
+    }
 }
 
-void FileBrowserScreen::runMkdir(const std::string& /*parent*/, const std::string& /*new_name*/) {
-    // Task 13.
+void FileBrowserScreen::runMkdir(const std::string& parent,
+                                 const std::string& new_name) {
+    std::string full = fb::path::join(parent, new_name);
+    struct stat st{};
+    if (::stat(full.c_str(), &st) == 0) {
+        ctx_.overlay.showError("Cannot create", "Already exists");
+        return;
+    }
+    if (::mkdir(full.c_str(), 0755) != 0) {
+        last_failed_op_ = [this, parent, new_name]() { runMkdir(parent, new_name); };
+        showMidOpError("mkdir", errno);
+        return;
+    }
+    ESP_LOGI(TAG, "mkdir %s", full.c_str());
+    reload();
+    for (int i = 0; i < (int)listing_.entries().size(); ++i) {
+        if (listing_.entries()[i].name == new_name) { selected_ = i; break; }
+    }
 }
 
 void FileBrowserScreen::showMidOpError(const char*, int) {
@@ -310,8 +340,11 @@ void FileBrowserScreen::showMidOpError(const char*, int) {
     ctx_.overlay.showError("SD error", "(retry path: Task 14)");
 }
 
-const char* FileBrowserScreen::validateName(const std::string& /*n*/) {
-    // Task 13.
+const char* FileBrowserScreen::validateName(const std::string& n) {
+    if (n.empty()) return "Name required";
+    if (n == "." || n == "..") return "Reserved name";
+    if (n.find('/') != std::string::npos) return "Slashes not allowed";
+    if (n.size() > 255) return "Name too long";
     return nullptr;
 }
 
@@ -360,8 +393,40 @@ void FileBrowserScreen::dispatchContextual(uint16_t id) {
             reload();
             return;
         }
-        case 0xFF51:    // Rename — Task 13
-        case 0xFF52:    // Mkdir — Task 13
+        case 0xFF51: {  // Rename
+            if (!e.bookmark_target.empty()) {
+                ctx_.overlay.showError("Cannot modify", "Bookmark row");
+                return;
+            }
+            std::string full = fb::path::join(current_path_, e.name);
+            std::string old_name = e.name;
+            ctx_.stack.push(std::make_unique<TextInputScreen>(ctx_,
+                "Rename", e.name.c_str(),
+                [this, full, old_name](TextInputResult r, const std::string& v) {
+                    if (r != TextInputResult::Submit) return;
+                    if (v == old_name) return;
+                    if (auto err = validateName(v)) {
+                        ctx_.overlay.showError("Invalid name", err);
+                        return;
+                    }
+                    runRename(full, v);
+                }));
+            return;
+        }
+        case 0xFF52: {  // Mkdir
+            std::string parent = current_path_;
+            ctx_.stack.push(std::make_unique<TextInputScreen>(ctx_,
+                "New folder", "",
+                [this, parent](TextInputResult r, const std::string& v) {
+                    if (r != TextInputResult::Submit) return;
+                    if (auto err = validateName(v)) {
+                        ctx_.overlay.showError("Invalid name", err);
+                        return;
+                    }
+                    runMkdir(parent, v);
+                }));
+            return;
+        }
         default: return;
     }
 }
