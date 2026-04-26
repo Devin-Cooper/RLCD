@@ -1,8 +1,22 @@
 #include "screens/about_screen.hpp"
 #include "screen_stack.hpp"
 #include <1bit/render/primitives.hpp>
+#include <array>
 
 namespace app {
+
+namespace {
+constexpr std::array<app::KeybindHint, 2> kHints = {{
+    {"Esc",    "close"},
+    {"Ctrl+/", "help"},
+}};
+static_assert(sizeof("Ctrl+/") <= 12 && sizeof("close") <= 16,
+              "kHints contains a string longer than KeybindHint capacity");
+} // namespace
+
+app::SpanView<const app::KeybindHint> AboutScreen::keybindHints() const {
+    return kHints;
+}
 
 void AboutScreen::handleInput(const input::InputEvent& evt,
                               ScreenStack& stack) {

@@ -3,9 +3,24 @@
 
 #include <1bit/render/primitives.hpp>
 
+#include <array>
 #include <cstring>
 
 namespace app {
+
+namespace {
+constexpr std::array<app::KeybindHint, 3> kHints = {{
+    {"Enter",  "accept"},
+    {"Esc",    "cancel"},
+    {"Ctrl+/", "help"},
+}};
+static_assert(sizeof("Ctrl+/") <= 12 && sizeof("accept") <= 16,
+              "kHints contains a string longer than KeybindHint capacity");
+} // namespace
+
+app::SpanView<const app::KeybindHint> TextInputScreen::keybindHints() const {
+    return kHints;
+}
 
 TextInputScreen::TextInputScreen(ScreenContext& ctx,
                                  const char* title,
