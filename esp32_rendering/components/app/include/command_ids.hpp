@@ -33,4 +33,9 @@ namespace focus_id {
     constexpr uint32_t CommandPalette     = 0x06;
 }
 
+// Per-feature bounce tween ids (low 24 bits of an Animator tag).
+namespace bounce_id {
+    constexpr uint32_t TerminalScrollback = 0x01;
+}
+
 } // namespace app
