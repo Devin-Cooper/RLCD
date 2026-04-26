@@ -3,6 +3,7 @@
 #include "screen_context.hpp"
 #include "animator.hpp"
 #include "command_ids.hpp"
+#include "command_registry.hpp"
 #include <set>
 #include <string>
 
@@ -20,6 +21,9 @@ public:
 
     app::SpanView<const app::KeybindHint> keybindHints() const override;
 
+    app::SpanView<const app::Command> getContextualCommands() override;
+    void dispatchContextual(uint16_t id) override;
+
 private:
     ScreenContext& ctx_;
     int sel_ = 0;     // 0..count-1 = servers; count = "[+ Add new...]"
@@ -30,6 +34,12 @@ private:
     std::set<std::string> shown_repick_names_;
     int rowCount() const;
     void openEditorForSelection(ScreenStack& stack);
+    // Phase 12 contextual helpers — also called by handleInput
+    // shortcuts so the keypress path and the palette path share logic.
+    void setHighlightedActive();
+    void editHighlighted();
+    void deleteHighlighted();
+    void addServer();
 
     // Phase 5: focus-rect animation
     int16_t prev_selected_y_ = 0;

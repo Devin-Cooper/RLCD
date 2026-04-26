@@ -19,10 +19,26 @@ constexpr std::array<app::KeybindHint, 4> kHints = {{
 }};
 static_assert(sizeof("Ctrl+/") <= 12 && sizeof("cancel") <= 16,
               "kHints contains a string longer than KeybindHint capacity");
+
+constexpr std::array<app::Command, 1> kContextual = {{
+    {"Discard changes", "Esc", 0xFF31},
+}};
 } // namespace
 
 app::SpanView<const app::KeybindHint> SettingsScreen::keybindHints() const {
     return kHints;
+}
+
+app::SpanView<const app::Command> SettingsScreen::getContextualCommands() {
+    return app::SpanView<const app::Command>(kContextual.data(),
+                                              kContextual.size());
+}
+
+void SettingsScreen::dispatchContextual(uint16_t id) {
+    switch (id) {
+        case 0xFF31: ctx_.stack.pop(); break;
+        default: break;
+    }
 }
 
 SettingsScreen::SettingsScreen(ScreenContext& ctx)

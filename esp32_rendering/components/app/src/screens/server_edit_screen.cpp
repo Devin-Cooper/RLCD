@@ -25,10 +25,28 @@ constexpr std::array<app::KeybindHint, 5> kHints = {{
 }};
 static_assert(sizeof("Ctrl+R") <= 12 && sizeof("reveal") <= 16,
               "kHints contains a string longer than KeybindHint capacity");
+
+constexpr std::array<app::Command, 2> kContextual = {{
+    {"Discard changes", "Esc",   0xFF21},
+    {"Save",            "Enter", 0xFF22},
+}};
 } // namespace
 
 app::SpanView<const app::KeybindHint> ServerEditScreen::keybindHints() const {
     return kHints;
+}
+
+app::SpanView<const app::Command> ServerEditScreen::getContextualCommands() {
+    return app::SpanView<const app::Command>(kContextual.data(),
+                                              kContextual.size());
+}
+
+void ServerEditScreen::dispatchContextual(uint16_t id) {
+    switch (id) {
+        case 0xFF21: cancelWithConfirm(ctx_.stack); break;
+        case 0xFF22: saveAndPop(ctx_.stack);        break;
+        default: break;
+    }
 }
 
 ServerEditScreen::ServerEditScreen(ScreenContext& ctx, int index)

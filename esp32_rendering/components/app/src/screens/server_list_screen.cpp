@@ -23,10 +23,32 @@ constexpr std::array<app::KeybindHint, 6> kHints = {{
 }};
 static_assert(sizeof("[up/dn]") <= 12 && sizeof("active") <= 16,
               "kHints contains a string longer than KeybindHint capacity");
+
+constexpr std::array<app::Command, 4> kContextual = {{
+    {"Set highlighted active",  "Sh-A",  0xFF11},
+    {"Edit highlighted",        "Enter", 0xFF12},
+    {"Delete highlighted",      "Sh-D",  0xFF13},
+    {"Add server",              "",      0xFF14},
+}};
 } // namespace
 
 app::SpanView<const app::KeybindHint> ServerListScreen::keybindHints() const {
     return kHints;
+}
+
+app::SpanView<const app::Command> ServerListScreen::getContextualCommands() {
+    return app::SpanView<const app::Command>(kContextual.data(),
+                                              kContextual.size());
+}
+
+void ServerListScreen::dispatchContextual(uint16_t id) {
+    switch (id) {
+        case 0xFF11: setHighlightedActive(); break;
+        case 0xFF12: editHighlighted();      break;
+        case 0xFF13: deleteHighlighted();    break;
+        case 0xFF14: addServer();            break;
+        default: break;
+    }
 }
 
 ServerListScreen::ServerListScreen(ScreenContext& ctx) : ctx_(ctx) {}
@@ -81,6 +103,53 @@ void ServerListScreen::openEditorForSelection(ScreenStack& stack) {
     }
 }
 
+void ServerListScreen::setHighlightedActive() {
+    if (sel_ < 0 || sel_ >= ctx_.configMgr.serverCount()) return;
+    ctx_.configMgr.setActiveServer(sel_);
+    if (ctx_.switchToActiveServer) ctx_.switchToActiveServer();
+    char msg[64];
+    snprintf(msg, sizeof(msg), "Active: %s",
+             ctx_.configMgr.getServer(sel_).creds.name);
+    ctx_.overlay.showToast(msg, 2000);
+}
+
+void ServerListScreen::editHighlighted() {
+    openEditorForSelection(ctx_.stack);
+}
+
+void ServerListScreen::deleteHighlighted() {
+    if (sel_ < 0 || sel_ >= ctx_.configMgr.serverCount()) return;
+    int idx = sel_;
+    std::string name_str(ctx_.configMgr.getServer(idx).creds.name);
+
+    char body[64];
+    snprintf(body, sizeof(body), "Delete %s?", name_str.c_str());
+    ctx_.overlay.showConfirm("Confirm", body,
+        [this, idx, name_str](bool yes) {
+            if (!yes) return;
+            if (ctx_.configMgr.deleteServer(idx)) {
+                char msg[64];
+                snprintf(msg, sizeof(msg), "Deleted %s",
+                         name_str.c_str());
+                ctx_.overlay.showToast(msg, 2000);
+                int rc = ctx_.configMgr.serverCount() + 1;
+                if (sel_ >= rc) sel_ = rc - 1;
+                // Row count changed; cancel tween and re-init y.
+                auto tag = makeTag(TweenKind::FocusRect,
+                                   focus_id::ServerListScreen);
+                ctx_.animator.cancel(tag);
+                focus_y_initialized_ = false;
+            } else {
+                ctx_.overlay.showError("Delete failed",
+                                        "NVS write error");
+            }
+        });
+}
+
+void ServerListScreen::addServer() {
+    ctx_.stack.push(std::make_unique<ServerEditScreen>(ctx_, -1));
+}
+
 void ServerListScreen::handleInput(const input::InputEvent& evt,
                                    ScreenStack& stack) {
     if (evt.source == input::Source::Keyboard &&
@@ -103,44 +172,13 @@ void ServerListScreen::handleInput(const input::InputEvent& evt,
             return;
         }
         // Shift+A set active + reconnect (Amendment K)
-        if (evt.data_length == 1 && evt.data[0] == 'A' &&
-            sel_ < ctx_.configMgr.serverCount()) {
-            ctx_.configMgr.setActiveServer(sel_);
-            if (ctx_.switchToActiveServer) ctx_.switchToActiveServer();
-            char msg[64];
-            snprintf(msg, sizeof(msg), "Active: %s",
-                     ctx_.configMgr.getServer(sel_).creds.name);
-            ctx_.overlay.showToast(msg, 2000);
+        if (evt.data_length == 1 && evt.data[0] == 'A') {
+            setHighlightedActive();
             return;
         }
         // Shift+D delete with confirm
-        if (evt.data_length == 1 && evt.data[0] == 'D' &&
-            sel_ < ctx_.configMgr.serverCount()) {
-            int idx = sel_;
-            std::string name_str(ctx_.configMgr.getServer(idx).creds.name);
-
-            char body[64];
-            snprintf(body, sizeof(body), "Delete %s?", name_str.c_str());
-            ctx_.overlay.showConfirm("Confirm", body,
-                [this, idx, name_str](bool yes) {
-                    if (!yes) return;
-                    if (ctx_.configMgr.deleteServer(idx)) {
-                        char msg[64];
-                        snprintf(msg, sizeof(msg), "Deleted %s",
-                                 name_str.c_str());
-                        ctx_.overlay.showToast(msg, 2000);
-                        int rc = ctx_.configMgr.serverCount() + 1;
-                        if (sel_ >= rc) sel_ = rc - 1;
-                        // Row count changed; cancel tween and re-init y.
-                        auto tag = makeTag(TweenKind::FocusRect,
-                                           focus_id::ServerListScreen);
-                        ctx_.animator.cancel(tag);
-                        focus_y_initialized_ = false;
-                    } else {
-                        ctx_.overlay.showError("Delete failed",
-                                                "NVS write error");
-                    }
-                });
+        if (evt.data_length == 1 && evt.data[0] == 'D') {
+            deleteHighlighted();
             return;
         }
     }

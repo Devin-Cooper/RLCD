@@ -1,6 +1,7 @@
 #pragma once
 #include "screen.hpp"
 #include "screen_context.hpp"
+#include "command_registry.hpp"
 #include "text_input.hpp"
 
 namespace app {
@@ -16,6 +17,9 @@ public:
                 const onebit::BitmapFont& font) override;
 
     app::SpanView<const app::KeybindHint> keybindHints() const override;
+
+    app::SpanView<const app::Command> getContextualCommands() override;
+    void dispatchContextual(uint16_t id) override;
 
 private:
     ScreenContext& ctx_;
