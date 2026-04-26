@@ -228,3 +228,12 @@ add_host_test(
     INCLUDES
         "${RLCD_COMPONENTS}/file_browser/include"
 )
+
+add_host_test(
+    NAME test_file_buffer
+    SOURCES
+        test_file_buffer.cpp
+        "${RLCD_COMPONENTS}/file_browser/src/file_buffer.cpp"
+    INCLUDES
+        "${RLCD_COMPONENTS}/file_browser/include"
+)
