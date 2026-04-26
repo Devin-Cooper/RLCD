@@ -1,5 +1,6 @@
 #include "screens/audio_menu_screen.hpp"
 #include "screens/speaker_test_screen.hpp"
+#include "screens/mic_test_screen.hpp"
 #include "screen_stack.hpp"
 #include "speaker.hpp"
 #include <1bit/render/primitives.hpp>
@@ -55,7 +56,7 @@ void AudioMenuScreen::handleInput(const input::InputEvent& evt,
         }
         if (evt.data_length == 1 && evt.data[0] == '\r') {
             if (sel_ == 0) stack.push(std::make_unique<SpeakerTestScreen>(ctx_));
-            // TODO(Task 15): sel_ == 1 -> push MicTestScreen
+            else if (sel_ == 1) stack.push(std::make_unique<MicTestScreen>(ctx_));
             return;
         }
         if (evt.data_length == 1 && evt.data[0] == 0x1B) { stack.pop(); return; }
