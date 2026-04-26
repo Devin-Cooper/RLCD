@@ -1,2 +1,4 @@
 dependencies:
   joltwallet/littlefs: ">=1.14.8"
+  espressif/es8311: "^1.0.0"
+  espressif/es7210: "^1.0.0"
