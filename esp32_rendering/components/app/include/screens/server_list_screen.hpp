@@ -1,6 +1,8 @@
 #pragma once
 #include "screen.hpp"
 #include "screen_context.hpp"
+#include "animator.hpp"
+#include "command_ids.hpp"
 #include <set>
 #include <string>
 
@@ -26,6 +28,14 @@ private:
     std::set<std::string> shown_repick_names_;
     int rowCount() const;
     void openEditorForSelection(ScreenStack& stack);
+
+    // Phase 5: focus-rect animation
+    int16_t prev_selected_y_ = 0;
+    bool    focus_y_initialized_ = false;
+    int16_t list_start_y_ = 0;
+    int16_t row_h_ = 0;
+    int16_t computeRowY(int index) const;
+    void    onSelectionChange(int old_index, int new_index);
 };
 
 } // namespace app
