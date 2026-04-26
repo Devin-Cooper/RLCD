@@ -11,6 +11,7 @@ idf_component_register(
         "src/animator.cpp"
         "src/breadcrumb.cpp"
         "src/command_registry.cpp"
+        "src/command_registry_dynamic.cpp"
         "src/command_dispatcher.cpp"
         "src/screens/dashboard_screen.cpp"
         "src/screens/terminal_screen.cpp"

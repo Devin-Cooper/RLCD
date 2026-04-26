@@ -148,6 +148,19 @@ add_host_test(
 )
 
 add_host_test(
+    NAME test_command_registry
+    SOURCES
+        test_command_registry.cpp
+        "${APP_DIR}/src/command_registry.cpp"
+    INCLUDES
+        "${APP_DIR}/include"
+        "${RLCD_COMPONENTS}/sdcard_config/include"
+        "${RLCD_COMPONENTS}/wifi_manager/include"
+        "${RLCD_COMPONENTS}/input_queue/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
+)
+
+add_host_test(
     NAME test_ssh_keys_qr_encode
     SOURCES
         test_ssh_keys_qr_encode.cpp

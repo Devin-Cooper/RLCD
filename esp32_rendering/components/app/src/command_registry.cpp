@@ -1,7 +1,9 @@
+// Globals + kAllDispatchableIds + accessors live here so host tests can
+// link this TU without pulling in ConfigManager. The dynamic-server-commands
+// half lives in command_registry_dynamic.cpp.
+
 #include "command_registry.hpp"
-#include "config_manager.hpp"
 #include <cstring>
-#include <cstdio>
 
 namespace app {
 
@@ -59,25 +61,6 @@ void CommandRegistry::registerGlobals() {
     put(g[globals_count_++], "Cycle font size",       "Btn B short", cmd_id::CycleFontSize);
     put(g[globals_count_++], "Reconnect SSH",                   "", cmd_id::ReconnectSsh);
     put(g[globals_count_++], "Switch to next server",  "Btn B long", cmd_id::SwitchToNextServer);
-}
-
-void CommandRegistry::refreshDynamicServerCommands(const sdcard::ConfigManager& cfg) {
-    dynamic_count_ = 0;
-    int n = cfg.serverCount();
-    if (n < 0) n = 0;
-    if (n > static_cast<int>(kMaxDynamicServers))
-        n = static_cast<int>(kMaxDynamicServers);
-    for (int i = 0; i < n; ++i) {
-        const auto& srv = cfg.getServer(i);
-        // Compose "Connect to: <name>". The destination is 40 bytes;
-        // "Connect to: " is 12 bytes + NUL → 27 bytes left for the name.
-        // Use %.*s with an explicit precision to avoid format-truncation
-        // warnings (server name field is 32 bytes).
-        char title[40];
-        std::snprintf(title, sizeof(title), "Connect to: %.27s", srv.creds.name);
-        put(dynamic_[dynamic_count_++], title, "",
-            static_cast<uint16_t>(cmd_id::ConnectServerBase + i));
-    }
 }
 
 SpanView<const Command> CommandRegistry::globals() const {
