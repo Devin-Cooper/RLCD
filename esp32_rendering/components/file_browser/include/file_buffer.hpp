@@ -24,11 +24,27 @@ public:
     std::size_t size() const { return size_; }
     std::size_t fileSize() const { return file_size_; }
 
-    std::size_t lineCount() const { return line_offsets_.size(); }
+    std::size_t lineCount() const;
     std::size_t lineOffset(std::size_t line) const;
     std::string_view line(std::size_t line) const;
 
     int errnoCode() const { return errno_; }
+
+    // Mutation API (Text mode only; returns false on Hex/TooLarge/Error).
+    bool insert(std::size_t pos, std::string_view text);
+    bool erase(std::size_t pos, std::size_t len);
+
+    bool dirty() const { return dirty_; }
+    void clearDirty() { dirty_ = false; }
+
+    // Force a line-index rebuild now. Otherwise the index is rebuilt lazily on
+    // the next lineCount() / line() / lineOffset() call.
+    void rebuildLineIndex();
+
+    // CRLF convention. Sniffed during load; preserved on save.
+    bool crlf() const { return crlf_; }
+
+    static constexpr std::size_t kEditCapBytes = 256u * 1024u;
 
     // Search (text mode). Returns line numbers of matches (case-insensitive).
     std::vector<std::uint32_t> findAll(std::string_view needle) const;
@@ -44,6 +60,9 @@ private:
     std::size_t file_size_ = 0;
     std::vector<std::uint32_t> line_offsets_;
     int errno_ = 0;
+    bool dirty_       = false;
+    bool crlf_        = false;
+    bool index_dirty_ = false;  // set by insert/erase; cleared by rebuildLineIndex
     void freeBuffer();
 };
 

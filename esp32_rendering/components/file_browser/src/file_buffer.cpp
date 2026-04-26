@@ -54,6 +54,9 @@ void FileBuffer::freeBuffer() {
     size_ = 0;
     file_size_ = 0;
     line_offsets_.clear();
+    dirty_ = false;
+    crlf_ = false;
+    index_dirty_ = false;
 }
 
 FileBuffer::~FileBuffer() { freeBuffer(); }
@@ -99,6 +102,14 @@ bool FileBuffer::load(const std::string& path) {
 
     mode_ = detectText(data_, std::min(size_, kSampleBytes)) ? Mode::Text : Mode::Hex;
     if (mode_ == Mode::Text) {
+        // CRLF sniff (first 1 KB scan) — preserved verbatim on save.
+        crlf_ = false;
+        {
+            std::size_t scan = std::min(size_, std::size_t{1024});
+            for (std::size_t i = 0; i + 1 < scan; ++i) {
+                if (data_[i] == '\r' && data_[i + 1] == '\n') { crlf_ = true; break; }
+            }
+        }
         // Build line offsets — start of each line.
         if (size_ > 0) {
             line_offsets_.push_back(0);
@@ -110,12 +121,21 @@ bool FileBuffer::load(const std::string& path) {
     return true;
 }
 
+std::size_t FileBuffer::lineCount() const {
+    // Lazy rebuild idiom: insert/erase set index_dirty_ without touching
+    // line_offsets_; the next read accessor pays the rebuild cost.
+    if (index_dirty_) const_cast<FileBuffer*>(this)->rebuildLineIndex();
+    return line_offsets_.size();
+}
+
 std::size_t FileBuffer::lineOffset(std::size_t line) const {
+    if (index_dirty_) const_cast<FileBuffer*>(this)->rebuildLineIndex();
     if (line >= line_offsets_.size()) return size_;
     return line_offsets_[line];
 }
 
 std::string_view FileBuffer::line(std::size_t line) const {
+    if (index_dirty_) const_cast<FileBuffer*>(this)->rebuildLineIndex();
     if (line >= line_offsets_.size()) return {};
     std::size_t a = line_offsets_[line];
     std::size_t b = (line + 1 < line_offsets_.size()) ? line_offsets_[line + 1]
@@ -141,6 +161,7 @@ std::string_view FileBuffer::line(std::size_t line) const {
 }
 
 std::vector<std::uint32_t> FileBuffer::findAll(std::string_view needle) const {
+    if (index_dirty_) const_cast<FileBuffer*>(this)->rebuildLineIndex();
     std::vector<std::uint32_t> out;
     if (needle.empty() || mode_ != Mode::Text || size_ == 0) return out;
 
@@ -204,6 +225,66 @@ void FileBuffer::formatHexRow(const char* base, std::size_t base_size,
     }
     out[72] = '|';
     out[73] = 0;
+}
+
+bool FileBuffer::insert(std::size_t pos, std::string_view text) {
+    if (mode_ != Mode::Text) return false;
+    if (pos > size_) return false;
+    if (text.empty()) return true;
+    if (size_ + text.size() > kEditCapBytes) return false;
+
+    std::size_t new_size = size_ + text.size();
+    char* nb = (char*)psramAlloc(new_size);
+    if (!nb) return false;
+    if (pos > 0) std::memcpy(nb, data_, pos);
+    std::memcpy(nb + pos, text.data(), text.size());
+    if (pos < size_) std::memcpy(nb + pos + text.size(), data_ + pos, size_ - pos);
+    psramFree(data_);
+    data_ = nb;
+    size_ = new_size;
+    dirty_ = true;
+    index_dirty_ = true;
+    return true;
+}
+
+bool FileBuffer::erase(std::size_t pos, std::size_t len) {
+    if (mode_ != Mode::Text) return false;
+    if (pos > size_) return false;
+    if (len == 0) return true;
+    if (pos + len > size_) len = size_ - pos;
+
+    std::size_t new_size = size_ - len;
+    if (new_size == 0) {
+        psramFree(data_);
+        data_ = (char*)psramAlloc(1);  // sentinel non-null
+        if (!data_) { size_ = 0; return false; }
+        size_ = 0;
+        dirty_ = true; index_dirty_ = true;
+        return true;
+    }
+    char* nb = (char*)psramAlloc(new_size);
+    if (!nb) return false;
+    if (pos > 0) std::memcpy(nb, data_, pos);
+    if (pos + len < size_) std::memcpy(nb + pos, data_ + pos + len, size_ - pos - len);
+    psramFree(data_);
+    data_ = nb;
+    size_ = new_size;
+    dirty_ = true;
+    index_dirty_ = true;
+    return true;
+}
+
+void FileBuffer::rebuildLineIndex() {
+    line_offsets_.clear();
+    if (size_ > 0) {
+        line_offsets_.push_back(0);
+        for (std::size_t i = 0; i < size_; ++i) {
+            if (data_[i] == '\n' && i + 1 < size_) {
+                line_offsets_.push_back((std::uint32_t)(i + 1));
+            }
+        }
+    }
+    index_dirty_ = false;
 }
 
 }  // namespace fb
