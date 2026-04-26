@@ -1,12 +1,17 @@
 #include <catch2/catch_test_macros.hpp>
 #include "overlay.hpp"
+#include "animator.hpp"
 #include <cstring>
 
 using app::OverlayManager;
+using app::Animator;
+using app::makeTag;
+using app::TweenKind;
 
 TEST_CASE("Overlay: toast enqueue up to 3; 4th is dropped",
           "[app][overlay][toast]") {
-    OverlayManager o;
+    Animator anim;
+    OverlayManager o(anim);
     o.tick(0);
     REQUIRE(o.showToast("a", 1000));
     REQUIRE(o.showToast("b", 1000));
@@ -18,7 +23,8 @@ TEST_CASE("Overlay: toast enqueue up to 3; 4th is dropped",
 
 TEST_CASE("Overlay: toast dedup suppresses identical msg in 500ms",
           "[app][overlay][toast]") {
-    OverlayManager o;
+    Animator anim;
+    OverlayManager o(anim);
     o.tick(0);
     REQUIRE(o.showToast("same"));
     REQUIRE_FALSE(o.showToast("same"));
@@ -28,7 +34,8 @@ TEST_CASE("Overlay: toast dedup suppresses identical msg in 500ms",
 }
 
 TEST_CASE("Overlay: tick expires toasts", "[app][overlay][toast]") {
-    OverlayManager o;
+    Animator anim;
+    OverlayManager o(anim);
     o.tick(0);
     o.showToast("short", 100);
     REQUIRE(o.activeToastCount() == 1);
@@ -49,17 +56,21 @@ static input::InputEvent kbd(const char* bytes) {
 
 TEST_CASE("Overlay: Info modal consumes input, dismisses on any key",
           "[app][overlay][modal]") {
-    OverlayManager o;
+    Animator anim;
+    OverlayManager o(anim);
     o.tick(0);
     o.showInfo("Title", "Body");
     REQUIRE(o.hasModal());
     REQUIRE(o.handleInput(kbd("x")));   // consumed
+    // Modal stays active during scale-out tween; advance past it then tick.
+    o.tick(static_cast<int64_t>(app::kModalScaleUs) + 1);
     REQUIRE_FALSE(o.hasModal());
 }
 
 TEST_CASE("Overlay: Confirm fires callback with Yes on Enter",
           "[app][overlay][modal]") {
-    OverlayManager o;
+    Animator anim;
+    OverlayManager o(anim);
     o.tick(0);
     bool got = false, got_result = false;
     o.showConfirm("Delete?", "Sure?", [&](bool yes){ got = true; got_result = yes; });
@@ -68,7 +79,8 @@ TEST_CASE("Overlay: Confirm fires callback with Yes on Enter",
 }
 
 TEST_CASE("Overlay: Confirm Esc = No", "[app][overlay][modal]") {
-    OverlayManager o;
+    Animator anim;
+    OverlayManager o(anim);
     o.tick(0);
     bool got_result = true;
     o.showConfirm("Delete?", "Sure?", [&](bool yes){ got_result = yes; });
@@ -77,7 +89,8 @@ TEST_CASE("Overlay: Confirm Esc = No", "[app][overlay][modal]") {
 }
 
 TEST_CASE("Overlay: Confirm arrow toggles selection", "[app][overlay][modal]") {
-    OverlayManager o;
+    Animator anim;
+    OverlayManager o(anim);
     o.tick(0);
     bool got_result = true;
     o.showConfirm("Delete?", "Sure?", [&](bool yes){ got_result = yes; });

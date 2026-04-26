@@ -672,7 +672,8 @@ extern "C" void app_main() {
     // ScreenStack + OverlayManager + ScreenContext
     // ------------------------------------------------------------------
     app::ScreenStack stack;
-    app::OverlayManager overlay;
+    app::Animator animator;
+    app::OverlayManager overlay(animator);
 
     app::ScreenContext ctx{
         fb, display, sshClient, wifiMgr, *configMgr, keyStore, bleHost, settings,

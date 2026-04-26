@@ -7,7 +7,7 @@ static const char* TAG = "overlay";
 
 namespace app {
 
-OverlayManager::OverlayManager() = default;
+OverlayManager::OverlayManager(Animator& animator) : animator_(animator) {}
 
 bool OverlayManager::showToast(const char* msg, uint32_t ms) {
     const int64_t DEDUP_WINDOW_US = 500000;  // 500ms
