@@ -2,6 +2,8 @@
 
 #include "screen.hpp"
 #include "screen_context.hpp"
+#include "animator.hpp"
+#include "command_ids.hpp"
 
 namespace app {
 
@@ -36,6 +38,18 @@ private:
     static constexpr int ITEM_COUNT = static_cast<int>(Item::Count);
     static const char* itemLabel(int index);
     void dispatchSelection(ScreenStack& stack, Item item);
+
+    // Phase 5: focus-rect animation
+    int16_t prev_selected_y_ = 0;
+    bool    focus_y_initialized_ = false;
+    // Cached layout bounds for focus rect; refreshed each render before any
+    // mid-render selection -> y math is needed.
+    int16_t menu_x_ = 0;
+    int16_t menu_w_ = 0;
+    int16_t cell_h_ = 0;
+    int16_t first_row_y_ = 0;
+    int16_t computeRowY(int index) const;
+    void    onSelectionChange(uint8_t old_index, uint8_t new_index);
 };
 
 } // namespace app

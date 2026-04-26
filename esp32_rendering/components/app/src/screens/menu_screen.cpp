@@ -10,6 +10,7 @@
 #include "overlay.hpp"
 #include <1bit/render/primitives.hpp>
 #include <esp_log.h>
+#include <esp_timer.h>
 
 static const char* TAG = "menu_screen";
 
@@ -30,6 +31,23 @@ const char* MenuScreen::itemLabel(int index) {
 
 MenuScreen::MenuScreen(ScreenContext& ctx) : ctx_(ctx) {}
 
+int16_t MenuScreen::computeRowY(int index) const {
+    return first_row_y_ + static_cast<int16_t>(index) * cell_h_;
+}
+
+void MenuScreen::onSelectionChange(uint8_t old_index, uint8_t new_index) {
+    if (old_index == new_index) return;
+    if (!focus_y_initialized_) {
+        // No layout yet — defer; first render will initialize prev_selected_y_.
+        return;
+    }
+    int16_t old_y = computeRowY(old_index);
+    int16_t new_y = computeRowY(new_index);
+    auto tag = makeTag(TweenKind::FocusRect, focus_id::MenuScreen);
+    ctx_.animator.start(tag, old_y, new_y, kFocusRectUs, esp_timer_get_time());
+    prev_selected_y_ = new_y;
+}
+
 void MenuScreen::handleInput(const input::InputEvent& evt,
                              ScreenStack& stack) {
     // Btn A short — close (pop self)
@@ -43,7 +61,9 @@ void MenuScreen::handleInput(const input::InputEvent& evt,
     if (evt.source == input::Source::Button &&
         evt.type == input::EventType::ButtonShort &&
         evt.button_id == 1) {
+        uint8_t old_index = selected_index_;
         selected_index_ = (selected_index_ + 1) % ITEM_COUNT;
+        onSelectionChange(old_index, selected_index_);
         return;
     }
     // Btn B long — confirm
@@ -58,11 +78,13 @@ void MenuScreen::handleInput(const input::InputEvent& evt,
         evt.type == input::EventType::Keypress) {
         // Arrows
         if (evt.data_length == 3 && evt.data[0] == 0x1B && evt.data[1] == '[') {
+            uint8_t old_index = selected_index_;
             if (evt.data[2] == 'A')
                 selected_index_ = (selected_index_ == 0)
                     ? ITEM_COUNT - 1 : selected_index_ - 1;
             if (evt.data[2] == 'B')
                 selected_index_ = (selected_index_ + 1) % ITEM_COUNT;
+            onSelectionChange(old_index, selected_index_);
             return;
         }
         // Enter confirms
@@ -120,17 +142,39 @@ void MenuScreen::render(onebit::IFramebuffer& fb,
     const int16_t menu_h = cell_h * ITEM_COUNT + 8;
     const int16_t menu_x = (fb.width()  - menu_w) / 2;
     const int16_t menu_y = (fb.height() - menu_h) / 2;
+    const int16_t first_row_y = menu_y + 5 - 1; // y of focus rect on row 0
+
+    // Cache for selection-change handler (uses computeRowY).
+    cell_h_ = cell_h;
+    menu_x_ = menu_x;
+    menu_w_ = menu_w;
+    first_row_y_ = first_row_y;
+    if (!focus_y_initialized_) {
+        prev_selected_y_ = computeRowY(selected_index_);
+        focus_y_initialized_ = true;
+    }
 
     onebit::fillRect(fb, menu_x, menu_y, menu_w, menu_h, onebit::WHITE);
     onebit::drawRect(fb, menu_x, menu_y, menu_w, menu_h, onebit::BLACK);
     onebit::drawRect(fb, menu_x+2, menu_y+2, menu_w-4, menu_h-4, onebit::BLACK);
 
+    // Compute the focus rect y. Animate if a tween is in progress.
+    auto tag = makeTag(TweenKind::FocusRect, focus_id::MenuScreen);
+    int64_t now = esp_timer_get_time();
+    int16_t cur_y = ctx_.animator.inProgress(tag, now)
+                  ? ctx_.animator.value(tag, now)
+                  : prev_selected_y_;
+
+    // Draw the focus rectangle once at the (possibly interpolated) y.
+    onebit::fillRect(fb, menu_x+3, cur_y, menu_w-6, cell_h, onebit::BLACK);
+
+    // Draw row text. Selected row uses inverted color regardless of where
+    // the focus rect is currently animating to.
     int16_t text_x = menu_x + 6;
     int16_t text_y = menu_y + 5;
     for (int i = 0; i < ITEM_COUNT; ++i) {
         const char* label = itemLabel(i);
         if (i == selected_index_) {
-            onebit::fillRect(fb, menu_x+3, text_y-1, menu_w-6, cell_h, onebit::BLACK);
             onebit::drawBitmapText(fb, font, text_x, text_y, label, onebit::WHITE);
         } else {
             onebit::drawBitmapText(fb, font, text_x, text_y, label, onebit::BLACK);
