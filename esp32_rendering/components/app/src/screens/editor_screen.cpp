@@ -227,16 +227,68 @@ void EditorScreen::renderFindBar(onebit::IFramebuffer&, const onebit::BitmapFont
 
 void EditorScreen::renderRow(onebit::IFramebuffer& fb, const onebit::BitmapFont& font,
                               int y, int line, bool is_cursor_line) const {
+    // Selection range within this row (byte cols).
+    bool sel = false;
+    int sel_a_col = 0, sel_b_col = 0;
+    if (hasSelection()) {
+        int a_l, a_c, b_l, b_c; normalizeSelection(a_l, a_c, b_l, b_c);
+        if (line >= a_l && line <= b_l) {
+            sel = true;
+            auto raw = buffer_.line((std::size_t)line);
+            sel_a_col = (line == a_l) ? a_c : 0;
+            sel_b_col = (line == b_l) ? b_c : (int)raw.size();
+            if (sel_a_col < 0) sel_a_col = 0;
+            if (sel_b_col > (int)raw.size()) sel_b_col = (int)raw.size();
+            if (sel_a_col >= sel_b_col) sel = false;
+        }
+    }
+
+    // Cursor-row inversion: black band, then text drawn in WHITE.
     if (is_cursor_line) onebit::fillRect(fb, 0, y, fb.width(), 10, onebit::BLACK);
-    auto color = is_cursor_line ? onebit::WHITE : onebit::BLACK;
+    auto base_color   = is_cursor_line ? onebit::WHITE : onebit::BLACK;
+    auto select_color = is_cursor_line ? onebit::BLACK : onebit::WHITE;
+    auto select_bg    = is_cursor_line ? onebit::WHITE : onebit::BLACK;
+
+    // Row prefix (gutter): "> NNNN  " or "  NNNN  ".
+    char prefix[16];
+    std::snprintf(prefix, sizeof(prefix), "%c %4d  ",
+                  is_cursor_line ? '>' : ' ', line + 1);
+    onebit::drawBitmapText(fb, font, 2, y + 1, prefix, base_color);
+    int prefix_w = onebit::getBitmapTextWidth(font, prefix);
+    int text_x = 2 + prefix_w;
+
     auto raw = buffer_.line((std::size_t)line);
-    char buf[120];
-    std::snprintf(buf, sizeof(buf), "%c %4d  %.*s",
-                  is_cursor_line ? '>' : ' ',
-                  line + 1,
-                  (int)raw.size(), raw.data());
-    onebit::drawBitmapText(fb, font, 2, y + 1, buf, color);
-    // Selection-aware invert lands in Task 9.
+    char rowbuf[120];
+    std::snprintf(rowbuf, sizeof(rowbuf), "%.*s", (int)raw.size(), raw.data());
+
+    if (!sel) {
+        onebit::drawBitmapText(fb, font, text_x, y + 1, rowbuf, base_color);
+        return;
+    }
+
+    // Split the row text into 3 slices: pre / sel / post.
+    // sel_*_col are byte cols within `raw`; raw was tab-expanded by line(),
+    // so byte indices map 1:1 to characters (no \t in `raw`).
+    char pre[120], mid[120], post[120];
+    int pre_len  = std::min(sel_a_col, (int)sizeof(pre) - 1);
+    int mid_len  = std::min(sel_b_col - sel_a_col, (int)sizeof(mid) - 1);
+    int post_len = std::min((int)raw.size() - sel_b_col, (int)sizeof(post) - 1);
+    if (pre_len < 0) pre_len = 0;
+    if (mid_len < 0) mid_len = 0;
+    if (post_len < 0) post_len = 0;
+    std::memcpy(pre,  rowbuf, pre_len);                       pre[pre_len]   = '\0';
+    std::memcpy(mid,  rowbuf + sel_a_col, mid_len);           mid[mid_len]   = '\0';
+    std::memcpy(post, rowbuf + sel_b_col, post_len);          post[post_len] = '\0';
+
+    int pre_w = onebit::getBitmapTextWidth(font, pre);
+    int mid_w = onebit::getBitmapTextWidth(font, mid);
+
+    onebit::drawBitmapText(fb, font, text_x, y + 1, pre, base_color);
+    // Selection band: invert background under the mid slice, then redraw in
+    // the select_color.
+    onebit::fillRect(fb, text_x + pre_w, y, mid_w, 10, select_bg);
+    onebit::drawBitmapText(fb, font, text_x + pre_w, y + 1, mid, select_color);
+    onebit::drawBitmapText(fb, font, text_x + pre_w + mid_w, y + 1, post, base_color);
 }
 
 SpanView<const KeybindHint> EditorScreen::keybindHints() const { return {}; }
