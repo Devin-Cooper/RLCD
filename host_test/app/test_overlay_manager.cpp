@@ -128,3 +128,74 @@ TEST_CASE("OverlayManager: toast triggers ToastSlide tween",
     REQUIRE(mid < 16);
     REQUIRE(anim.value(tag, 181'000 + 1000) == 0);
 }
+
+// ----------------------------------------------------------
+// Phase 7: footer suppression smoke
+// ----------------------------------------------------------
+namespace {
+struct NoFooterScreen : app::Screen {
+    void handleInput(const input::InputEvent&, app::ScreenStack&) override {}
+    void render(onebit::IFramebuffer&, const onebit::BitmapFont&) override {}
+    bool wantsKeybindFooter() const override { return false; }
+};
+
+struct FooterScreen : app::Screen {
+    static constexpr app::KeybindHint kHints[] = {
+        {"Esc", "Back"},
+        {"Tab", "Next"},
+    };
+    void handleInput(const input::InputEvent&, app::ScreenStack&) override {}
+    void render(onebit::IFramebuffer&, const onebit::BitmapFont&) override {}
+    app::SpanView<const app::KeybindHint> keybindHints() const override {
+        return {kHints, sizeof(kHints) / sizeof(kHints[0])};
+    }
+};
+constexpr app::KeybindHint FooterScreen::kHints[];
+} // namespace
+
+TEST_CASE("OverlayManager: renderFooter null-screen and opt-out are no-ops",
+          "[app][overlay][footer]") {
+    Animator anim;
+    OverlayManager om(anim);
+    om.tick(0);
+
+    onebit::Framebuffer<400, 300> fb;
+    onebit::BitmapFont font{};
+
+    // null top — must early-return cleanly
+    om.renderFooter(fb, font, nullptr, 1000);
+
+    // Screen that opts out — must early-return cleanly
+    NoFooterScreen no_footer;
+    REQUIRE_FALSE(no_footer.wantsKeybindFooter());
+    om.renderFooter(fb, font, &no_footer, 1000);
+}
+
+TEST_CASE("OverlayManager: renderFooter suppressed by modal/toast",
+          "[app][overlay][footer]") {
+    Animator anim;
+    OverlayManager om(anim);
+    om.tick(0);
+
+    onebit::Framebuffer<400, 300> fb;
+    onebit::BitmapFont font{};
+    FooterScreen scr;
+
+    // Baseline: no overlays, footer-wanting screen — no crash.
+    om.renderFooter(fb, font, &scr, 1000);
+
+    // Modal active — suppression path.
+    om.showInfo("T", "B");
+    REQUIRE(om.hasModal());
+    om.renderFooter(fb, font, &scr, 1000);
+
+    // Drain the modal so the toast suppression path is exercised in isolation.
+    om.handleInput(kbd("x"));
+    om.tick(static_cast<int64_t>(app::kModalScaleUs) + 1);
+    REQUIRE_FALSE(om.hasModal());
+
+    // Toast in flight — suppression path.
+    REQUIRE(om.showToast("hi", 2500));
+    REQUIRE(om.activeToastCount() == 1);
+    om.renderFooter(fb, font, &scr, 1000);
+}
