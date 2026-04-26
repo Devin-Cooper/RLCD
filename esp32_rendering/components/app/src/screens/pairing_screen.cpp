@@ -10,7 +10,9 @@ static const char* TAG = "pair_screen";
 
 namespace app {
 
-PairingScreen::PairingScreen(ScreenContext& ctx) : ctx_(ctx) {}
+PairingScreen::PairingScreen(ScreenContext& ctx,
+                             std::unique_ptr<Screen> on_success_push)
+    : ctx_(ctx), on_success_push_(std::move(on_success_push)) {}
 
 void PairingScreen::onEnter() {
     ESP_LOGI(TAG, "PairingScreen entered; starting BLE pairing");
@@ -28,10 +30,29 @@ void PairingScreen::handleInput(const input::InputEvent& evt,
         auto new_state = static_cast<ble_hid::State>(evt.data[0]);
         if (new_state == ble_hid::State::Connected) {
             ctx_.overlay.showToast("Keyboard connected", 2000);
-            stack.pop();
+            // Amendment D: deferred-screen handoff. If we were launched from
+            // the keyboard gate, replace ourselves with the deferred screen
+            // (using replaceBypassingGate so the now-bonded gate-policy
+            // re-check still passes — `hasBond()` is true at this point but
+            // the screen also has bypassesKeyboardGate() respected).
+            if (on_success_push_) {
+                ctx_.stack.replaceBypassingGate(
+                    ScreenStack::BypassToken{},
+                    std::move(on_success_push_));
+            } else {
+                stack.pop();
+            }
+            on_success_push_.reset();   // belt-and-suspenders
         } else if (new_state == ble_hid::State::Disconnected) {
-            ctx_.overlay.showToast("No keyboard found", 2500);
+            // Differentiated toast: gated entry vs explicit user-initiated
+            // pairing — the former wants a clearer "keyboard required" hint.
+            if (on_success_push_) {
+                ctx_.overlay.showToast("Pairing cancelled - keyboard required");
+            } else {
+                ctx_.overlay.showToast("No keyboard found", 2500);
+            }
             stack.pop();
+            on_success_push_.reset();
         }
     }
 }

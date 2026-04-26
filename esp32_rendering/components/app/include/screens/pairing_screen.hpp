@@ -1,12 +1,14 @@
 #pragma once
 #include "screen.hpp"
 #include "screen_context.hpp"
+#include <memory>
 
 namespace app {
 
 class PairingScreen : public Screen {
 public:
-    explicit PairingScreen(ScreenContext& ctx);
+    explicit PairingScreen(ScreenContext& ctx,
+                           std::unique_ptr<Screen> on_success_push = nullptr);
 
     void onEnter() override;
     void handleInput(const input::InputEvent& evt,
@@ -22,6 +24,7 @@ public:
 private:
     ScreenContext& ctx_;
     int64_t started_us_ = 0;
+    std::unique_ptr<Screen> on_success_push_;
 };
 
 } // namespace app
