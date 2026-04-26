@@ -170,6 +170,27 @@ add_host_test(
 )
 
 add_host_test(
+    NAME test_time_service_tz
+    SOURCES
+        test_time_service_tz.cpp
+        "${RLCD_COMPONENTS}/time_service/src/time_service.cpp"
+        "${RLCD_COMPONENTS}/time_service/src/tz_catalog.cpp"
+    INCLUDES
+        "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
+        "${RLCD_COMPONENTS}/time_service/include"
+)
+
+add_host_test(
+    NAME test_time_service_writeback
+    SOURCES
+        test_time_service_writeback.cpp
+        "${RLCD_COMPONENTS}/time_service/src/time_service.cpp"
+    INCLUDES
+        "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
+        "${RLCD_COMPONENTS}/time_service/include"
+)
+
+add_host_test(
     NAME test_ssh_keys_qr_encode
     SOURCES
         test_ssh_keys_qr_encode.cpp
