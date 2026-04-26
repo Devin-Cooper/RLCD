@@ -17,6 +17,7 @@ class ScreenStack;
 class OverlayManager;
 class Dashboard;
 class TerminalMode;
+class Animator;
 struct Settings;
 
 /// References to long-lived app state passed to each Screen at construction.
@@ -36,6 +37,7 @@ struct ScreenContext {
     Dashboard&             dashboard;
     TerminalMode&          terminalMode;
     uint8_t&               currentFontSize;
+    Animator&              animator;
 
     // Plan Amendment K: rotate to the next server (Btn B long in Dashboard).
     // Populated in main.cpp at Task 14.

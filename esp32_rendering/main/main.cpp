@@ -677,7 +677,7 @@ extern "C" void app_main() {
 
     app::ScreenContext ctx{
         fb, display, sshClient, wifiMgr, *configMgr, keyStore, bleHost, settings,
-        stack, overlay, dashboard, terminalMode, currentFontSize
+        stack, overlay, dashboard, terminalMode, currentFontSize, animator
     };
 
     // Amendment K: wire switchToNextServer and switchToActiveServer into ctx.
