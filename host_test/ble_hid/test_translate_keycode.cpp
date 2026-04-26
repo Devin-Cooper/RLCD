@@ -33,7 +33,9 @@ TEST_CASE("translateKeycode: navigation keys", "[ble_hid][translate]") {
 }
 
 TEST_CASE("translateKeycode: F1..F12", "[ble_hid][translate]") {
-    REQUIRE(bytesOf(translateKeycode(0x3A, 0)) == "\x1bOP");
+    // F1 (0x3A) is rebound to Ctrl+K (0x0B) as of Phase 15 of the
+    // keyboard-first UX work — opens the global command palette.
+    REQUIRE(bytesOf(translateKeycode(0x3A, 0)) == std::string("\x0b", 1));
     REQUIRE(bytesOf(translateKeycode(0x3B, 0)) == "\x1bOQ");
     REQUIRE(bytesOf(translateKeycode(0x3C, 0)) == "\x1bOR");
     REQUIRE(bytesOf(translateKeycode(0x3D, 0)) == "\x1bOS");
@@ -84,9 +86,11 @@ TEST_CASE("translateKeycode: control/whitespace keys", "[ble_hid][translate]") {
     REQUIRE(bytesOf(translateKeycode(0x38, MOD_LSHIFT)) == "?");
 }
 
-TEST_CASE("translateKeycode: CMD+Space emits F1 sequence (ESC O P)", "[ble_hid][translate]") {
-    REQUIRE(bytesOf(translateKeycode(0x2C, MOD_LGUI)) == "\x1bOP");
-    REQUIRE(bytesOf(translateKeycode(0x2C, MOD_RGUI)) == "\x1bOP");
+TEST_CASE("translateKeycode: CMD+Space emits Ctrl+K", "[ble_hid][translate]") {
+    // Phase 15: CMD/Win + Space rebound from F1 (ESC O P) to Ctrl+K (0x0B),
+    // matching the new global command palette accelerator.
+    REQUIRE(bytesOf(translateKeycode(0x2C, MOD_LGUI)) == std::string("\x0b", 1));
+    REQUIRE(bytesOf(translateKeycode(0x2C, MOD_RGUI)) == std::string("\x0b", 1));
     // Space alone still emits a plain space.
     REQUIRE(bytesOf(translateKeycode(0x2C, 0)) == " ");
 }

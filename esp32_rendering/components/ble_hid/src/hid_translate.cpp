@@ -47,14 +47,12 @@ KeyEvent translateKeycode(uint8_t keycode, uint8_t modifiers) noexcept {
     bool ctrl  = (modifiers & (MOD_LCTRL  | MOD_RCTRL )) != 0;
     bool gui   = (modifiers & (MOD_LGUI   | MOD_RGUI  )) != 0;
 
-    // CMD/Win + Space → same byte sequence as F1 (ESC O P). Lets keyboards
-    // without dedicated F-keys trigger the menu via the standard GUI+Space
-    // combo, and reuses the F1 intercept in the dispatcher.
+    // CMD/Win + Space → Ctrl+K. Preserves the muscle memory introduced by
+    // commit 5b40fc6 (originally mapped to F1 → menu via ESC O P). Now
+    // opens the global command palette.
     if (gui && keycode == 0x2C) {
-        event.bytes[0] = 0x1B;
-        event.bytes[1] = 'O';
-        event.bytes[2] = 'P';
-        event.length = 3;
+        event.bytes[0] = 0x0B;
+        event.length = 1;
         return event;
     }
 
@@ -71,7 +69,7 @@ KeyEvent translateKeycode(uint8_t keycode, uint8_t modifiers) noexcept {
     case 0x4B: event.bytes[0]=0x1B; event.bytes[1]='['; event.bytes[2]='5'; event.bytes[3]='~'; event.length=4; return event;
     case 0x4E: event.bytes[0]=0x1B; event.bytes[1]='['; event.bytes[2]='6'; event.bytes[3]='~'; event.length=4; return event;
 
-    case 0x3A: event.bytes[0]=0x1B; event.bytes[1]='O'; event.bytes[2]='P'; event.length=3; return event;
+    case 0x3A: event.bytes[0]=0x0B; event.length=1; return event;  // F1 → Ctrl+K (was ESC O P)
     case 0x3B: event.bytes[0]=0x1B; event.bytes[1]='O'; event.bytes[2]='Q'; event.length=3; return event;
     case 0x3C: event.bytes[0]=0x1B; event.bytes[1]='O'; event.bytes[2]='R'; event.length=3; return event;
     case 0x3D: event.bytes[0]=0x1B; event.bytes[1]='O'; event.bytes[2]='S'; event.length=3; return event;
