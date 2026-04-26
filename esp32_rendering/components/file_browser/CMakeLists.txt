@@ -1,0 +1,11 @@
+idf_component_register(
+    SRCS
+        "src/path_helpers.cpp"
+        "src/dir_listing.cpp"
+        "src/file_buffer.cpp"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        vfs
+        fatfs
+)
