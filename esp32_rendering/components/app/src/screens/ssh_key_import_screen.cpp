@@ -18,6 +18,7 @@
 #include <string>
 
 #include "libssh/libssh.h"
+#include <esp_timer.h>
 
 namespace app {
 
@@ -29,10 +30,27 @@ static const char* type_glyph_short(ssh_keys::KeyType t, uint16_t rsa_bits) {
 
 SshKeyImportScreen::SshKeyImportScreen(ScreenContext& ctx) : ctx_(ctx) {}
 
+int16_t SshKeyImportScreen::computeRowY(int index) const {
+    return list_start_y_ + static_cast<int16_t>(index) * row_h_;
+}
+
+void SshKeyImportScreen::onSelectionChange(int old_index, int new_index) {
+    if (old_index == new_index) return;
+    if (!focus_y_initialized_) return;
+    int16_t old_y = computeRowY(old_index);
+    int16_t new_y = computeRowY(new_index);
+    auto tag = makeTag(TweenKind::FocusRect, focus_id::SshKeyImportScreen);
+    ctx_.animator.start(tag, old_y, new_y, kFocusRectUs, esp_timer_get_time());
+    prev_selected_y_ = new_y;
+}
+
 void SshKeyImportScreen::onEnter() {
     candidates_.clear();
     skipped_ = 0;
     sel_ = 0;
+    focus_y_initialized_ = false;
+    auto tag = makeTag(TweenKind::FocusRect, focus_id::SshKeyImportScreen);
+    ctx_.animator.cancel(tag);
     doScan();
     scanned_ = true;
 }
@@ -159,6 +177,11 @@ void SshKeyImportScreen::doImport(const Candidate& cand,
         skipped_ = 0;
         sel_ = 0;
         doScan();
+        // Candidate list mutated; cancel any in-flight tween and re-init y.
+        auto tag = makeTag(TweenKind::FocusRect,
+                           focus_id::SshKeyImportScreen);
+        ctx_.animator.cancel(tag);
+        focus_y_initialized_ = false;
     });
     ctx_.overlay.showToast("Imported", 1500);
 }
@@ -172,8 +195,11 @@ void SshKeyImportScreen::handleInput(const input::InputEvent& evt,
 
     if (evt.data_length == 3 && evt.data[0] == 0x1B && evt.data[1] == '[') {
         if (count > 0) {
+            int old_sel = sel_;
             if (evt.data[2] == 'A') sel_ = (sel_ - 1 + count) % count;
             if (evt.data[2] == 'B') sel_ = (sel_ + 1) % count;
+            if (evt.data[2] == 'A' || evt.data[2] == 'B')
+                onSelectionChange(old_sel, sel_);
         }
         return;
     }
@@ -215,6 +241,21 @@ void SshKeyImportScreen::render(onebit::IFramebuffer& fb,
             onebit::drawBitmapText(fb, font, 10, y + row_h, smsg, onebit::BLACK);
         }
     } else {
+        // Cache list layout and compute focus-rect y.
+        list_start_y_ = y - 1;
+        row_h_        = row_h;
+        if (!focus_y_initialized_) {
+            prev_selected_y_ = computeRowY(sel_);
+            focus_y_initialized_ = true;
+        }
+        auto tag = makeTag(TweenKind::FocusRect, focus_id::SshKeyImportScreen);
+        int64_t now = esp_timer_get_time();
+        int16_t cur_y = ctx_.animator.inProgress(tag, now)
+                      ? ctx_.animator.value(tag, now)
+                      : prev_selected_y_;
+        onebit::fillRect(fb, 8, cur_y, fb.width() - 16,
+                         font.glyph_height + 2, onebit::BLACK);
+
         for (size_t i = 0; i < candidates_.size(); ++i) {
             if (y + font.glyph_height > fb.height() - 20) break;
             const auto& c = candidates_[i];
@@ -223,13 +264,8 @@ void SshKeyImportScreen::render(onebit::IFramebuffer& fb,
                            (int)i == sel_ ? '>' : ' ',
                            c.filename.c_str(),
                            type_glyph_short(c.type, c.rsa_bits));
-            if ((int)i == sel_) {
-                onebit::fillRect(fb, 8, y - 1, fb.width() - 16,
-                                  font.glyph_height + 2, onebit::BLACK);
-                onebit::drawBitmapText(fb, font, 10, y, line, onebit::WHITE);
-            } else {
-                onebit::drawBitmapText(fb, font, 10, y, line, onebit::BLACK);
-            }
+            onebit::drawBitmapText(fb, font, 10, y, line,
+                                   (int)i == sel_ ? onebit::WHITE : onebit::BLACK);
             y += row_h;
         }
         if (skipped_ > 0) {
