@@ -41,5 +41,6 @@ idf_component_register(
         "src/screens/timezone_screen.cpp"
     INCLUDE_DIRS "include"
     REQUIRES onebit ssh_client sdcard_config nvs_flash input_queue ble_hid wifi_manager ssh_keys libssh time_service
+    PRIV_REQUIRES audio
 )
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)

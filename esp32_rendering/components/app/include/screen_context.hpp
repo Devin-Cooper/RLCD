@@ -11,6 +11,7 @@ namespace sdcard { class ConfigManager; }
 namespace ble_hid { class BleHidHost; }
 namespace ssh_keys { class KeyStore; }
 namespace time_service { class TimeService; }
+namespace audio { class Speaker; class Microphone; }
 
 namespace app {
 
@@ -39,6 +40,8 @@ struct ScreenContext {
     TerminalMode&          terminalMode;
     uint8_t&               currentFontSize;
     Animator&              animator;
+    audio::Speaker&        speaker;
+    audio::Microphone&     microphone;
     time_service::TimeService& timeService;
 
     // Plan Amendment K: rotate to the next server (Btn B long in Dashboard).
