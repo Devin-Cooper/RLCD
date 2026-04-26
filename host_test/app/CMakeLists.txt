@@ -210,3 +210,12 @@ add_host_test(
         "${RLCD_COMPONENTS}/audio/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
 )
+
+add_host_test(
+    NAME test_path_helpers
+    SOURCES
+        test_path_helpers.cpp
+        "${RLCD_COMPONENTS}/file_browser/src/path_helpers.cpp"
+    INCLUDES
+        "${RLCD_COMPONENTS}/file_browser/include"
+)
