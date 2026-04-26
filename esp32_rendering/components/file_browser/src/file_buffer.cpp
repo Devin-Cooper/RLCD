@@ -317,6 +317,16 @@ bool FileBuffer::restoreFromSnapshot() {
     return true;
 }
 
+bool FileBuffer::swapWithSnapshot() {
+    if (!snapshot_data_) return false;
+    std::swap(data_, snapshot_data_);
+    std::swap(size_, snapshot_size_);
+    std::swap(crlf_, snapshot_crlf_);
+    dirty_ = true;
+    index_dirty_ = true;
+    return true;
+}
+
 bool FileBuffer::loadEmptyText() {
     freeBuffer();
     data_ = (char*)psramAlloc(1);

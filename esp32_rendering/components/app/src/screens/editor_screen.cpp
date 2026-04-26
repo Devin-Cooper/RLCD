@@ -548,7 +548,15 @@ void EditorScreen::onPaste() {
         cursorFromByteOffset(pos + clipboard_size_);
     }
 }
-void EditorScreen::onUndo() {}
+void EditorScreen::onUndo() {
+    if (!buffer_.hasSnapshot()) return;
+    if (buffer_.swapWithSnapshot()) {
+        // Cursor may now point past EOF; clamp.
+        std::size_t pos = std::min(cursorByteOffset(), buffer_.size());
+        cursorFromByteOffset(pos);
+        invalidateSelection();
+    }
+}
 void EditorScreen::onSave(bool, ScreenStack&) {}
 void EditorScreen::doSaveAtomic(const std::string&) {}
 void EditorScreen::enterFindMode() {}

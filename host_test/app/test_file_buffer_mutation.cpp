@@ -146,6 +146,19 @@ TEST_CASE("FileBuffer::saveAtomic preserves CRLF bytes", "[mutation]") {
     ::unlink(dst.c_str());
 }
 
+TEST_CASE("FileBuffer::swapWithSnapshot toggles two-state", "[mutation]") {
+    fb::FileBuffer b;
+    REQUIRE(b.load(tmpFile("orig\n")));
+    REQUIRE(b.snapshot());
+    REQUIRE(b.insert(0, "X"));
+    REQUIRE(b.line(0) == "Xorig");
+    REQUIRE(b.swapWithSnapshot());
+    REQUIRE(b.line(0) == "orig");
+    REQUIRE(b.swapWithSnapshot());
+    REQUIRE(b.line(0) == "Xorig");   // back to edited state
+    REQUIRE(b.hasSnapshot());        // snapshot still present after swap
+}
+
 TEST_CASE("FileBuffer::saveAtomic rename failure leaves tmp", "[mutation]") {
     fb::FileBuffer b;
     REQUIRE(b.load(tmpFile("x")));

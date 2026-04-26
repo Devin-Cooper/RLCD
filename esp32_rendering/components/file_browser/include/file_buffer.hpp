@@ -54,6 +54,12 @@ public:
     bool snapshot();
     bool restoreFromSnapshot();
 
+    // Swap data_ ↔ snapshot_data_. After call: snapshot holds the previous
+    // current state; current holds the previous snapshot state. dirty_=true
+    // (current still differs from on-disk). index_dirty_=true. Returns false
+    // if no snapshot exists. Used by editor Ctrl-Z toggle.
+    bool swapWithSnapshot();
+
     // Atomic save: write to <path>.tmp, fsync, rename. On failure, the .tmp
     // file is left on disk for forensics. errnoCode() carries the failing
     // POSIX errno on false return.
