@@ -81,7 +81,45 @@ bool TimeService::init() {
 bool TimeService::wasUnsetAtBoot() const { return wasUnset_.load(); }
 bool TimeService::isTimeValid() const { return !wasUnset_.load(); }
 void TimeService::onWifiUp() {}
-bool TimeService::setManual(const sensors::RtcTime&) { return false; }
+bool TimeService::setManual(const sensors::RtcTime& local) {
+    if (local.year < 2024 || local.year > 2099) return false;
+    if (local.month < 1 || local.month > 12) return false;
+    if (local.day   < 1 || local.day   > 31) return false;
+    if (local.hour > 23 || local.minute > 59 || local.second > 59) return false;
+
+    struct tm tm_local{};
+    tm_local.tm_year = local.year - 1900;
+    tm_local.tm_mon  = local.month - 1;
+    tm_local.tm_mday = local.day;
+    tm_local.tm_hour = local.hour;
+    tm_local.tm_min  = local.minute;
+    tm_local.tm_sec  = local.second;
+    tm_local.tm_isdst = -1;   // let mktime decide
+
+    setenv("TZ", tz_, 1);
+    tzset();
+    time_t ts = mktime(&tm_local);
+    if (ts == (time_t)-1) return false;
+
+    struct timeval tv{ .tv_sec = ts, .tv_usec = 0 };
+    settimeofday(&tv, nullptr);
+
+    struct tm tm_utc{};
+    gmtime_r(&ts, &tm_utc);
+    sensors::RtcTime utc{};
+    utc.year   = tm_utc.tm_year + 1900;
+    utc.month  = tm_utc.tm_mon + 1;
+    utc.day    = tm_utc.tm_mday;
+    utc.hour   = tm_utc.tm_hour;
+    utc.minute = tm_utc.tm_min;
+    utc.second = tm_utc.tm_sec;
+    utc.weekday = tm_utc.tm_wday;
+    rtc_.setTime(utc);
+
+    wasUnset_.store(false);
+    ESP_LOGI(TAG, "System time set manually: %lld (UTC)", (long long)ts);
+    return true;
+}
 
 void TimeService::setTimezone(const char* posixTz) {
     if (!posixTz) return;
