@@ -91,3 +91,12 @@ TEST_CASE("Animator: monotonic ease-out cubic", "[app][animator]") {
         prev = cur;
     }
 }
+
+TEST_CASE("Animator: ScrollbackBounce TweenKind enum value is 0x04",
+          "[app][animator]") {
+    REQUIRE(static_cast<uint8_t>(TweenKind::ScrollbackBounce) == 0x04);
+}
+
+TEST_CASE("Animator: kScrollbackBounceUs is 150 ms", "[app][animator]") {
+    REQUIRE(app::kScrollbackBounceUs == 150'000u);
+}

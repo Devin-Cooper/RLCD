@@ -12,9 +12,10 @@ inline float easeOutCubic(float t) {
 }
 
 enum class TweenKind : uint8_t {
-    FocusRect  = 0x01,
-    ModalScale = 0x02,
-    ToastSlide = 0x03,
+    FocusRect        = 0x01,
+    ModalScale       = 0x02,
+    ToastSlide       = 0x03,
+    ScrollbackBounce = 0x04,
 };
 
 inline constexpr uint32_t makeTag(TweenKind k, uint32_t id) {
@@ -30,9 +31,10 @@ struct Tween {
     bool     active;
 };
 
-constexpr uint32_t kFocusRectUs  = 120'000;
-constexpr uint32_t kModalScaleUs = 140'000;
-constexpr uint32_t kToastSlideUs = 180'000;
+constexpr uint32_t kFocusRectUs        = 120'000;
+constexpr uint32_t kModalScaleUs       = 140'000;
+constexpr uint32_t kToastSlideUs       = 180'000;
+constexpr uint32_t kScrollbackBounceUs = 150'000;
 
 /// Animator — fixed-size pool (8 slots) of active tweens.
 ///
