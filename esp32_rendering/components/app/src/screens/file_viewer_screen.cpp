@@ -2,6 +2,10 @@
 #include "screen_stack.hpp"
 #include "path_helpers.hpp"
 #include "overlay.hpp"
+#include "command_registry.hpp"
+#include "screens/text_input_screen.hpp"
+#include <cstdlib>
+#include <memory>
 
 #include <1bit/render/primitives.hpp>
 #include <1bit/render/bitmap_font.hpp>
@@ -324,8 +328,73 @@ void FileViewerScreen::renderError(onebit::IFramebuffer& fb, const onebit::Bitma
     onebit::drawBitmapText(fb, font, 4, fh, "[Back]  Esc", onebit::BLACK);
 }
 
+namespace {
+constexpr Command kViewerTextContextual[] = {
+    { "Find",            "", 0xFF60 },
+    { "Top of file",     "", 0xFF62 },
+    { "Bottom of file",  "", 0xFF63 },
+};
+constexpr Command kViewerHexContextual[] = {
+    { "Go to offset...", "", 0xFF61 },
+    { "Top of file",     "", 0xFF62 },
+    { "Bottom of file",  "", 0xFF63 },
+};
+}  // namespace
+
 SpanView<const KeybindHint> FileViewerScreen::keybindHints() const { return {}; }
-SpanView<const Command> FileViewerScreen::getContextualCommands() { return {}; }
-void FileViewerScreen::dispatchContextual(uint16_t /*id*/) {}
+
+SpanView<const Command> FileViewerScreen::getContextualCommands() {
+    if (buffer_.mode() == fb::FileBuffer::Mode::Text) {
+        return SpanView<const Command>(kViewerTextContextual, 3);
+    }
+    if (buffer_.mode() == fb::FileBuffer::Mode::Hex
+        || buffer_.mode() == fb::FileBuffer::Mode::TooLarge) {
+        return SpanView<const Command>(kViewerHexContextual, 3);
+    }
+    return {};
+}
+
+void FileViewerScreen::dispatchContextual(uint16_t id) {
+    switch (id) {
+        case 0xFF60: {  // Find
+            if (buffer_.mode() != fb::FileBuffer::Mode::Text) return;
+            search_active_ = true;
+            search_query_.clear();
+            search_matches_.clear();
+            search_match_idx_ = -1;
+            search_anchor_line_ = cursor_;
+            return;
+        }
+        case 0xFF61: {  // Goto offset
+            ctx_.stack.push(std::make_unique<TextInputScreen>(ctx_,
+                "Go to offset (hex or dec)", "",
+                [this](TextInputResult r, const std::string& v) {
+                    if (r != TextInputResult::Submit || v.empty()) return;
+                    std::uint64_t off = 0;
+                    int base = 10;
+                    std::string s = v;
+                    if (s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+                        base = 16; s = s.substr(2);
+                    }
+                    char* end = nullptr;
+                    off = std::strtoull(s.c_str(), &end, base);
+                    if (end == s.c_str()) {
+                        ctx_.overlay.showError("Bad offset", "Hex (0xNN) or decimal");
+                        return;
+                    }
+                    cursor_ = (int)(off / 16);
+                }));
+            return;
+        }
+        case 0xFF62: cursor_ = 0; return;
+        case 0xFF63: {
+            int total = (buffer_.mode() == fb::FileBuffer::Mode::Text)
+                ? (int)buffer_.lineCount()
+                : (int)((buffer_.size() + 15) / 16);
+            cursor_ = std::max(0, total - 1);
+            return;
+        }
+    }
+}
 
 }  // namespace app
