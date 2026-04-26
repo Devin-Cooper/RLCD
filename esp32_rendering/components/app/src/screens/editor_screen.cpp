@@ -122,7 +122,84 @@ void EditorScreen::handleInput(const input::InputEvent& evt, ScreenStack& stack)
     auto data = evt.data;
     auto len  = evt.data_length;
 
-    // Find-mode interception lands in Task 12; pass through for now.
+    // Find-mode interception (Tasks 12-13). Consumes find/replace keystrokes
+    // and short-circuits the normal demuxer below.
+    if (find_mode_ != FindMode::Off && len >= 1) {
+        unsigned char c = data[0];
+        // Esc cancels.
+        if (c == 0x1B && len == 1) {
+            // If user never committed in Find (find_match_idx_ < 0), restore
+            // cursor to the line they came from.
+            if (find_mode_ == FindMode::Find && find_match_idx_ < 0) {
+                line_ = find_anchor_line_;
+            }
+            if (find_mode_ == FindMode::Replace) {
+                // Esc from Replace → back to Find (query intact, replacement cleared).
+                find_mode_ = FindMode::Find;
+                replace_with_.clear();
+                return;
+            }
+            find_mode_ = FindMode::Off;
+            return;
+        }
+        if (find_mode_ == FindMode::Find) {
+            if (c == '\r' || c == '\n' || c == 0x0E /*Ctrl-N*/) {
+                if (!find_matches_.empty()) {
+                    if (find_match_idx_ < 0) {
+                        int target = 0;
+                        for (int i = 0; i < (int)find_matches_.size(); ++i) {
+                            if ((int)find_matches_[i] >= find_anchor_line_) { target = i; break; }
+                        }
+                        find_match_idx_ = target;
+                    } else {
+                        find_match_idx_ = (find_match_idx_ + 1) % (int)find_matches_.size();
+                    }
+                    line_ = (int)find_matches_[find_match_idx_];
+                    byte_col_ = 0;
+                    sticky_display_col_ = 0;
+                }
+                return;
+            }
+            if (c == 0x10 /*Ctrl-P*/) {
+                if (!find_matches_.empty()) {
+                    if (find_match_idx_ < 0) find_match_idx_ = (int)find_matches_.size() - 1;
+                    else find_match_idx_ = (find_match_idx_ - 1 + (int)find_matches_.size())
+                                           % (int)find_matches_.size();
+                    line_ = (int)find_matches_[find_match_idx_];
+                    byte_col_ = 0;
+                    sticky_display_col_ = 0;
+                }
+                return;
+            }
+            if (c == 0x08) {  // Ctrl-H → enter Replace mode if matches exist
+                if (!find_matches_.empty()) {
+                    enterReplaceMode();
+                } else if (!find_query_.empty()) {
+                    find_query_.pop_back();
+                    find_matches_ = buffer_.findAll(find_query_);
+                    find_match_idx_ = -1;
+                }
+                return;
+            }
+            if (c == 0x7F) {
+                if (!find_query_.empty()) {
+                    find_query_.pop_back();
+                    find_matches_ = buffer_.findAll(find_query_);
+                    find_match_idx_ = -1;
+                }
+                return;
+            }
+            if (c >= 0x20 && c < 0x7F) {
+                find_query_.push_back((char)c);
+                find_matches_ = buffer_.findAll(find_query_);
+                find_match_idx_ = -1;
+                return;
+            }
+        } else /* FindMode::Replace */ {
+            // Replace-mode key handling lands in Task 13.
+        }
+        return;
+    }
 
     // Shift+arrow = ESC [ 1 ; 2 [A/B/C/D/H/F]
     if (len >= 6 && data[0] == 0x1B && data[1] == 0x5B && data[2] == 0x31
@@ -248,8 +325,20 @@ void EditorScreen::renderEditor(onebit::IFramebuffer& fb, const onebit::BitmapFo
     }
 }
 
-void EditorScreen::renderFindBar(onebit::IFramebuffer&, const onebit::BitmapFont&, int) {
-    // Filled in Task 12.
+void EditorScreen::renderFindBar(onebit::IFramebuffer& fb, const onebit::BitmapFont& font, int y) {
+    int n = (int)find_matches_.size();
+    char bar[120];
+    if (find_mode_ == FindMode::Find) {
+        std::snprintf(bar, sizeof(bar), "Find: %s (%d/%d)   [Esc]",
+                      find_query_.c_str(),
+                      n == 0 ? 0 : (find_match_idx_ + 1),
+                      n);
+    } else {
+        std::snprintf(bar, sizeof(bar), "Replace '%s' with: %s   [Enter]",
+                      find_query_.c_str(),
+                      replace_with_.c_str());
+    }
+    onebit::drawBitmapText(fb, font, 2, y, bar, onebit::BLACK);
 }
 
 void EditorScreen::renderRow(onebit::IFramebuffer& fb, const onebit::BitmapFont& font,
@@ -559,7 +648,13 @@ void EditorScreen::onUndo() {
 }
 void EditorScreen::onSave(bool, ScreenStack&) {}
 void EditorScreen::doSaveAtomic(const std::string&) {}
-void EditorScreen::enterFindMode() {}
+void EditorScreen::enterFindMode() {
+    find_mode_ = FindMode::Find;
+    find_query_.clear();
+    find_matches_.clear();
+    find_match_idx_ = -1;
+    find_anchor_line_ = line_;
+}
 void EditorScreen::enterReplaceMode() {}
 void EditorScreen::doReplaceCurrent() {}
 void EditorScreen::onEscape(ScreenStack& stack) { stack.pop(); }
