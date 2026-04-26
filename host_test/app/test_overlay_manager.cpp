@@ -1,6 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include "overlay.hpp"
 #include "animator.hpp"
+#include "screen.hpp"      // for app::KeybindHint
+#include "span_view.hpp"
 #include <cstring>
 
 using app::OverlayManager;
@@ -198,4 +200,83 @@ TEST_CASE("OverlayManager: renderFooter suppressed by modal/toast",
     REQUIRE(om.showToast("hi", 2500));
     REQUIRE(om.activeToastCount() == 1);
     om.renderFooter(fb, font, &scr, 1000);
+}
+
+// --- Help modal (Phase 9) ---
+
+TEST_CASE("Overlay: showHelp drives ModalScale tween 0->100",
+          "[app][overlay][help]") {
+    Animator anim;
+    OverlayManager om(anim);
+    om.tick(0);
+
+    app::KeybindHint hints[] = {
+        {"Esc", "back"},
+        {"Ctrl+/", "help"},
+    };
+    REQUIRE_FALSE(om.isHelpVisible());
+    om.showHelpForTest("Dashboard",
+                       app::SpanView<const app::KeybindHint>(hints, 2));
+    REQUIRE(om.isHelpVisible());
+
+    auto tag = makeTag(TweenKind::ModalScale, 0);
+    REQUIRE(anim.value(tag, 0) == 0);
+    REQUIRE(anim.value(tag, app::kModalScaleUs) == 100);
+}
+
+TEST_CASE("Overlay: showHelp transitions ScalingIn -> Visible -> Hidden",
+          "[app][overlay][help]") {
+    Animator anim;
+    OverlayManager om(anim);
+    om.tick(0);
+    om.showHelpForTest("X", {});
+    REQUIRE(om.isHelpVisible());
+
+    // Past scale-in completion: still visible.
+    om.tick(static_cast<int64_t>(app::kModalScaleUs) + 1);
+    REQUIRE(om.isHelpVisible());
+
+    om.hideHelp();
+    REQUIRE(om.isHelpVisible());  // scale-out window — still drawing
+
+    om.tick(2 * static_cast<int64_t>(app::kModalScaleUs) + 2);
+    REQUIRE_FALSE(om.isHelpVisible());
+}
+
+TEST_CASE("Overlay: showHelp is no-op when a modal is active",
+          "[app][overlay][help]") {
+    Animator anim;
+    OverlayManager om(anim);
+    om.tick(0);
+    om.showInfo("Title", "Body");
+    REQUIRE(om.hasModal());
+    om.showHelpForTest("X", {});
+    REQUIRE_FALSE(om.isHelpVisible());
+}
+
+TEST_CASE("Overlay: any keypress dismisses the help modal",
+          "[app][overlay][help]") {
+    Animator anim;
+    OverlayManager om(anim);
+    om.tick(0);
+    om.showHelpForTest("X", {});
+    REQUIRE(om.isHelpVisible());
+    REQUIRE(om.handleInput(kbd("x")));   // consumed by help layer
+    om.tick(static_cast<int64_t>(app::kModalScaleUs) + 1);
+    REQUIRE_FALSE(om.isHelpVisible());
+}
+
+TEST_CASE("Overlay: hideHelp before tick is idempotent",
+          "[app][overlay][help]") {
+    Animator anim;
+    OverlayManager om(anim);
+    om.tick(0);
+    om.hideHelp();  // not visible — no-op, no crash
+    REQUIRE_FALSE(om.isHelpVisible());
+
+    om.showHelpForTest("X", {});
+    om.hideHelp();
+    om.hideHelp();  // double-call during scale-out — no-op
+    om.tick(2 * static_cast<int64_t>(app::kModalScaleUs) + 2);
+    REQUIRE_FALSE(om.isHelpVisible());
 }
