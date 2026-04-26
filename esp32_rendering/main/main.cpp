@@ -44,6 +44,7 @@
 #include "screens/keyboard_gate.hpp"
 #include "screens/wifi_screen.hpp"
 #include "screens/command_palette.hpp"
+#include "command_registry.hpp"
 #include "test_console.hpp"
 #include "boot_validator.hpp"
 
@@ -691,6 +692,12 @@ extern "C" void app_main() {
         reconnectActiveServer(configMgr.get(), sshClient, dashboard);
     };
 
+    // Phase 10: populate the global command registry once at boot. Without
+    // this call the palette would only show contextual + dynamic-server
+    // commands; the 13 globals (Open dashboard, Open terminal, WiFi, etc.)
+    // would be invisible.
+    app::CommandRegistry::instance().registerGlobals();
+
     // Phase 13: install the keyboard-gate policy. Pushes of any non-bypass
     // screen are intercepted when no BLE keyboard has ever been bonded — the
     // candidate screen is wrapped in a KeyboardGateModal which offers a
@@ -870,15 +877,18 @@ extern "C" void app_main() {
                 continue;
             }
             // Phase 11: Ctrl+K (byte 0x0B) opens the command palette.
-            // Refused if the palette is already top, or if the keyboard
-            // gate is still up (palette needs a keyboard to be useful).
+            // Refused if the palette is already top, the keyboard gate
+            // is still up, or any blocking modal/help is visible (the
+            // palette would occlude them and trap the user).
             if (evt.source == input::Source::Keyboard &&
                 evt.type   == input::EventType::Keypress &&
                 evt.data_length >= 1 &&
                 evt.data[0] == 0x0B) {
                 auto kind = stack.top()->screenKind();
                 if (kind != app::ScreenKind::CommandPalette &&
-                    kind != app::ScreenKind::KeyboardGate) {
+                    kind != app::ScreenKind::KeyboardGate &&
+                    !overlay.hasModal() &&
+                    !overlay.isHelpVisible()) {
                     stack.push(std::make_unique<app::CommandPalette>(ctx));
                 }
                 continue;
