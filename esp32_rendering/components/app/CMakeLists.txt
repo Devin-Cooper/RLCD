@@ -13,6 +13,8 @@ idf_component_register(
         "src/command_registry.cpp"
         "src/command_registry_dynamic.cpp"
         "src/command_dispatcher.cpp"
+        "src/command_palette_filter.cpp"
+        "src/screens/command_palette.cpp"
         "src/screens/dashboard_screen.cpp"
         "src/screens/terminal_screen.cpp"
         "src/screens/menu_screen.cpp"
