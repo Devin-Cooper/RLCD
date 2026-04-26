@@ -11,6 +11,4 @@ idf_component_register(
         i2c_bsp
         nvs_flash
         driver
-        espressif__es8311
-        espressif__es7210
 )
