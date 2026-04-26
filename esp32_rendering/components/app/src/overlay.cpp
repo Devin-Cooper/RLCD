@@ -75,7 +75,26 @@ void OverlayManager::showConfirm(const char* title, const char* body,
     std::strncpy(modal_.title, title ? title : "", sizeof(modal_.title) - 1);
     std::strncpy(modal_.body,  body  ? body  : "", sizeof(modal_.body)  - 1);
     modal_.confirm_cb = std::move(on_result);
-    modal_.confirm_selection = 0;  // default Yes highlighted
+    modal_.selection = 0;  // default Yes highlighted
+    modal_.button_count = 2;
+    modal_.active = true;
+    modal_.scale_state = ModalScaleState::ScalingIn;
+    modal_.scale_complete_us = now_us_ + static_cast<int64_t>(kModalScaleUs);
+    auto tag = makeTag(TweenKind::ModalScale, 0);
+    animator_.start(tag, 0, 100, kModalScaleUs, now_us_);
+}
+
+void OverlayManager::showThreeWay(const char* title, const char* body,
+                                  std::array<const char*, 3> labels,
+                                  std::function<void(int)> on_result) {
+    modal_ = Modal{};
+    modal_.kind = ModalKind::ThreeWay;
+    std::strncpy(modal_.title, title ? title : "", sizeof(modal_.title) - 1);
+    std::strncpy(modal_.body,  body  ? body  : "", sizeof(modal_.body)  - 1);
+    modal_.button_count = 3;
+    modal_.labels = labels;
+    modal_.on_three_way = std::move(on_result);
+    modal_.selection = 2;   // default focus = rightmost (Cancel — least destructive)
     modal_.active = true;
     modal_.scale_state = ModalScaleState::ScalingIn;
     modal_.scale_complete_us = now_us_ + static_cast<int64_t>(kModalScaleUs);
@@ -177,32 +196,61 @@ bool OverlayManager::handleInput(const input::InputEvent& evt) {
         return true;  // always consume while active
     }
 
-    // Confirm: Left/Right toggles, Enter selects, Esc = No.
+    // Confirm / ThreeWay: Left/Right moves selection, Enter selects, Esc = last button.
+    const bool is_three_way = (modal_.kind == ModalKind::ThreeWay);
     if (evt.source == input::Source::Keyboard &&
         evt.type == input::EventType::Keypress) {
         if (evt.data_length == 3 && evt.data[0] == 0x1B && evt.data[1] == '[') {
-            if (evt.data[2] == 'C') modal_.confirm_selection = 1; // Right → No
-            if (evt.data[2] == 'D') modal_.confirm_selection = 0; // Left → Yes
-        } else if (evt.data_length == 1 && evt.data[0] == '\r') {
-            bool yes = (modal_.confirm_selection == 0);
-            auto cb = std::move(modal_.confirm_cb);
-            beginDismiss();
-            if (cb) cb(yes);
+            if (evt.data[2] == 'C') {
+                if (modal_.selection + 1 < modal_.button_count) ++modal_.selection;
+            }
+            if (evt.data[2] == 'D') {
+                if (modal_.selection > 0) --modal_.selection;
+            }
+        } else if (evt.data_length == 1 && (evt.data[0] == '\r' || evt.data[0] == '\n')) {
+            if (is_three_way) {
+                int choice = modal_.selection;
+                auto cb = std::move(modal_.on_three_way);
+                beginDismiss();
+                if (cb) cb(choice);
+            } else {
+                bool yes = (modal_.selection == 0);
+                auto cb = std::move(modal_.confirm_cb);
+                beginDismiss();
+                if (cb) cb(yes);
+            }
         } else if (evt.data_length == 1 && evt.data[0] == 0x1B) {
-            auto cb = std::move(modal_.confirm_cb);
-            beginDismiss();
-            if (cb) cb(false);
+            if (is_three_way) {
+                auto cb = std::move(modal_.on_three_way);
+                beginDismiss();
+                if (cb) cb(modal_.button_count - 1);  // Esc → rightmost (Cancel)
+            } else {
+                auto cb = std::move(modal_.confirm_cb);
+                beginDismiss();
+                if (cb) cb(false);
+            }
         }
     } else if (evt.source == input::Source::Button &&
                evt.type == input::EventType::ButtonShort) {
-        // Button A = toggle, Button B = confirm
+        // Button A = advance selection (cycles), Button B = confirm
         if (evt.button_id == 0) {
-            modal_.confirm_selection = 1 - modal_.confirm_selection;
+            if (is_three_way) {
+                modal_.selection = (modal_.selection + 1) % modal_.button_count;
+            } else {
+                modal_.selection = 1 - modal_.selection;
+            }
         } else if (evt.button_id == 1) {
-            bool yes = (modal_.confirm_selection == 0);
-            auto cb = std::move(modal_.confirm_cb);
-            beginDismiss();
-            if (cb) cb(yes);
+            if (is_three_way) {
+                int choice = modal_.selection;
+                auto cb = std::move(modal_.on_three_way);
+                beginDismiss();
+                if (cb) cb(choice);
+            } else {
+                bool yes = (modal_.selection == 0);
+                auto cb = std::move(modal_.confirm_cb);
+                beginDismiss();
+                if (cb) cb(yes);
+            }
         }
     }
     return true;
@@ -312,12 +360,8 @@ void OverlayManager::render(onebit::IFramebuffer& fb,
             onebit::drawBitmapText(fb, font, mx + 8, my + 28,
                                    modal_.body, onebit::BLACK);
 
-            if (modal_.kind == ModalKind::Confirm) {
-                const char* yes = "[ Yes ]";
-                const char* no  = "[ No ]";
-                int16_t no_w  = onebit::getBitmapTextWidth(font, no);
-                int16_t yes_x = mx + 40;
-                int16_t no_x  = mx + mw - 40 - no_w;
+            if (modal_.kind == ModalKind::Confirm
+                || modal_.kind == ModalKind::ThreeWay) {
                 int16_t bot_y = my + mh - font.glyph_height - 10;
 
                 auto drawOption = [&](int16_t x, const char* label, bool sel) {
@@ -332,8 +376,38 @@ void OverlayManager::render(onebit::IFramebuffer& fb,
                                                label, onebit::BLACK);
                     }
                 };
-                drawOption(yes_x, yes, modal_.confirm_selection == 0);
-                drawOption(no_x,  no,  modal_.confirm_selection == 1);
+                if (modal_.kind == ModalKind::Confirm) {
+                    const char* yes = "[ Yes ]";
+                    const char* no  = "[ No ]";
+                    int16_t no_w  = onebit::getBitmapTextWidth(font, no);
+                    int16_t yes_x = mx + 40;
+                    int16_t no_x  = mx + mw - 40 - no_w;
+                    drawOption(yes_x, yes, modal_.selection == 0);
+                    drawOption(no_x,  no,  modal_.selection == 1);
+                } else {
+                    // ThreeWay: render N buttons evenly across modal width.
+                    char bracketed[3][32];
+                    int16_t widths[3] = {0, 0, 0};
+                    int16_t total_w = 0;
+                    for (int i = 0; i < modal_.button_count && i < 3; ++i) {
+                        const char* lbl = modal_.labels[i] ? modal_.labels[i] : "";
+                        std::snprintf(bracketed[i], sizeof(bracketed[i]),
+                                      "[ %s ]", lbl);
+                        widths[i] = onebit::getBitmapTextWidth(font, bracketed[i]);
+                        total_w += widths[i];
+                    }
+                    // Distribute remaining horizontal space as gaps.
+                    int16_t avail = mw - 16;  // 8 px margin each side
+                    int16_t gap = (modal_.button_count > 1)
+                        ? (avail - total_w) / (modal_.button_count - 1)
+                        : 0;
+                    if (gap < 4) gap = 4;
+                    int16_t cx = mx + 8;
+                    for (int i = 0; i < modal_.button_count && i < 3; ++i) {
+                        drawOption(cx, bracketed[i], modal_.selection == i);
+                        cx += widths[i] + gap;
+                    }
+                }
             } else {
                 const char* hint = "[ Press any key ]";
                 int16_t hw = onebit::getBitmapTextWidth(font, hint);

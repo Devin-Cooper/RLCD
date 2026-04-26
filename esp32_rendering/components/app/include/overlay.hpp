@@ -16,7 +16,7 @@ namespace app {
 // screen_context.hpp forward-declares OverlayManager.
 struct ScreenContext;
 
-enum class ModalKind : uint8_t { Info, Error, Confirm };
+enum class ModalKind : uint8_t { Info, Error, Confirm, ThreeWay };
 enum class ToastSlideState : uint8_t { SlidingIn, Visible, SlidingOut };
 enum class ModalScaleState : uint8_t { ScalingIn, Visible, ScalingOut };
 enum class HelpScaleState  : uint8_t { Hidden, ScalingIn, Visible, ScalingOut };
@@ -35,6 +35,13 @@ public:
     void showError(const char* title, const char* body);
     void showConfirm(const char* title, const char* body,
                      std::function<void(bool yes)> on_result);
+    /// Three-way modal: title/body + 3 button labels. on_result is invoked
+    /// with the index (0/1/2) of the chosen button. Esc maps to button index 2
+    /// (rightmost / Cancel). Default focus = 2 (least destructive).
+    void showThreeWay(const char* title,
+                      const char* body,
+                      std::array<const char*, 3> labels,
+                      std::function<void(int)> on_result);
 
     // --- Per-frame hooks ---
     bool handleInput(const input::InputEvent& evt);
@@ -96,9 +103,16 @@ private:
         char body[128] = {};
         std::function<void(bool)> confirm_cb;
         bool active = false;
-        int confirm_selection = 0;  // 0 = Yes, 1 = No
+        // Selection index: for 2-button Confirm, 0=Yes/1=No; for 3-button
+        // ThreeWay, 0/1/2 maps to labels[0/1/2]. Renamed from confirm_selection
+        // to support both kinds uniformly.
+        int selection = 0;
         ModalScaleState scale_state = ModalScaleState::ScalingIn;
         int64_t scale_complete_us = 0;
+        // ThreeWay extras (unused for Info/Error/Confirm).
+        uint8_t button_count = 2;
+        std::array<const char*, 3> labels{ "OK", "Cancel", nullptr };
+        std::function<void(int)> on_three_way;
     };
     Modal modal_;
 
