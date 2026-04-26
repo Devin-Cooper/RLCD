@@ -15,6 +15,7 @@ public:
         Servers,
         SshKeys,
         Settings,
+        Audio,
         WiFi,
         About,
         Count,

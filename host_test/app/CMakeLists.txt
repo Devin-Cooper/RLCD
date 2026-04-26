@@ -200,3 +200,13 @@ add_host_test(
     DEFINES
         FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
 )
+
+add_host_test(
+    NAME test_audio_helpers
+    SOURCES
+        test_audio_helpers.cpp
+        "${RLCD_COMPONENTS}/audio/src/audio_helpers_pure.cpp"
+    INCLUDES
+        "${RLCD_COMPONENTS}/audio/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
+)

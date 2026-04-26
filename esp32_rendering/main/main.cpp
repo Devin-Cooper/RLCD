@@ -21,6 +21,11 @@
 #include "battery.hpp"
 #include "buttons.hpp"
 
+// Audio
+#include "audio_bus.hpp"
+#include "speaker.hpp"
+#include "microphone.hpp"
+
 // Connectivity
 #include "wifi_manager.hpp"
 #include "ssh_client.hpp"
@@ -346,6 +351,39 @@ extern "C" void app_main() {
     static time_service::TimeService timeService(i2cBus);
     if (!timeService.init()) {
         ESP_LOGW(TAG, "TimeService init returned false — clock will start unset");
+    }
+
+    // ------------------------------------------------------------------
+    // Audio bring-up: I²S bus + ES8311 speaker + ES7210 microphone
+    // ------------------------------------------------------------------
+    static audio_bus::AudioBus audioBus(
+        /*sample_rate=*/48000,
+        /*bits=*/16,
+        /*tx_ch=*/1,
+        /*rx_ch=*/2,
+        I2S_NUM_0,
+        audio_bus::AudioBusPins{
+            .mclk = GPIO_NUM_16,
+            .bclk = GPIO_NUM_9,
+            .ws   = GPIO_NUM_45,
+            .dout = GPIO_NUM_8,
+            .din  = GPIO_NUM_10,
+        });
+    if (!audioBus.init()) {
+        ESP_LOGW(TAG, "AudioBus init failed");
+    }
+
+    static audio::Speaker speaker(audioBus, i2cBus,
+                                  audio::Speaker::kAddrPrimary,
+                                  audio::Speaker::kAddrFallback,
+                                  GPIO_NUM_46);
+    if (!speaker.init()) {
+        ESP_LOGW(TAG, "Speaker init failed");
+    }
+
+    static audio::Microphone microphone(audioBus, i2cBus, audio::Microphone::kAddr);
+    if (!microphone.init()) {
+        ESP_LOGW(TAG, "Microphone init failed");
     }
 
     // ------------------------------------------------------------------
@@ -687,7 +725,7 @@ extern "C" void app_main() {
     app::ScreenContext ctx{
         fb, display, sshClient, wifiMgr, *configMgr, keyStore, bleHost, settings,
         stack, overlay, dashboard, terminalMode, currentFontSize, animator,
-        timeService
+        speaker, microphone, timeService
     };
 
     // Amendment K: wire switchToNextServer and switchToActiveServer into ctx.
@@ -777,7 +815,8 @@ extern "C" void app_main() {
 
 #if CONFIG_TEST_CONSOLE_ENABLED
     static test_console::Context tctx{
-        fb, stack, overlay, wifiMgr, *configMgr, bleHost, sshClient, keyStore, settings
+        fb, stack, overlay, wifiMgr, *configMgr, bleHost, sshClient, keyStore, settings,
+        speaker, microphone
     };
     test_console::init(tctx);
 #endif

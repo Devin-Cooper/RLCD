@@ -6,6 +6,7 @@
 #include "screens/server_list_screen.hpp"
 #include "screens/settings_screen.hpp"
 #include "screens/ssh_key_list_screen.hpp"
+#include "screens/audio_menu_screen.hpp"
 #include "screen_stack.hpp"
 #include "overlay.hpp"
 #include <1bit/render/primitives.hpp>
@@ -40,6 +41,7 @@ const char* MenuScreen::itemLabel(int index) {
         case Item::Servers:   return "Servers";
         case Item::SshKeys:   return "SSH Keys";
         case Item::Settings:  return "Settings";
+        case Item::Audio:     return "Audio";
         case Item::WiFi:      return "WiFi";
         case Item::About:     return "About";
         default:              return "?";
@@ -139,6 +141,9 @@ void MenuScreen::dispatchSelection(ScreenStack& stack, Item item) {
             break;
         case Item::Settings:
             stack.replace(std::make_unique<SettingsScreen>(ctx_));
+            break;
+        case Item::Audio:
+            stack.replace(std::make_unique<AudioMenuScreen>(ctx_));
             break;
         case Item::WiFi:
             stack.replace(std::make_unique<WifiScreen>(ctx_));
