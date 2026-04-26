@@ -1,9 +1,12 @@
 #include "screens/file_browser_screen.hpp"
 #include "screen_stack.hpp"
 #include "screens/file_viewer_screen.hpp"
+#include "screens/command_palette.hpp"
 #include "overlay.hpp"
 #include "command_ids.hpp"
 #include "sdcard_manager.hpp"
+#include "path_helpers.hpp"
+#include <memory>
 
 #include <1bit/render/primitives.hpp>
 #include <1bit/render/bitmap_font.hpp>
@@ -136,17 +139,127 @@ void FileBrowserScreen::render(onebit::IFramebuffer& fb,
         onebit::BLACK);
 }
 
-void FileBrowserScreen::handleInput(const input::InputEvent& /*evt*/,
-                                    ScreenStack& /*stack*/) {
-    // Implemented in Task 10.
+void FileBrowserScreen::handleInput(const input::InputEvent& evt,
+                                    ScreenStack& stack) {
+    using namespace input;
+
+    if (state_ == State::NoSdcard) {
+        if (evt.source == Source::Keyboard && evt.type == EventType::Keypress) {
+            if (evt.data_length >= 3 && evt.data[0] == 0x1B && evt.data[1] == 0x5B) {
+                if (evt.data[2] == 'D') err_focus_ = 0;
+                else if (evt.data[2] == 'C') err_focus_ = 1;
+                return;
+            }
+            if (evt.data_length == 1 && (evt.data[0] == '\r' || evt.data[0] == '\n')) {
+                if (err_focus_ == 0) onEnter();
+                else stack.pop();
+                return;
+            }
+            if (evt.data_length == 1 && evt.data[0] == 0x1B) {
+                stack.pop();
+                return;
+            }
+        }
+        if (evt.source == Source::Button && evt.type == EventType::ButtonShort) {
+            if (evt.button_id == 0) onEnter();   // A = retry
+            else stack.pop();                    // B = back
+            return;
+        }
+        return;
+    }
+
+    if (evt.source == Source::Button) {
+        if (evt.type == EventType::ButtonShort && evt.button_id == 0) {
+            enterSelected(stack);
+        } else if (evt.type == EventType::ButtonShort && evt.button_id == 1) {
+            goUp(stack);
+        } else if (evt.type == EventType::ButtonLong && evt.button_id == 0) {
+            ctx_.stack.push(std::make_unique<CommandPalette>(ctx_));
+        }
+        return;
+    }
+    if (evt.source != Source::Keyboard || evt.type != EventType::Keypress) return;
+
+    auto total = (int)listing_.entries().size();
+    auto move = [&](int delta) {
+        if (total == 0) return;
+        selected_ = (selected_ + delta + total) % total;
+    };
+
+    // ESC sequences first (longer matches before shorter).
+    if (evt.data_length >= 6 && evt.data[0] == 0x1B && evt.data[1] == 0x5B
+        && evt.data[2] == 0x31 && evt.data[3] == 0x3B && evt.data[4] == 0x32) {
+        // Shift-arrow modifier sequence.
+        int rows = visibleRows(ctx_.fb.height()) - 2;
+        if (rows < 1) rows = 1;
+        if (evt.data[5] == 'A') move(-rows);
+        else if (evt.data[5] == 'B') move(rows);
+        return;
+    }
+    if (evt.data_length >= 3 && evt.data[0] == 0x1B && evt.data[1] == 0x5B) {
+        switch (evt.data[2]) {
+            case 'A': move(-1); return;
+            case 'B': move(1); return;
+            case 'D': goUp(stack); return;  // Left arrow
+            case 'C': enterSelected(stack); return;  // Right arrow (alt-Enter)
+        }
+    }
+    if (evt.data_length == 1) {
+        switch (evt.data[0]) {
+            case 0x1B: goUp(stack); return;             // Esc
+            case '\r': case '\n': enterSelected(stack); return;
+            case 0x08:                                   // Ctrl-H
+                hidden_ = (hidden_ == fb::DirListing::HiddenMode::Hide)
+                    ? fb::DirListing::HiddenMode::Show
+                    : fb::DirListing::HiddenMode::Hide;
+                reload();
+                return;
+            case 0x0B:                                   // Ctrl-K palette
+                ctx_.stack.push(std::make_unique<CommandPalette>(ctx_));
+                return;
+        }
+    }
 }
 
-void FileBrowserScreen::enterSelected(ScreenStack& /*stack*/) {
-    // Task 10.
+void FileBrowserScreen::enterSelected(ScreenStack& stack) {
+    if (selected_ < 0 || selected_ >= (int)listing_.entries().size()) return;
+    const auto& e = listing_.entries()[selected_];
+    if (!e.bookmark_target.empty()) {
+        // Bookmark.
+        if (e.is_dir) {
+            nav_history_.push_back(current_path_);
+            current_path_ = e.bookmark_target;
+            selected_ = 0; scroll_top_ = 0;
+            reload();
+        } else {
+            stack.push(std::make_unique<FileViewerScreen>(ctx_, e.bookmark_target));
+        }
+        return;
+    }
+    std::string full = fb::path::join(current_path_, e.name);
+    if (e.is_dir) {
+        nav_history_.push_back(current_path_);
+        current_path_ = full;
+        selected_ = 0; scroll_top_ = 0;
+        reload();
+    } else {
+        stack.push(std::make_unique<FileViewerScreen>(ctx_, full));
+    }
 }
 
-void FileBrowserScreen::goUp(ScreenStack& /*stack*/) {
-    // Task 10.
+void FileBrowserScreen::goUp(ScreenStack& stack) {
+    if (current_path_ == "/sdcard") {
+        stack.pop();
+        return;
+    }
+    if (!nav_history_.empty()) {
+        current_path_ = std::move(nav_history_.back());
+        nav_history_.pop_back();
+    } else {
+        current_path_ = fb::path::parent(current_path_);
+    }
+    selected_ = 0; scroll_top_ = 0;
+    reload();
 }
 
 void FileBrowserScreen::runDelete(const std::string& /*full_path*/, bool /*is_dir*/) {
