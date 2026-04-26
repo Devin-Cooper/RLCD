@@ -33,10 +33,75 @@ void FileViewerScreen::handleInput(const input::InputEvent& evt, ScreenStack& st
     if (evt.source == Source::Button && evt.type == EventType::ButtonShort && evt.button_id == 1) {
         stack.pop(); return;
     }
+
+    // Search-active interception (Text mode only). Must run BEFORE the generic
+    // Esc-pop arm so Esc cancels the search rather than popping the screen.
+    if (search_active_ && buffer_.mode() == fb::FileBuffer::Mode::Text
+        && evt.source == Source::Keyboard && evt.type == EventType::Keypress
+        && evt.data_length >= 1) {
+        unsigned char c = evt.data[0];
+        if (c == 0x1B && evt.data_length == 1) {
+            // Esc: cancel; return cursor to anchor if no commit happened.
+            search_active_ = false;
+            if (search_match_idx_ < 0) cursor_ = search_anchor_line_;
+            return;
+        }
+        if (c == '\r' || c == '\n' || c == 0x0E /*Ctrl-N*/) {
+            if (!search_matches_.empty()) {
+                if (search_match_idx_ < 0) {
+                    // First commit: jump to first match at-or-after anchor.
+                    int target = 0;
+                    for (int i = 0; i < (int)search_matches_.size(); ++i) {
+                        if ((int)search_matches_[i] >= search_anchor_line_) { target = i; break; }
+                    }
+                    search_match_idx_ = target;
+                } else {
+                    search_match_idx_ = (search_match_idx_ + 1) % (int)search_matches_.size();
+                }
+                cursor_ = (int)search_matches_[search_match_idx_];
+            }
+            return;
+        }
+        if (c == 0x10 /*Ctrl-P*/) {
+            if (!search_matches_.empty()) {
+                if (search_match_idx_ < 0) search_match_idx_ = (int)search_matches_.size() - 1;
+                else search_match_idx_ = (search_match_idx_ - 1 + (int)search_matches_.size())
+                                          % (int)search_matches_.size();
+                cursor_ = (int)search_matches_[search_match_idx_];
+            }
+            return;
+        }
+        if (c == 0x7F /*Backspace*/ || c == 0x08 /*also BS*/) {
+            if (!search_query_.empty()) search_query_.pop_back();
+            search_matches_ = buffer_.findAll(search_query_);
+            search_match_idx_ = -1;
+            return;
+        }
+        if (c >= 0x20 && c < 0x7F) {
+            search_query_.push_back((char)c);
+            search_matches_ = buffer_.findAll(search_query_);
+            search_match_idx_ = -1;
+            return;
+        }
+        // Unhandled while search active: swallow.
+        return;
+    }
+
     if (evt.source == Source::Keyboard && evt.type == EventType::Keypress
         && evt.data_length == 1 && evt.data[0] == 0x1B) {
-        if (search_active_) { search_active_ = false; return; }
         stack.pop(); return;
+    }
+
+    // Ctrl-F: enter search mode (Text only).
+    if (buffer_.mode() == fb::FileBuffer::Mode::Text
+        && evt.source == Source::Keyboard && evt.type == EventType::Keypress
+        && evt.data_length == 1 && evt.data[0] == 0x06 /*Ctrl-F*/) {
+        search_active_ = true;
+        search_query_.clear();
+        search_matches_.clear();
+        search_match_idx_ = -1;
+        search_anchor_line_ = cursor_;
+        return;
     }
 
     if (buffer_.mode() == fb::FileBuffer::Mode::Text
@@ -124,9 +189,19 @@ void FileViewerScreen::renderText(onebit::IFramebuffer& fb,
 
     int fh = fb.height() - 12;
     onebit::fillRect(fb, 0, fh, fb.width(), 1, onebit::BLACK);
-    onebit::drawBitmapText(fb, font, 2, fh + 2,
-                           "up/dn line  Sh+up/dn page  Ctrl-F find  Esc back",
-                           onebit::BLACK);
+    if (search_active_) {
+        char bar[80];
+        int n = (int)search_matches_.size();
+        std::snprintf(bar, sizeof(bar), "Find: %s (%d/%d)   [Esc]",
+                      search_query_.c_str(),
+                      n == 0 ? 0 : (search_match_idx_ + 1),
+                      n);
+        onebit::drawBitmapText(fb, font, 2, fh + 2, bar, onebit::BLACK);
+    } else {
+        onebit::drawBitmapText(fb, font, 2, fh + 2,
+                               "up/dn line  Sh+up/dn page  Ctrl-F find  Esc back",
+                               onebit::BLACK);
+    }
 }
 void FileViewerScreen::renderHex(onebit::IFramebuffer& fb,
                                  const onebit::BitmapFont& font) {
