@@ -1,0 +1,16 @@
+idf_component_register(
+    SRCS
+        "src/speaker.cpp"
+        "src/microphone.cpp"
+        "src/pa_ctrl.cpp"
+        "src/audio_helpers.cpp"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        audio_bus
+        i2c_bsp
+        nvs_flash
+        driver
+        espressif__es8311
+        espressif__es7210
+)
