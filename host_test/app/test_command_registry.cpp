@@ -9,7 +9,7 @@ TEST_CASE("CommandRegistry: registerGlobals populates expected count",
           "[app][cmd]") {
     auto& reg = CommandRegistry::instance();
     reg.registerGlobals();
-    REQUIRE(reg.globals().size() == 15);
+    REQUIRE(reg.globals().size() == 16);
 }
 
 TEST_CASE("kAllDispatchableIds covers every global cmd id", "[app][cmd]") {
