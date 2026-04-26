@@ -99,3 +99,77 @@ TEST_CASE("translateKeycode: unmapped keycode yields zero-length event", "[ble_h
     REQUIRE(translateKeycode(0x39, 0).length == 0);
     REQUIRE(translateKeycode(0xFF, 0).length == 0);
 }
+
+TEST_CASE("translateKeycode: Shift+Up -> ESC [ 1 ; 2 A", "[ble_hid][translate]") {
+    auto e = ble_hid::translateKeycode(0x52, ble_hid::MOD_LSHIFT);
+    REQUIRE(e.length == 6);
+    REQUIRE(std::string(reinterpret_cast<const char*>(e.bytes), e.length)
+            == std::string("\x1B[1;2A", 6));
+}
+
+TEST_CASE("translateKeycode: Shift+Down -> ESC [ 1 ; 2 B", "[ble_hid][translate]") {
+    auto e = ble_hid::translateKeycode(0x51, ble_hid::MOD_LSHIFT);
+    REQUIRE(e.length == 6);
+    REQUIRE(std::string(reinterpret_cast<const char*>(e.bytes), e.length)
+            == std::string("\x1B[1;2B", 6));
+}
+
+TEST_CASE("translateKeycode: Shift+Home -> ESC [ 1 ; 2 H", "[ble_hid][translate]") {
+    auto e = ble_hid::translateKeycode(0x4A, ble_hid::MOD_LSHIFT);
+    REQUIRE(e.length == 6);
+    REQUIRE(std::string(reinterpret_cast<const char*>(e.bytes), e.length)
+            == std::string("\x1B[1;2H", 6));
+}
+
+TEST_CASE("translateKeycode: Shift+End -> ESC [ 1 ; 2 F", "[ble_hid][translate]") {
+    auto e = ble_hid::translateKeycode(0x4D, ble_hid::MOD_LSHIFT);
+    REQUIRE(e.length == 6);
+    REQUIRE(std::string(reinterpret_cast<const char*>(e.bytes), e.length)
+            == std::string("\x1B[1;2F", 6));
+}
+
+TEST_CASE("translateKeycode: Shift+PgUp -> ESC [ 5 ; 2 ~", "[ble_hid][translate]") {
+    auto e = ble_hid::translateKeycode(0x4B, ble_hid::MOD_LSHIFT);
+    REQUIRE(e.length == 6);
+    REQUIRE(std::string(reinterpret_cast<const char*>(e.bytes), e.length)
+            == std::string("\x1B[5;2~", 6));
+}
+
+TEST_CASE("translateKeycode: Shift+PgDn -> ESC [ 6 ; 2 ~", "[ble_hid][translate]") {
+    auto e = ble_hid::translateKeycode(0x4E, ble_hid::MOD_LSHIFT);
+    REQUIRE(e.length == 6);
+    REQUIRE(std::string(reinterpret_cast<const char*>(e.bytes), e.length)
+            == std::string("\x1B[6;2~", 6));
+}
+
+TEST_CASE("translateKeycode: bare Up still emits ESC [ A (regression)",
+          "[ble_hid][translate]") {
+    auto e = ble_hid::translateKeycode(0x52, 0);
+    REQUIRE(e.length == 3);
+    REQUIRE(std::string(reinterpret_cast<const char*>(e.bytes), e.length)
+            == std::string("\x1B[A", 3));
+}
+
+TEST_CASE("translateKeycode: bare PgUp still emits ESC [ 5 ~ (regression)",
+          "[ble_hid][translate]") {
+    auto e = ble_hid::translateKeycode(0x4B, 0);
+    REQUIRE(e.length == 4);
+    REQUIRE(std::string(reinterpret_cast<const char*>(e.bytes), e.length)
+            == std::string("\x1B[5~", 4));
+}
+
+TEST_CASE("translateKeycode: Ctrl+Shift+Up -> ESC [ 1 ; 2 A (Shift wins)",
+          "[ble_hid][translate]") {
+    auto e = ble_hid::translateKeycode(
+        0x52, ble_hid::MOD_LSHIFT | ble_hid::MOD_LCTRL);
+    REQUIRE(e.length == 6);
+    REQUIRE(std::string(reinterpret_cast<const char*>(e.bytes), e.length)
+            == std::string("\x1B[1;2A", 6));
+}
+
+TEST_CASE("translateKeycode: shifted printable letter unchanged (regression)",
+          "[ble_hid][translate]") {
+    auto e = ble_hid::translateKeycode(0x04, ble_hid::MOD_LSHIFT);   // 'a'
+    REQUIRE(e.length == 1);
+    REQUIRE(e.bytes[0] == 'A');
+}

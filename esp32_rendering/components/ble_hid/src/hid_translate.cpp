@@ -56,6 +56,45 @@ KeyEvent translateKeycode(uint8_t keycode, uint8_t modifiers) noexcept {
         return event;
     }
 
+    // Shift+navigation keys → xterm "1;2" / "<n>;2 ~" modifier sequences
+    // (used by terminal scrollback view trigger + nav).
+    if (shift) {
+        switch (keycode) {
+        case 0x52: // Up    → ESC [ 1 ; 2 A
+            event.bytes[0]=0x1B; event.bytes[1]='[';
+            event.bytes[2]='1';  event.bytes[3]=';';
+            event.bytes[4]='2';  event.bytes[5]='A';
+            event.length=6; return event;
+        case 0x51: // Down  → ESC [ 1 ; 2 B
+            event.bytes[0]=0x1B; event.bytes[1]='[';
+            event.bytes[2]='1';  event.bytes[3]=';';
+            event.bytes[4]='2';  event.bytes[5]='B';
+            event.length=6; return event;
+        case 0x4A: // Home  → ESC [ 1 ; 2 H
+            event.bytes[0]=0x1B; event.bytes[1]='[';
+            event.bytes[2]='1';  event.bytes[3]=';';
+            event.bytes[4]='2';  event.bytes[5]='H';
+            event.length=6; return event;
+        case 0x4D: // End   → ESC [ 1 ; 2 F
+            event.bytes[0]=0x1B; event.bytes[1]='[';
+            event.bytes[2]='1';  event.bytes[3]=';';
+            event.bytes[4]='2';  event.bytes[5]='F';
+            event.length=6; return event;
+        case 0x4B: // PgUp  → ESC [ 5 ; 2 ~
+            event.bytes[0]=0x1B; event.bytes[1]='[';
+            event.bytes[2]='5';  event.bytes[3]=';';
+            event.bytes[4]='2';  event.bytes[5]='~';
+            event.length=6; return event;
+        case 0x4E: // PgDn  → ESC [ 6 ; 2 ~
+            event.bytes[0]=0x1B; event.bytes[1]='[';
+            event.bytes[2]='6';  event.bytes[3]=';';
+            event.bytes[4]='2';  event.bytes[5]='~';
+            event.length=6; return event;
+        }
+        // Other shifted keys fall through to the existing
+        // HID_TO_ASCII_SHIFT path below.
+    }
+
     switch (keycode) {
     case 0x4F: event.bytes[0]=0x1B; event.bytes[1]='['; event.bytes[2]='C'; event.length=3; return event;
     case 0x50: event.bytes[0]=0x1B; event.bytes[1]='['; event.bytes[2]='D'; event.length=3; return event;
