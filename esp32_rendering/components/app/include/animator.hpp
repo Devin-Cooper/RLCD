@@ -34,6 +34,21 @@ constexpr uint32_t kFocusRectUs  = 120'000;
 constexpr uint32_t kModalScaleUs = 140'000;
 constexpr uint32_t kToastSlideUs = 180'000;
 
+/// Animator — fixed-size pool (8 slots) of active tweens.
+///
+/// Tag layout: high 8 bits = TweenKind, low 24 bits = per-screen /
+/// per-modal id. See `makeTag()`.
+///
+/// Snap-on-overflow: if `start()` is called with a unique tag and all 8
+/// slots are taken, the call drops silently and `value()` returns 0 for
+/// that tag (so callers should gate on `inProgress()` and use the
+/// "settled" value when false).
+///
+/// Rounding: `value()` returns the eased pixel value rounded to nearest
+/// int16_t (round-half-to-even via std::lrint).
+///
+/// `tick(now_us)` should be called once per frame at frame start, before
+/// any `value()` reads. It prunes finished tweens to free their slots.
 class Animator {
 public:
     static constexpr size_t kMaxTweens = 8;
