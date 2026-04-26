@@ -196,7 +196,19 @@ void EditorScreen::handleInput(const input::InputEvent& evt, ScreenStack& stack)
                 return;
             }
         } else /* FindMode::Replace */ {
-            // Replace-mode key handling lands in Task 13.
+            if (c == '\r' || c == '\n') { doReplaceCurrent(); return; }
+            if (c == 0x7F) {
+                if (!replace_with_.empty()) replace_with_.pop_back();
+                return;
+            }
+            if (c == 0x08) { /* Ctrl-H in Replace mode == Backspace */
+                if (!replace_with_.empty()) replace_with_.pop_back();
+                return;
+            }
+            if (c >= 0x20 && c < 0x7F) {
+                replace_with_.push_back((char)c);
+                return;
+            }
         }
         return;
     }
@@ -655,8 +667,53 @@ void EditorScreen::enterFindMode() {
     find_match_idx_ = -1;
     find_anchor_line_ = line_;
 }
-void EditorScreen::enterReplaceMode() {}
-void EditorScreen::doReplaceCurrent() {}
+void EditorScreen::enterReplaceMode() {
+    if (find_mode_ != FindMode::Find || find_matches_.empty()) return;
+    find_mode_ = FindMode::Replace;
+    replace_with_.clear();
+}
+
+void EditorScreen::doReplaceCurrent() {
+    if (find_mode_ != FindMode::Replace || find_matches_.empty()) return;
+    if (find_match_idx_ < 0) {
+        // Pick first-at-or-after anchor.
+        int target = 0;
+        for (int i = 0; i < (int)find_matches_.size(); ++i) {
+            if ((int)find_matches_[i] >= find_anchor_line_) { target = i; break; }
+        }
+        find_match_idx_ = target;
+    }
+    ensureSnapshot();
+    int match_line = (int)find_matches_[find_match_idx_];
+    auto raw = buffer_.line((std::size_t)match_line);
+    auto needle = find_query_;
+    auto to_lower = [](char c) {
+        return (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+    };
+    int found_col = -1;
+    for (std::size_t i = 0; i + needle.size() <= raw.size(); ++i) {
+        bool eq = true;
+        for (std::size_t k = 0; k < needle.size(); ++k) {
+            if (to_lower(raw[i + k]) != to_lower(needle[k])) { eq = false; break; }
+        }
+        if (eq) { found_col = (int)i; break; }
+    }
+    if (found_col < 0) return;
+    std::size_t a = buffer_.lineOffset((std::size_t)match_line) + (std::size_t)found_col;
+    buffer_.erase(a, needle.size());
+    buffer_.insert(a, replace_with_);
+    // Recompute matches (positions may have shifted).
+    find_matches_ = buffer_.findAll(find_query_);
+    if (find_matches_.empty()) {
+        find_mode_ = FindMode::Find;
+        find_match_idx_ = -1;
+        return;
+    }
+    // Advance to next match.
+    find_match_idx_ = std::min(find_match_idx_, (int)find_matches_.size() - 1);
+    line_ = (int)find_matches_[find_match_idx_];
+    byte_col_ = 0;
+}
 void EditorScreen::onEscape(ScreenStack& stack) { stack.pop(); }
 
 }  // namespace app
