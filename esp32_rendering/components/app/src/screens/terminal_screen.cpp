@@ -93,17 +93,11 @@ void TerminalScreen::handleInput(const input::InputEvent& evt,
         return;
     }
 
-    // Keyboard → SSH passthrough, with F1 (ESC O P) intercepted for menu.
+    // Keyboard → SSH passthrough. (Btn A short is the menu-open path; Ctrl+K
+    // is the keyboard equivalent and is handled by the global command palette
+    // upstream of this screen.)
     if (evt.source == input::Source::Keyboard &&
         evt.type == input::EventType::Keypress) {
-        bool isF1 = (evt.data_length == 3 &&
-                     evt.data[0] == 0x1B &&
-                     evt.data[1] == 'O' &&
-                     evt.data[2] == 'P');
-        if (isF1) {
-            stack.push(std::make_unique<MenuScreen>(ctx_));
-            return;
-        }
         ctx_.sshClient.send(evt.data, evt.data_length);
     }
 }
