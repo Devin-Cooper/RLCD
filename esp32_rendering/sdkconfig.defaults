@@ -138,3 +138,8 @@ CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384
 # the system time. Falls back to "00:00:00.xxx" until then.
 CONFIG_LOG_TIMESTAMP_SOURCE_RTOS=n
 CONFIG_LOG_TIMESTAMP_SOURCE_SYSTEM=y
+
+# esp_timer task stack — bumped from default 3584 to 8192 because RTC + audio
+# + file_browser added timer callbacks that overflowed the small default
+# (esp_timer task stack-overflow panic on boot, 2026-04-26).
+CONFIG_ESP_TIMER_TASK_STACK_SIZE=8192

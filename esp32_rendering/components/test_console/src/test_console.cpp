@@ -95,8 +95,19 @@ void init(Context& ctx) {
     esp_console_dev_usb_serial_jtag_config_t usbjtag_cfg =
         ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT();
 
-    ESP_ERROR_CHECK(esp_console_new_repl_usb_serial_jtag(
-        &usbjtag_cfg, &repl_config, &repl));
+    // Soft-fail REPL setup: when CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y the
+    // system already owns the USB-JTAG driver as the kernel console, and a
+    // second install via esp_console_new_repl_usb_serial_jtag returns
+    // ESP_FAIL. The REPL is a developer convenience — don't crash the
+    // device if it can't start. (Was ESP_ERROR_CHECK; aborted at boot.)
+    esp_err_t repl_err = esp_console_new_repl_usb_serial_jtag(
+        &usbjtag_cfg, &repl_config, &repl);
+    if (repl_err != ESP_OK) {
+        ESP_LOGW(TAG, "REPL on USB-JTAG unavailable (err=0x%x). Test commands "
+                      "are still registered but unreachable from this console.",
+                 repl_err);
+        repl = nullptr;
+    }
 
     esp_console_register_help_command();
     registerRuntimeCommands();
@@ -108,8 +119,10 @@ void init(Context& ctx) {
     registerAudioCommands();
     ssh_keys::registerSshKeysCommands();
 
-    ESP_ERROR_CHECK(esp_console_start_repl(repl));
-    ESP_LOGI(TAG, "test_console started on USB-JTAG CDC");
+    if (repl) {
+        ESP_ERROR_CHECK(esp_console_start_repl(repl));
+        ESP_LOGI(TAG, "test_console started on USB-JTAG CDC");
+    }
 #endif
 }
 

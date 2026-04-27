@@ -148,9 +148,13 @@ std::string_view FileBuffer::line(std::size_t line) const {
     if (b > 0 && b <= size_ && data_[b - 1] == '\r') --b;
     std::string_view raw(data_ + a, b - a);
 
-    // Tab expansion + clip into a thread_local buffer (host tests are
-    // single-threaded; on target the screen render thread is the only caller).
-    thread_local static char buf[kLineClip + 1];
+    // Tab expansion + clip into a single shared buffer. Caller is always the
+    // screen render thread (host tests are single-threaded; on target only the
+    // UI task calls line()). DO NOT make this `thread_local` — on ESP32 that
+    // adds ~4 KB to every FreeRTOS task's TLS area, including IDLE/ipc tasks
+    // with small stacks, which silently overflows them at task creation and
+    // corrupts the scheduler. Boot-loop fix, 2026-04-26.
+    static char buf[kLineClip + 1];
     std::size_t out = 0;
     for (std::size_t i = 0; i < raw.size() && out < kLineClip; ++i) {
         char c = raw[i];
