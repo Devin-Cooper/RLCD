@@ -176,3 +176,32 @@ TEST_CASE("renderPipStrip with card_count<=1 is a no-op", "[app][dashboard][rend
         }
     }
 }
+
+TEST_CASE("Disconnected: pattern band uses sparse BlueNoise + L3 says 'no connection'",
+          "[app][dashboard][render][disconnected]") {
+    DynamicFramebuffer fb(400, 300);
+    fb.clear(WHITE);
+
+    auto card = makeCpuCard();
+    auto snap = makeBaseSnapshot();
+    snap.connected = false;
+
+    renderCard(fb, fonts::TERM_5X7, card, snap);
+
+    int dim_band_black = 0;
+    for (int16_t y = 28; y < 204; ++y) {
+        for (int16_t x = 2; x < 398; ++x) {
+            if (fb.getPixel(x, y) == BLACK) dim_band_black++;
+        }
+    }
+    CHECK(dim_band_black > 0);
+    CHECK(dim_band_black < 396 * 176);
+
+    int l3b_black = 0;
+    for (int16_t y = 240; y < 248; ++y) {
+        for (int16_t x = 8; x < 392; ++x) {
+            if (fb.getPixel(x, y) == BLACK) l3b_black++;
+        }
+    }
+    CHECK(l3b_black > 0);
+}

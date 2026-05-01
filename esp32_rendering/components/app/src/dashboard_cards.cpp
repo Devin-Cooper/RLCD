@@ -183,7 +183,9 @@ void renderHeadlineCardFooter(onebit::IFramebuffer& fb,
     onebit::drawBitmapText(fb, font_5x7, 8, 224, l3a, onebit::BLACK, 1);
 
     char l3b[48] = {};
-    if (snap.last_update_ms > 0) {
+    if (!snap.connected) {
+        std::snprintf(l3b, sizeof(l3b), "no connection");
+    } else if (snap.last_update_ms > 0) {
         std::snprintf(l3b, sizeof(l3b), "updated recently");
     } else {
         std::snprintf(l3b, sizeof(l3b), "updated --");
@@ -201,7 +203,8 @@ void renderHeadlineCard(onebit::IFramebuffer& fb,
 
     renderHeadlineCardTitleStrip(fb, font, card, snap);
 
-    onebit::fillPatternRect(fb, 2, 28, 396, 176, card.signature);
+    onebit::Pattern band_pat = snap.connected ? card.signature : onebit::blueNoise(32);
+    onebit::fillPatternRect(fb, 2, 28, 396, 176, band_pat);
 
     renderHeadlineCardBody(fb, card, snap);
     renderHeadlineCardFooter(fb, font, card, snap);
