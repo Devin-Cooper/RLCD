@@ -30,9 +30,6 @@ public:
     /// Feed SSH response data for parsing.
     void feedData(const uint8_t* data, size_t len);
 
-    /// Render the dashboard panels to the framebuffer.
-    void render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font);
-
     /// Update the refresh interval.
     void setInterval(uint16_t interval_ms) { interval_ms_ = interval_ms; }
 
@@ -109,14 +106,6 @@ private:
 
     /// Parse command outputs into structured fields after sentinel detection.
     void parseOutputs();
-
-    /// Draw sparkline graph.
-    void drawSparkline(onebit::IFramebuffer& fb, int x, int y, int w, int h,
-                       const float* data, int data_len, int head, float max_val);
-
-    /// Draw a group box with label on top border.
-    void drawGroupBox(onebit::IFramebuffer& fb, const onebit::BitmapFont& font,
-                      int x, int y, int w, int h, const char* label);
 };
 
 } // namespace app
