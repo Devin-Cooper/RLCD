@@ -75,6 +75,7 @@ int buildDashboardCardSet(const Source& src, DashboardCard* out, int out_capacit
         t.command_index = -1;
         t.signature = onebit::lineScreen(128, 35, 2);
         std::strncpy(t.label, "Trends", sizeof(t.label) - 1);
+        t.label[sizeof(t.label) - 1] = '\0';
         ++n;
     }
 
