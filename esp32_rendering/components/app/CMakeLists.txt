@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "src/dashboard.cpp"
         "src/dashboard_cards.cpp"
+        "src/dashboard_card_set.cpp"
         "src/dashboard_feed.cpp"
         "src/terminal_mode.cpp"
         "src/settings.cpp"

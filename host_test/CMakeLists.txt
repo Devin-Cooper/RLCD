@@ -31,6 +31,13 @@ set(RLCD_ROOT       "${CMAKE_CURRENT_SOURCE_DIR}/..")
 set(RLCD_COMPONENTS "${RLCD_ROOT}/esp32_rendering/components")
 set(RLCD_SHIMS      "${CMAKE_CURRENT_SOURCE_DIR}/shims")
 
+# 1bit-display library (for tests that link pattern.cpp / pattern_tiles.cpp etc).
+set(ONEBIT_LIB_DIR "$ENV{ONEBIT_LIB_DIR}" CACHE PATH "Path to 1bit-display library")
+if(NOT ONEBIT_LIB_DIR OR NOT EXISTS "${ONEBIT_LIB_DIR}")
+    set(ONEBIT_LIB_DIR "${RLCD_ROOT}/../1bit-display" CACHE PATH "Path to 1bit-display library" FORCE)
+endif()
+set(ONEBIT_INCLUDE_DIR "${ONEBIT_LIB_DIR}/include" CACHE PATH "1bit-display headers")
+
 include(CTest)
 include(Catch)
 include(cmake/AddHostTest.cmake)

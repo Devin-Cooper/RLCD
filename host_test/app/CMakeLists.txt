@@ -27,6 +27,17 @@ add_host_test(
 )
 
 add_host_test(
+    NAME test_dashboard_card_set
+    SOURCES
+        test_dashboard_card_set.cpp
+        "${ONEBIT_LIB_DIR}/src/render/pattern.cpp"
+        "${ONEBIT_LIB_DIR}/src/render/pattern_tiles.cpp"
+    INCLUDES
+        "${APP_DIR}/include"
+        "${ONEBIT_INCLUDE_DIR}"
+)
+
+add_host_test(
     NAME test_screen_stack
     SOURCES
         test_screen_stack.cpp
