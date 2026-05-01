@@ -48,7 +48,9 @@ SettingsScreen::SettingsScreen(ScreenContext& ctx)
       ti_scrollback_(scrollback_, sizeof(scrollback_),
                      TextInputOpts{.numeric = true}),
       ti_dash_(dash_ms_, sizeof(dash_ms_),
-               TextInputOpts{.numeric = true}) {}
+               TextInputOpts{.numeric = true}),
+      ti_card_dwell_(card_dwell_, sizeof(card_dwell_),
+                     TextInputOpts{.numeric = true}) {}
 
 void SettingsScreen::onEnter() {
     font_sel_ = ctx_.settings.font_size;
@@ -56,6 +58,8 @@ void SettingsScreen::onEnter() {
              ctx_.settings.scrollback_depth);
     snprintf(dash_ms_, sizeof(dash_ms_), "%u",
              ctx_.settings.dashboard_interval_ms);
+    snprintf(card_dwell_, sizeof(card_dwell_), "%u",
+             ctx_.settings.dashboard_card_dwell_ms);
     dirty_ = false;
     focus_ = 0;
 }
@@ -70,6 +74,10 @@ void SettingsScreen::saveAndPop(ScreenStack& stack) {
         static_cast<uint16_t>(std::atoi(dash_ms_));
     if (ctx_.settings.dashboard_interval_ms < 500)
         ctx_.settings.dashboard_interval_ms = 5000;
+    uint16_t dwell = static_cast<uint16_t>(std::atoi(card_dwell_));
+    if (dwell < 1000) dwell = 1000;
+    if (dwell > 15000) dwell = 15000;
+    ctx_.settings.dashboard_card_dwell_ms = dwell;
 
     if (app::saveSettings(ctx_.settings)) {
         ctx_.currentFontSize = font_sel_;
@@ -85,7 +93,7 @@ void SettingsScreen::handleInput(const input::InputEvent& evt,
     if (evt.source != input::Source::Keyboard ||
         evt.type   != input::EventType::Keypress) return;
 
-    constexpr int kRowCount = 7;  // 0=font 1=sb 2=dash 3=DT 4=TZ 5=Save 6=Cancel
+    constexpr int kRowCount = 8;  // 0=font 1=sb 2=dash 3=cardDwell 4=DT 5=TZ 6=Save 7=Cancel
 
     if (evt.data_length == 1 && evt.data[0] == '\t') {
         focus_ = (focus_ + 1) % kRowCount; return;
@@ -105,21 +113,22 @@ void SettingsScreen::handleInput(const input::InputEvent& evt,
         stack.pop(); return;
     }
     if (evt.data_length == 1 && evt.data[0] == '\r') {
-        if (focus_ == 3) {
+        if (focus_ == 4) {
             stack.push(std::make_unique<SetTimeScreen>(ctx_, /*from_wizard=*/false));
             return;
         }
-        if (focus_ == 4) {
+        if (focus_ == 5) {
             stack.push(std::make_unique<TimezoneScreen>(ctx_));
             return;
         }
-        if (focus_ == 5) { saveAndPop(stack); return; }
-        if (focus_ == 6) { stack.pop(); return; }
+        if (focus_ == 6) { saveAndPop(stack); return; }
+        if (focus_ == 7) { stack.pop(); return; }
         focus_ = (focus_ + 1) % kRowCount;
         return;
     }
     if (focus_ == 1) ti_scrollback_.handleKey(evt.data, evt.data_length);
     if (focus_ == 2) ti_dash_.handleKey(evt.data, evt.data_length);
+    if (focus_ == 3) ti_card_dwell_.handleKey(evt.data, evt.data_length);
     dirty_ = true;
 }
 
@@ -158,15 +167,21 @@ void SettingsScreen::render(onebit::IFramebuffer& fb,
     onebit::drawBitmapText(fb, font, 30, y, "Dash refresh ms:", onebit::BLACK);
     ti_dash_.render(fb, font, 160, y - 2, 80);
 
+    y += font.glyph_height + 8;
+    const char* cm = (focus_ == 3) ? ">" : " ";
+    onebit::drawBitmapText(fb, font, 8, y, cm, onebit::BLACK);
+    onebit::drawBitmapText(fb, font, 30, y, "Card dwell ms:", onebit::BLACK);
+    ti_card_dwell_.render(fb, font, 160, y - 2, 80);
+
     // Action rows — push child screens; do not participate in saveAndPop.
     y += font.glyph_height + 8;
     onebit::drawBitmapText(fb, font, 8, y,
-        (focus_ == 3) ? ">" : " ", onebit::BLACK);
+        (focus_ == 4) ? ">" : " ", onebit::BLACK);
     onebit::drawBitmapText(fb, font, 30, y, "Date & Time...", onebit::BLACK);
 
     y += font.glyph_height + 8;
     onebit::drawBitmapText(fb, font, 8, y,
-        (focus_ == 4) ? ">" : " ", onebit::BLACK);
+        (focus_ == 5) ? ">" : " ", onebit::BLACK);
     onebit::drawBitmapText(fb, font, 30, y, "Time zone...", onebit::BLACK);
 
     y += font.glyph_height + 16;
@@ -180,8 +195,8 @@ void SettingsScreen::render(onebit::IFramebuffer& fb,
             onebit::drawBitmapText(fb, font, px, y, txt, onebit::BLACK);
         }
     };
-    drawBtn(20, "[ Save ]", focus_ == 5);
-    drawBtn(140, "[ Cancel ]", focus_ == 6);
+    drawBtn(20, "[ Save ]", focus_ == 6);
+    drawBtn(140, "[ Cancel ]", focus_ == 7);
 
     onebit::drawBitmapText(fb, font, 10, fb.height() - font.glyph_height - 4,
         "Tab next  Up/Dn nav  Left/Right font  Esc back", onebit::BLACK);

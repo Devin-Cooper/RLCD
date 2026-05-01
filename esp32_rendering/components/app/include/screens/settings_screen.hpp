@@ -26,10 +26,12 @@ private:
     uint8_t font_sel_ = 0;
     char scrollback_[6] = {};   // "65535" + NUL
     char dash_ms_[6] = {};
+    char card_dwell_[6] = {};
     TextInput ti_scrollback_;
     TextInput ti_dash_;
-    // Focus rows: 0 font, 1 scrollback, 2 dash, 3 Date & Time,
-    // 4 Time zone, 5 Save, 6 Cancel.
+    TextInput ti_card_dwell_;
+    // Focus rows: 0 font, 1 scrollback, 2 dash, 3 card dwell,
+    // 4 Date & Time, 5 Time zone, 6 Save, 7 Cancel.
     int focus_ = 0;
     bool dirty_ = false;
 
