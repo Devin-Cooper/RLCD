@@ -46,6 +46,10 @@ void renderPipStrip(onebit::IFramebuffer& fb, int current_card, int prev_card,
 /// the Animator tween's from/to values.
 int16_t pipUnderlineXFor(int card_idx, int card_count);
 
+/// Pure cycle math. Returns the new current_card after `delta` steps,
+/// wrapping. Used by DashboardScreen — separated for host-testability.
+int wrapCardIndex(int current, int delta, int card_count);
+
 /// Full-screen "No dashboard commands" message, centered.
 void renderEmptyState(onebit::IFramebuffer& fb, const onebit::BitmapFont& font);
 

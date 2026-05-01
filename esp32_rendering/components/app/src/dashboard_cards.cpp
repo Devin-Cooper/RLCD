@@ -289,6 +289,11 @@ int16_t pipUnderlineXFor(int card_idx, int card_count) {
     return pipUnderlineXForFn(card_idx, card_count);
 }
 
+int wrapCardIndex(int current, int delta, int card_count) {
+    if (card_count <= 0) return 0;
+    return ((current + delta) % card_count + card_count) % card_count;
+}
+
 void renderPipStrip(onebit::IFramebuffer& fb, int current_card, int prev_card,
                     int card_count, int16_t underline_x) {
     if (card_count <= 1) return;

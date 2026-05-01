@@ -49,7 +49,7 @@ void DashboardScreen::tickUpdate(int64_t now_ms) {
 void DashboardScreen::advance(int delta, int64_t now_ms) {
     if (card_count_ <= 0) return;
     prev_card_ = current_card_;
-    current_card_ = ((current_card_ + delta) % card_count_ + card_count_) % card_count_;
+    current_card_ = wrapCardIndex(current_card_, delta, card_count_);
     card_started_ms_ = now_ms;
 
     int16_t from_x = pipUnderlineXFor(prev_card_, card_count_);

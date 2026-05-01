@@ -301,3 +301,22 @@ add_host_test(
     INCLUDES
         "${RLCD_COMPONENTS}/file_browser/include"
 )
+
+add_host_test(
+    NAME test_dashboard_cycle
+    SOURCES
+        test_dashboard_cycle.cpp
+        "${APP_DIR}/src/dashboard_cards.cpp"
+        "${APP_DIR}/src/animator.cpp"
+        "${ONEBIT_LIB_DIR}/src/render/pattern.cpp"
+        "${ONEBIT_LIB_DIR}/src/render/pattern_tiles.cpp"
+        "${ONEBIT_LIB_DIR}/src/render/primitives.cpp"
+        "${ONEBIT_LIB_DIR}/src/render/bitmap_font.cpp"
+        "${ONEBIT_LIB_DIR}/src/render/vector_font.cpp"
+        "${ONEBIT_LIB_DIR}/src/render/mask_buffer.cpp"
+        "${ONEBIT_LIB_DIR}/src/core/framebuffer.cpp"
+        "${ONEBIT_LIB_DIR}/src/core/allocator.cpp"
+    INCLUDES
+        "${APP_DIR}/include"
+        "${ONEBIT_INCLUDE_DIR}"
+)
