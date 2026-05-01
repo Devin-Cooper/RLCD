@@ -10,7 +10,7 @@ using app::FeedStatus;
 using app::feedChunk;
 
 namespace {
-constexpr int CAP = 256;  // matches Dashboard::MAX_OUTPUT_LEN today
+constexpr int CAP = 256;  // fixture cap; real Dashboard::MAX_OUTPUT_LEN is 1024
 
 struct Fixture {
     std::array<char, CAP> buf{};

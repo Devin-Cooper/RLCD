@@ -34,11 +34,27 @@ void DashboardScreen::rebuildCards() {
 void DashboardScreen::tickUpdate(int64_t now_ms) {
     ctx_.dashboard.update(ctx_.sshClient, now_ms);
 
-    int n = ctx_.dashboard.commandCount() + 1;
-    if (n != card_count_) rebuildCards();
+    // Rebuild on either count change OR label change. Catches user-edited
+    // dashboard.cfg with same count but renamed/reordered labels.
+    int cmd_count = ctx_.dashboard.commandCount();
+    bool needs_rebuild = (cmd_count + 1 != card_count_);
+    if (!needs_rebuild) {
+        for (int i = 0; i < cmd_count && i < card_count_; ++i) {
+            if (std::strncmp(cards_[i].label,
+                             ctx_.dashboard.commandAt(i).label,
+                             sizeof(cards_[i].label)) != 0) {
+                needs_rebuild = true;
+                break;
+            }
+        }
+    }
+    if (needs_rebuild) rebuildCards();
 
     if (card_count_ <= 1) return;
 
+    // Defensive consumer-side clamp. Settings clamps on save+load
+    // (settings.cpp::clampCardDwellMs), so this should always be a no-op,
+    // but a corrupt in-memory Settings would still produce a sane dwell.
     uint16_t dwell_ms = ctx_.settings.dashboard_card_dwell_ms;
     if (dwell_ms < 1000) dwell_ms = 1000;
     if (now_ms - card_started_ms_ >= dwell_ms) {

@@ -10,7 +10,7 @@ namespace app {
 
 static constexpr const char* NVS_NAMESPACE = "app_settings";
 
-static uint16_t clampCardDwellMs(uint16_t v) {
+uint16_t clampCardDwellMs(uint16_t v) {
     if (v < 1000) return 1000;
     if (v > 15000) return 15000;
     return v;

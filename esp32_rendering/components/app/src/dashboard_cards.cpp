@@ -97,8 +97,10 @@ void formatHeadline(const DashboardCard& card,
             std::snprintf(out, out_size, "--");
             break;
     }
+    // Replace any glyph the vector font lacks with '-' (which is in the
+    // glyph table; '?' is NOT, so using it would render as blank gaps).
     for (char* p = out; *p; ++p) {
-        if (!onebit::getGlyph(*p)) *p = '?';
+        if (!onebit::getGlyph(*p)) *p = '-';
     }
 }
 
@@ -317,6 +319,10 @@ void renderPipStrip(onebit::IFramebuffer& fb, int current_card, int prev_card,
     (void)prev_card;
 }
 
+// Defensive fallback: under normal operation buildDashboardCardSet always
+// appends a Trends card so card_count_ is never 0. This handles the
+// degenerate case where DashboardScreen is constructed with a zero-sized
+// out buffer (e.g. future refactors / tests).
 void renderEmptyState(onebit::IFramebuffer& fb, const onebit::BitmapFont& font) {
     fb.clear(onebit::WHITE);
     const char* msg = "No dashboard commands";

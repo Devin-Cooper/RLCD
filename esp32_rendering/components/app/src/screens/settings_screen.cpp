@@ -74,10 +74,8 @@ void SettingsScreen::saveAndPop(ScreenStack& stack) {
         static_cast<uint16_t>(std::atoi(dash_ms_));
     if (ctx_.settings.dashboard_interval_ms < 500)
         ctx_.settings.dashboard_interval_ms = 5000;
-    uint16_t dwell = static_cast<uint16_t>(std::atoi(card_dwell_));
-    if (dwell < 1000) dwell = 1000;
-    if (dwell > 15000) dwell = 15000;
-    ctx_.settings.dashboard_card_dwell_ms = dwell;
+    ctx_.settings.dashboard_card_dwell_ms = app::clampCardDwellMs(
+        static_cast<uint16_t>(std::atoi(card_dwell_)));
 
     if (app::saveSettings(ctx_.settings)) {
         ctx_.currentFontSize = font_sel_;

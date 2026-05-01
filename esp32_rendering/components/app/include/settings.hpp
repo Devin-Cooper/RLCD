@@ -29,4 +29,9 @@ bool saveSettings(const Settings& s);
 /// Return compile-time default settings.
 Settings defaultSettings();
 
+/// Clamp `dashboard_card_dwell_ms` to its valid range [1000, 15000].
+/// Applied at both NVS save and load so the persisted value is always
+/// valid; consumers may apply a defensive clamp too.
+uint16_t clampCardDwellMs(uint16_t v);
+
 } // namespace app

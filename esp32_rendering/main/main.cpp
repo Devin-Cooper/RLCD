@@ -997,6 +997,12 @@ extern "C" void app_main() {
         }
 
         // ----------------------------------------------------------
+        // Animator tick — prune finished tweens once per frame so
+        // their slots are freed before any consumer reads value().
+        // ----------------------------------------------------------
+        animator.tick(esp_timer_get_time());
+
+        // ----------------------------------------------------------
         // Render — fully stack-driven
         // ----------------------------------------------------------
         stack.renderAll(fb, fontForSize(currentFontSize), frameStart);
