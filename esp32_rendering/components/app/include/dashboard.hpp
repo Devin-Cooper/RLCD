@@ -47,6 +47,9 @@ public:
     int                      commandCount() const { return command_count_; }
 
     // Read-only view of one configured command (label/output/etc).
+    // Out-of-range `i` returns a CommandView with valid=false and empty-
+    // string (not nullptr) text fields, so callers can safely pass the
+    // result through to text drawing without null-checking the strings.
     struct CommandView {
         const char* label;
         const char* command;
