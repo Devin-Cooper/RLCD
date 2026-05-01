@@ -10,6 +10,12 @@ namespace app {
 
 static constexpr const char* NVS_NAMESPACE = "app_settings";
 
+static uint16_t clampCardDwellMs(uint16_t v) {
+    if (v < 1000) return 1000;
+    if (v > 15000) return 15000;
+    return v;
+}
+
 Settings defaultSettings() {
     Settings s{};
     s.font_size = 1;            // 6x9 — good balance of density and readability
@@ -18,6 +24,7 @@ Settings defaultSettings() {
     s.ssh_port = 22;
     std::memset(s.ssh_user, 0, sizeof(s.ssh_user));
     s.dashboard_interval_ms = 5000;
+    s.dashboard_card_dwell_ms = 3000;
     s.auth_method = 1;          // key auth preferred (Ed25519, 26ms)
     return s;
 }
@@ -39,6 +46,8 @@ Settings loadSettings() {
 
     nvs_get_u16(handle, "dash_interval", &s.dashboard_interval_ms);
 
+    nvs_get_u16(handle, "card_dwell", &s.dashboard_card_dwell_ms);
+
     nvs_close(handle);
 
     // Clamp font_size to valid range
@@ -46,8 +55,11 @@ Settings loadSettings() {
         s.font_size = 1;
     }
 
-    ESP_LOGI(TAG, "Loaded settings: font=%d scrollback=%d interval=%dms",
-             s.font_size, s.scrollback_depth, s.dashboard_interval_ms);
+    s.dashboard_card_dwell_ms = clampCardDwellMs(s.dashboard_card_dwell_ms);
+
+    ESP_LOGI(TAG, "Loaded settings: font=%d scrollback=%d interval=%dms card_dwell=%dms",
+             s.font_size, s.scrollback_depth, s.dashboard_interval_ms,
+             s.dashboard_card_dwell_ms);
 
     return s;
 }
@@ -62,6 +74,7 @@ bool saveSettings(const Settings& s) {
     nvs_set_u8 (handle, "font_size",     s.font_size);
     nvs_set_u16(handle, "scrollback",    s.scrollback_depth);
     nvs_set_u16(handle, "dash_interval", s.dashboard_interval_ms);
+    nvs_set_u16(handle, "card_dwell",    clampCardDwellMs(s.dashboard_card_dwell_ms));
     // Legacy ssh_* fields are no longer written (migrated to new servers NVS namespace).
 
     err = nvs_commit(handle);
