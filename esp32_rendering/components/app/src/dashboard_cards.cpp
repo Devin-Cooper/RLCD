@@ -132,6 +132,65 @@ void renderHeadlineCardBody(onebit::IFramebuffer& fb,
                          sz.spacing, sz.stroke, onebit::BLACK);
 }
 
+void renderHeadlineCardFooter(onebit::IFramebuffer& fb,
+                              const onebit::BitmapFont& font_5x7,
+                              const DashboardCard& card,
+                              const DashboardSnapshot& snap) {
+    const onebit::BitmapFont& f8 = onebit::fonts::TERM_8X12;
+
+    char l2[64] = {};
+    switch (card.source) {
+        case MetricRef::Cpu:
+            std::snprintf(l2, sizeof(l2), "Load %.2f  5m %.2f  15m %.2f",
+                          snap.cpu_load[0], snap.cpu_load[1], snap.cpu_load[2]);
+            break;
+        case MetricRef::Memory:
+            std::snprintf(l2, sizeof(l2), "%.1f / %.0f GB",
+                          snap.mem_used_gb, snap.mem_total_gb);
+            break;
+        case MetricRef::Disk:
+            std::snprintf(l2, sizeof(l2), "%s / %s",
+                          snap.disk_used_str[0] ? snap.disk_used_str : "?",
+                          snap.disk_total_str[0] ? snap.disk_total_str : "?");
+            break;
+        case MetricRef::Uptime:
+            std::snprintf(l2, sizeof(l2), "%s",
+                          snap.uptime_str[0] ? snap.uptime_str : "(no data)");
+            break;
+        case MetricRef::Temp:
+            std::snprintf(l2, sizeof(l2), "%s",
+                          snap.gpu_str[0] ? snap.gpu_str : "(no data)");
+            break;
+        case MetricRef::Screens:
+            std::snprintf(l2, sizeof(l2), "screen sessions");
+            break;
+        default:
+            std::snprintf(l2, sizeof(l2), "%s", card.label);
+            break;
+    }
+    onebit::drawBitmapText(fb, f8, 8, 208, l2, onebit::BLACK, 1);
+
+    int idx = card.command_index;
+    const char* raw = (idx >= 0 && idx < snap.command_count &&
+                       snap.command_outputs[idx]) ? snap.command_outputs[idx] : "";
+    char l3a[96] = {};
+    int wp = 0;
+    for (int i = 0; raw[i] && wp < (int)sizeof(l3a) - 1 && wp < 80; ++i) {
+        char c = raw[i];
+        if (c == '\n' || c == '\r') c = ' ';
+        l3a[wp++] = c;
+    }
+    onebit::drawBitmapText(fb, font_5x7, 8, 224, l3a, onebit::BLACK, 1);
+
+    char l3b[48] = {};
+    if (snap.last_update_ms > 0) {
+        std::snprintf(l3b, sizeof(l3b), "updated recently");
+    } else {
+        std::snprintf(l3b, sizeof(l3b), "updated --");
+    }
+    onebit::drawBitmapText(fb, font_5x7, 8, 240, l3b, onebit::BLACK, 1);
+}
+
 void renderHeadlineCard(onebit::IFramebuffer& fb,
                         const onebit::BitmapFont& font,
                         const DashboardCard& card,
@@ -145,6 +204,7 @@ void renderHeadlineCard(onebit::IFramebuffer& fb,
     onebit::fillPatternRect(fb, 2, 28, 396, 176, card.signature);
 
     renderHeadlineCardBody(fb, card, snap);
+    renderHeadlineCardFooter(fb, font, card, snap);
 }
 
 } // namespace

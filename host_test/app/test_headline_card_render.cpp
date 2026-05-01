@@ -115,3 +115,37 @@ TEST_CASE("Headline drop-shadow paints below+right of the foreground", "[app][da
     CHECK(left_count > 1200);
     CHECK(right_count > 1200);
 }
+
+TEST_CASE("Headline L2 row contains 'Load 0.47'", "[app][dashboard][render]") {
+    DynamicFramebuffer fb(400, 300);
+    fb.clear(WHITE);
+
+    auto card = makeCpuCard();
+    auto snap = makeBaseSnapshot();
+    renderCard(fb, fonts::TERM_5X7, card, snap);
+
+    int l2_black = 0;
+    for (int16_t y = 208; y < 220; ++y) {
+        for (int16_t x = 8; x < 392; ++x) {
+            if (fb.getPixel(x, y) == BLACK) l2_black++;
+        }
+    }
+    CHECK(l2_black > 30);
+}
+
+TEST_CASE("Headline L3 row 1 shows raw command output", "[app][dashboard][render]") {
+    DynamicFramebuffer fb(400, 300);
+    fb.clear(WHITE);
+
+    auto card = makeCpuCard();
+    auto snap = makeBaseSnapshot();
+    renderCard(fb, fonts::TERM_5X7, card, snap);
+
+    int l3_black = 0;
+    for (int16_t y = 224; y < 232; ++y) {
+        for (int16_t x = 8; x < 392; ++x) {
+            if (fb.getPixel(x, y) == BLACK) l3_black++;
+        }
+    }
+    CHECK(l3_black > 20);
+}
