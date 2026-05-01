@@ -243,6 +243,24 @@ class Device:
             out[k] = int(v)
         return out
 
+    def active_card(self) -> dict[str, Any]:
+        """Returns dict {idx, count, layout, label} from the
+        dashboard-active-card REPL. Raises if no DashboardScreen is on
+        the stack (firmware emits ERR 11)."""
+        r = self.send("dashboard-active-card")
+        assert r.ok, r
+        parts: dict[str, str] = {}
+        for tok in (r.value or "").split():
+            if "=" in tok:
+                k, v = tok.split("=", 1)
+                parts[k] = v
+        return {
+            "idx": int(parts["idx"]),
+            "count": int(parts["count"]),
+            "layout": parts["layout"],
+            "label": parts["label"],
+        }
+
     def wifi_status(self) -> dict[str, Any]:
         r = self.send("wifi-status")
         assert r.ok, r
