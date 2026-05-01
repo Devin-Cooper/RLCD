@@ -38,6 +38,24 @@ add_host_test(
 )
 
 add_host_test(
+    NAME test_headline_card_render
+    SOURCES
+        test_headline_card_render.cpp
+        "${APP_DIR}/src/dashboard_cards.cpp"
+        "${ONEBIT_LIB_DIR}/src/render/pattern.cpp"
+        "${ONEBIT_LIB_DIR}/src/render/pattern_tiles.cpp"
+        "${ONEBIT_LIB_DIR}/src/render/primitives.cpp"
+        "${ONEBIT_LIB_DIR}/src/render/bitmap_font.cpp"
+        "${ONEBIT_LIB_DIR}/src/render/vector_font.cpp"
+        "${ONEBIT_LIB_DIR}/src/render/mask_buffer.cpp"
+        "${ONEBIT_LIB_DIR}/src/core/framebuffer.cpp"
+        "${ONEBIT_LIB_DIR}/src/core/allocator.cpp"
+    INCLUDES
+        "${APP_DIR}/include"
+        "${ONEBIT_INCLUDE_DIR}"
+)
+
+add_host_test(
     NAME test_screen_stack
     SOURCES
         test_screen_stack.cpp
