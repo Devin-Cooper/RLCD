@@ -6,6 +6,7 @@ using app::Animator;
 using app::easeOutCubic;
 using app::TweenKind;
 using app::makeTag;
+using app::kDashboardPipUs;
 using Catch::Approx;
 
 TEST_CASE("easeOutCubic: boundaries", "[app][animator]") {
@@ -99,4 +100,16 @@ TEST_CASE("Animator: ScrollbackBounce TweenKind enum value is 0x04",
 
 TEST_CASE("Animator: kScrollbackBounceUs is 150 ms", "[app][animator]") {
     REQUIRE(app::kScrollbackBounceUs == 150'000u);
+}
+
+TEST_CASE("Animator: DashboardPip tween coexists with FocusRect tween", "[app][animator]") {
+    Animator a;
+    auto pip = makeTag(TweenKind::DashboardPip, 0);
+    auto focus = makeTag(TweenKind::FocusRect, 1);
+    a.start(pip, 0, 100, kDashboardPipUs, 0);
+    a.start(focus, 0, 50, 120'000, 0);
+    REQUIRE(a.inProgress(pip, kDashboardPipUs / 2));
+    REQUIRE(a.inProgress(focus, 60'000));
+    REQUIRE(a.value(pip, kDashboardPipUs / 2) > 0);
+    REQUIRE(a.value(focus, 60'000) > 0);
 }
