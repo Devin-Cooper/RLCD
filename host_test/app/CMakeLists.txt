@@ -19,6 +19,14 @@ add_host_test(
 )
 
 add_host_test(
+    NAME test_dashboard_snapshot
+    SOURCES
+        test_dashboard_snapshot.cpp
+    INCLUDES
+        "${APP_DIR}/include"
+)
+
+add_host_test(
     NAME test_screen_stack
     SOURCES
         test_screen_stack.cpp

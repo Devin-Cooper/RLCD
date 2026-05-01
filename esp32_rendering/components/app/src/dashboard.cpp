@@ -37,21 +37,8 @@ Dashboard::Dashboard()
     , skip_echo_(false)
     , interval_ms_(5000)
     , last_update_ms_(0)
-    , history_pos_(0)
-    , mem_percent_(0)
-    , mem_used_gb_(0)
-    , mem_total_gb_(0)
-    , disk_percent_(0)
 {
-    memset(cpu_history_, 0, sizeof(cpu_history_));
-    memset(mem_history_, 0, sizeof(mem_history_));
-    memset(cpu_load_, 0, sizeof(cpu_load_));
-    memset(disk_used_str_, 0, sizeof(disk_used_str_));
-    memset(disk_total_str_, 0, sizeof(disk_total_str_));
-    memset(uptime_str_, 0, sizeof(uptime_str_));
-    memset(gpu_str_, 0, sizeof(gpu_str_));
-    memset(screens_str_, 0, sizeof(screens_str_));
-    memset(server_name_, 0, sizeof(server_name_));
+    // snapshot_ is zero-initialized by NSDMI defaults in DashboardSnapshot.
 }
 
 void Dashboard::init(const Settings& settings) {
@@ -165,10 +152,10 @@ void Dashboard::updateCommands(const sdcard::DashboardCommand* cmds, int count) 
 
 void Dashboard::setServerName(const char* name) {
     if (name) {
-        strncpy(server_name_, name, sizeof(server_name_) - 1);
-        server_name_[sizeof(server_name_) - 1] = '\0';
+        strncpy(snapshot_.server_name, name, sizeof(snapshot_.server_name) - 1);
+        snapshot_.server_name[sizeof(snapshot_.server_name) - 1] = '\0';
     } else {
-        server_name_[0] = '\0';
+        snapshot_.server_name[0] = '\0';
     }
 }
 
@@ -177,6 +164,10 @@ void Dashboard::setServerName(const char* name) {
 // ============================================================================
 
 void Dashboard::update(ssh::SshClient& ssh, int64_t now_ms) {
+    snapshot_.connected = (ssh.state() == ssh::State::Connected);
+    snapshot_.last_update_ms = last_update_ms_;
+    snapshot_.interval_ms = interval_ms_;
+
     if (ssh.state() != ssh::State::Connected) return;
     if (command_count_ == 0) return;
 
@@ -204,9 +195,9 @@ void Dashboard::update(ssh::SshClient& ssh, int64_t now_ms) {
         } else {
             // All commands complete — parse outputs and push history
             parseOutputs();
-            cpu_history_[history_pos_ % HISTORY_LEN] = cpu_load_[0];
-            mem_history_[history_pos_ % HISTORY_LEN] = mem_percent_;
-            history_pos_++;
+            snapshot_.cpu_history[snapshot_.history_pos % HISTORY_LEN] = snapshot_.cpu_load[0];
+            snapshot_.mem_history[snapshot_.history_pos % HISTORY_LEN] = snapshot_.mem_percent;
+            snapshot_.history_pos++;
 
             current_command_ = 0;
             collecting_ = false;
@@ -293,9 +284,9 @@ void Dashboard::feedData(const uint8_t* data, size_t len) {
 
         if (current_command_ >= command_count_) {
             parseOutputs();
-            cpu_history_[history_pos_ % HISTORY_LEN] = cpu_load_[0];
-            mem_history_[history_pos_ % HISTORY_LEN] = mem_percent_;
-            history_pos_++;
+            snapshot_.cpu_history[snapshot_.history_pos % HISTORY_LEN] = snapshot_.cpu_load[0];
+            snapshot_.mem_history[snapshot_.history_pos % HISTORY_LEN] = snapshot_.mem_percent;
+            snapshot_.history_pos++;
 
             collecting_ = false;
             ESP_LOGI(TAG, "Dashboard cycle complete");
@@ -314,7 +305,7 @@ void Dashboard::parseOutputs() {
 
         if (strcasecmp(label, "Load") == 0 || strcasecmp(label, "CPU") == 0) {
             // "0.10 0.16 0.11" or "0.10 0.16 0.11 1/1030 35150"
-            sscanf(out, "%f %f %f", &cpu_load_[0], &cpu_load_[1], &cpu_load_[2]);
+            sscanf(out, "%f %f %f", &snapshot_.cpu_load[0], &snapshot_.cpu_load[1], &snapshot_.cpu_load[2]);
         }
         else if (strcasecmp(label, "Memory") == 0 || strcasecmp(label, "Mem") == 0) {
             // "3.8Gi/30Gi" or "3.8G/30G" or "380Mi/30Gi"
@@ -327,9 +318,9 @@ void Dashboard::parseOutputs() {
                 if (used_unit[0] == 'T' || used_unit[0] == 't') used *= 1024.0f;
                 if (total_unit[0] == 'M' || total_unit[0] == 'm') total /= 1024.0f;
                 if (total_unit[0] == 'T' || total_unit[0] == 't') total *= 1024.0f;
-                mem_used_gb_ = used;
-                mem_total_gb_ = total;
-                mem_percent_ = (total > 0) ? (used / total) * 100.0f : 0;
+                snapshot_.mem_used_gb = used;
+                snapshot_.mem_total_gb = total;
+                snapshot_.mem_percent = (total > 0) ? (used / total) * 100.0f : 0;
             }
         }
         else if (strcasecmp(label, "Disk") == 0) {
@@ -337,43 +328,52 @@ void Dashboard::parseOutputs() {
             char used_s[16] = {}, total_s[16] = {};
             int pct = 0;
             if (sscanf(out, "%15[^/]/%15s (%d%%)", used_s, total_s, &pct) >= 2) {
-                strncpy(disk_used_str_, used_s, sizeof(disk_used_str_) - 1);
-                disk_used_str_[sizeof(disk_used_str_) - 1] = '\0';
+                strncpy(snapshot_.disk_used_str, used_s, sizeof(snapshot_.disk_used_str) - 1);
+                snapshot_.disk_used_str[sizeof(snapshot_.disk_used_str) - 1] = '\0';
                 // Strip trailing paren from total if present
                 char* paren = strchr(total_s, '(');
                 if (paren) *paren = '\0';
-                strncpy(disk_total_str_, total_s, sizeof(disk_total_str_) - 1);
-                disk_total_str_[sizeof(disk_total_str_) - 1] = '\0';
-                disk_percent_ = static_cast<float>(pct);
+                strncpy(snapshot_.disk_total_str, total_s, sizeof(snapshot_.disk_total_str) - 1);
+                snapshot_.disk_total_str[sizeof(snapshot_.disk_total_str) - 1] = '\0';
+                snapshot_.disk_percent = static_cast<float>(pct);
             }
             // Fallback: try just percentage
-            if (disk_percent_ == 0) {
+            if (snapshot_.disk_percent == 0) {
                 const char* pct_ptr = strchr(out, '%');
                 if (pct_ptr) {
                     // Scan backwards to find start of number
                     const char* num_start = pct_ptr - 1;
                     while (num_start > out && (*(num_start-1) >= '0' && *(num_start-1) <= '9'))
                         --num_start;
-                    disk_percent_ = static_cast<float>(atoi(num_start));
+                    snapshot_.disk_percent = static_cast<float>(atoi(num_start));
                 }
             }
         }
         else if (strcasecmp(label, "Uptime") == 0) {
-            strncpy(uptime_str_, out, sizeof(uptime_str_) - 1);
-            uptime_str_[sizeof(uptime_str_) - 1] = '\0';
+            strncpy(snapshot_.uptime_str, out, sizeof(snapshot_.uptime_str) - 1);
+            snapshot_.uptime_str[sizeof(snapshot_.uptime_str) - 1] = '\0';
             // Strip leading "up " if present
-            if (strncmp(uptime_str_, "up ", 3) == 0) {
-                memmove(uptime_str_, uptime_str_ + 3, strlen(uptime_str_ + 3) + 1);
+            if (strncmp(snapshot_.uptime_str, "up ", 3) == 0) {
+                memmove(snapshot_.uptime_str, snapshot_.uptime_str + 3, strlen(snapshot_.uptime_str + 3) + 1);
             }
         }
         else if (strcasecmp(label, "Temp") == 0 || strcasecmp(label, "GPU") == 0) {
-            strncpy(gpu_str_, out, sizeof(gpu_str_) - 1);
-            gpu_str_[sizeof(gpu_str_) - 1] = '\0';
+            strncpy(snapshot_.gpu_str, out, sizeof(snapshot_.gpu_str) - 1);
+            snapshot_.gpu_str[sizeof(snapshot_.gpu_str) - 1] = '\0';
         }
         else if (strcasecmp(label, "Screens") == 0) {
-            strncpy(screens_str_, out, sizeof(screens_str_) - 1);
-            screens_str_[sizeof(screens_str_) - 1] = '\0';
+            strncpy(snapshot_.screens_str, out, sizeof(snapshot_.screens_str) - 1);
+            snapshot_.screens_str[sizeof(snapshot_.screens_str) - 1] = '\0';
         }
+    }
+
+    // Refresh the snapshot's command_outputs view (pointer copy, not byte copy)
+    snapshot_.command_count = command_count_;
+    for (int i = 0; i < command_count_ && i < 8; ++i) {
+        snapshot_.command_outputs[i] = commands_[i].output;
+    }
+    for (int i = command_count_; i < 8; ++i) {
+        snapshot_.command_outputs[i] = nullptr;
     }
 }
 
@@ -434,7 +434,7 @@ void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font)
     if (s_render_count % 50 == 0) {
         ESP_LOGD(TAG, "render #%d: cmd_count=%d collecting=%d cur_cmd=%d hist_pos=%d cpu=%.2f mem=%.0f%%",
                  s_render_count, command_count_, collecting_, current_command_,
-                 history_pos_, cpu_load_[0], mem_percent_);
+                 snapshot_.history_pos, snapshot_.cpu_load[0], snapshot_.mem_percent);
     }
 
     fb.clear(onebit::WHITE);
@@ -468,8 +468,8 @@ void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font)
     // Title text with knockout background — show server name
     {
         char title[64];
-        if (server_name_[0]) {
-            snprintf(title, sizeof(title), "Homelab (%s)", server_name_);
+        if (snapshot_.server_name[0]) {
+            snprintf(title, sizeof(title), "Homelab (%s)", snapshot_.server_name);
         } else {
             snprintf(title, sizeof(title), "Dashboard");
         }
@@ -495,7 +495,7 @@ void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font)
 
         // Compute CPU percentage from load average (normalized to ~100%)
         // Use load[0] / some reasonable baseline; cap at 100
-        float cpu_pct = cpu_load_[0] * 100.0f;
+        float cpu_pct = snapshot_.cpu_load[0] * 100.0f;
         if (cpu_pct > 100.0f) cpu_pct = 100.0f;
         if (cpu_pct < 0.0f) cpu_pct = 0.0f;
 
@@ -515,7 +515,7 @@ void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font)
 
         char detail[48];
         snprintf(detail, sizeof(detail), "Load: %.1f %.1f %.1f",
-                 cpu_load_[0], cpu_load_[1], cpu_load_[2]);
+                 snapshot_.cpu_load[0], snapshot_.cpu_load[1], snapshot_.cpu_load[2]);
         onebit::drawBitmapText(fb, f, bar_x + bar_w + 32, row_y + 6, detail,
                                onebit::BLACK, 1);
     }
@@ -526,7 +526,7 @@ void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font)
         onebit::drawBitmapText(fb, f, content_x + 2, row_y + 6, "Memory",
                                onebit::BLACK, 1);
 
-        float pct = mem_percent_;
+        float pct = snapshot_.mem_percent;
         if (pct < 0) pct = 0;
         if (pct > 100) pct = 100;
 
@@ -545,7 +545,7 @@ void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font)
                                onebit::BLACK, 1);
 
         char detail[32];
-        snprintf(detail, sizeof(detail), "%.1f/%.0fG", mem_used_gb_, mem_total_gb_);
+        snprintf(detail, sizeof(detail), "%.1f/%.0fG", snapshot_.mem_used_gb, snapshot_.mem_total_gb);
         onebit::drawBitmapText(fb, f, bar_x + bar_w + 32, row_y + 6, detail,
                                onebit::BLACK, 1);
     }
@@ -556,7 +556,7 @@ void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font)
         onebit::drawBitmapText(fb, f, content_x + 2, row_y + 6, "Disk /",
                                onebit::BLACK, 1);
 
-        float pct = disk_percent_;
+        float pct = snapshot_.disk_percent;
         if (pct < 0) pct = 0;
         if (pct > 100) pct = 100;
 
@@ -575,8 +575,8 @@ void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font)
                                onebit::BLACK, 1);
 
         char detail[32];
-        if (disk_used_str_[0] && disk_total_str_[0]) {
-            snprintf(detail, sizeof(detail), "%s/%s", disk_used_str_, disk_total_str_);
+        if (snapshot_.disk_used_str[0] && snapshot_.disk_total_str[0]) {
+            snprintf(detail, sizeof(detail), "%s/%s", snapshot_.disk_used_str, snapshot_.disk_total_str);
         } else {
             detail[0] = '\0';
         }
@@ -604,17 +604,17 @@ void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font)
         // Find max for scaling — at least 1.0
         float max_val = 1.0f;
         for (int i = 0; i < HISTORY_LEN; i++) {
-            if (cpu_history_[i] > max_val) max_val = cpu_history_[i];
+            if (snapshot_.cpu_history[i] > max_val) max_val = snapshot_.cpu_history[i];
         }
         max_val *= 1.2f;
 
         drawSparkline(fb, gx, gy, gw, gh,
-                      cpu_history_, HISTORY_LEN, history_pos_, max_val);
+                      snapshot_.cpu_history, HISTORY_LEN, snapshot_.history_pos, max_val);
 
         onebit::drawBitmapText(fb, f, 5, cpu_box_y + cpu_box_h - 10, "60s",
                                onebit::BLACK, 1);
         char cpu_now[24];
-        snprintf(cpu_now, sizeof(cpu_now), "now %.2f", cpu_load_[0]);
+        snprintf(cpu_now, sizeof(cpu_now), "now %.2f", snapshot_.cpu_load[0]);
         int nw = onebit::getBitmapTextWidth(f, cpu_now, 1);
         onebit::drawBitmapText(fb, f, content_w - nw, cpu_box_y + cpu_box_h - 10,
                                cpu_now, onebit::BLACK, 1);
@@ -632,12 +632,12 @@ void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font)
         int gh = mem_box_h - 18;
 
         drawSparkline(fb, gx, gy, gw, gh,
-                      mem_history_, HISTORY_LEN, history_pos_, 100.0f);
+                      snapshot_.mem_history, HISTORY_LEN, snapshot_.history_pos, 100.0f);
 
         onebit::drawBitmapText(fb, f, 5, mem_box_y + mem_box_h - 10, "60s",
                                onebit::BLACK, 1);
         char mem_now[24];
-        snprintf(mem_now, sizeof(mem_now), "now %.0f%%", mem_percent_);
+        snprintf(mem_now, sizeof(mem_now), "now %.0f%%", snapshot_.mem_percent);
         int nw = onebit::getBitmapTextWidth(f, mem_now, 1);
         onebit::drawBitmapText(fb, f, content_w - nw, mem_box_y + mem_box_h - 10,
                                mem_now, onebit::BLACK, 1);
@@ -658,8 +658,8 @@ void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font)
         int line_h = f.glyph_height + 3;
 
         char buf[64];
-        if (uptime_str_[0]) {
-            snprintf(buf, sizeof(buf), "Up: %s", uptime_str_);
+        if (snapshot_.uptime_str[0]) {
+            snprintf(buf, sizeof(buf), "Up: %s", snapshot_.uptime_str);
             // Truncate long uptime text to fit
             int max_chars = (half_w - 10) / cx;
             if (static_cast<int>(strlen(buf)) > max_chars)
@@ -667,11 +667,11 @@ void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font)
             onebit::drawBitmapText(fb, f, ix, iy, buf, onebit::BLACK, 1);
         }
 
-        snprintf(buf, sizeof(buf), "Screens: %s", screens_str_[0] ? screens_str_ : "N/A");
+        snprintf(buf, sizeof(buf), "Screens: %s", snapshot_.screens_str[0] ? snapshot_.screens_str : "N/A");
         onebit::drawBitmapText(fb, f, ix, iy + line_h, buf, onebit::BLACK, 1);
 
         snprintf(buf, sizeof(buf), "Load: %.1f  %.1f  %.1f",
-                 cpu_load_[0], cpu_load_[1], cpu_load_[2]);
+                 snapshot_.cpu_load[0], snapshot_.cpu_load[1], snapshot_.cpu_load[2]);
         onebit::drawBitmapText(fb, f, ix, iy + line_h * 2, buf, onebit::BLACK, 1);
     }
 
@@ -684,19 +684,44 @@ void Dashboard::render(onebit::IFramebuffer& fb, const onebit::BitmapFont& font)
         int line_h = f.glyph_height + 3;
 
         char buf[48];
-        snprintf(buf, sizeof(buf), "Temp: %s", gpu_str_[0] ? gpu_str_ : "N/A");
+        snprintf(buf, sizeof(buf), "Temp: %s", snapshot_.gpu_str[0] ? snapshot_.gpu_str : "N/A");
         onebit::drawBitmapText(fb, f, ix, iy, buf, onebit::BLACK, 1);
 
         // Show raw disk output if we have it
-        if (disk_used_str_[0]) {
-            snprintf(buf, sizeof(buf), "Disk: %s/%s", disk_used_str_, disk_total_str_);
+        if (snapshot_.disk_used_str[0]) {
+            snprintf(buf, sizeof(buf), "Disk: %s/%s", snapshot_.disk_used_str, snapshot_.disk_total_str);
             onebit::drawBitmapText(fb, f, ix, iy + line_h, buf, onebit::BLACK, 1);
         }
 
-        snprintf(buf, sizeof(buf), "Mem: %.1f/%.0fG", mem_used_gb_, mem_total_gb_);
+        snprintf(buf, sizeof(buf), "Mem: %.1f/%.0fG", snapshot_.mem_used_gb, snapshot_.mem_total_gb);
         onebit::drawBitmapText(fb, f, ix, iy + line_h * 2, buf, onebit::BLACK, 1);
     }
 
+}
+
+// ============================================================================
+// Command accessor
+// ============================================================================
+
+Dashboard::CommandView Dashboard::commandAt(int i) const {
+    CommandView v{};
+    if (i < 0 || i >= command_count_) {
+        v.label = "";
+        v.command = "";
+        v.output = "";
+        v.output_len = 0;
+        v.valid = false;
+        v.overflowed = false;
+        return v;
+    }
+    const auto& c = commands_[i];
+    v.label = c.label;
+    v.command = c.command;
+    v.output = c.output;
+    v.output_len = c.output_len;
+    v.valid = c.valid;
+    v.overflowed = c.overflowed;
+    return v;
 }
 
 } // namespace app

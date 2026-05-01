@@ -5,6 +5,7 @@
 #include "ssh_client.hpp"
 #include "settings.hpp"
 #include "config_manager.hpp"
+#include "dashboard_snapshot.hpp"
 #include <cstdint>
 
 namespace app {
@@ -42,6 +43,20 @@ public:
     /// Set the server name displayed in the title bar.
     void setServerName(const char* name);
 
+    const DashboardSnapshot& snapshot() const { return snapshot_; }
+    int                      commandCount() const { return command_count_; }
+
+    // Read-only view of one configured command (label/output/etc).
+    struct CommandView {
+        const char* label;
+        const char* command;
+        const char* output;
+        int         output_len;
+        bool        valid;
+        bool        overflowed;
+    };
+    CommandView commandAt(int i) const;
+
 private:
     /// Maximum number of dashboard commands
     static constexpr int MAX_COMMANDS = 8;
@@ -78,20 +93,7 @@ private:
     int64_t last_update_ms_;
 
     // --- Parsed metric values ---
-    float cpu_history_[HISTORY_LEN];
-    float mem_history_[HISTORY_LEN];
-    int history_pos_;
-    float cpu_load_[3];         // 1, 5, 15 min load averages
-    float mem_percent_;
-    float mem_used_gb_;
-    float mem_total_gb_;
-    float disk_percent_;
-    char disk_used_str_[16];
-    char disk_total_str_[16];
-    char uptime_str_[48];
-    char gpu_str_[32];
-    char screens_str_[16];
-    char server_name_[32];
+    DashboardSnapshot snapshot_;
 
     /// Parse /littlefs/dashboard.cfg. Returns false if file not found.
     bool loadConfig();
