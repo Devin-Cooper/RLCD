@@ -12,6 +12,7 @@
 
 #include "screen_stack.hpp"
 #include "overlay.hpp"
+#include "screens/dashboard_screen.hpp"
 #include "wifi_manager.hpp"
 #include "ssh_client.hpp"
 #include "ble_hid.hpp"
@@ -193,6 +194,30 @@ static int cmd_fb_dump(int, char**) {
     return 0;
 }
 
+// --- dashboard-active-card ---
+static int cmd_dashboard_active_card(int, char**) {
+    auto* ctx = getContext();
+    if (!ctx) { err(10, "no context"); return 1; }
+
+    // Walk the stack top-down looking for a DashboardScreen instance.
+    size_t depth = ctx->stack.depth();
+    app::DashboardScreen* ds = nullptr;
+    for (size_t i = depth; i-- > 0;) {
+        ds = dynamic_cast<app::DashboardScreen*>(ctx->stack.at(i));
+        if (ds) break;
+    }
+    if (!ds) { err(11, "no DashboardScreen on stack"); return 1; }
+
+    int idx = ds->currentCardIndex();
+    int n = ds->cardCount();
+    if (idx < 0 || idx >= n) { err(12, "invalid card index"); return 1; }
+
+    const auto& card = ds->cardAt(idx);
+    const char* layout = (card.layout == app::CardLayout::Headline) ? "headline" : "trends";
+    ok("idx=%d count=%d layout=%s label=%s", idx, n, layout, card.label);
+    return 0;
+}
+
 void registerIntrospectCommands() {
     const esp_console_cmd_t cmds[] = {
         {"stack",       "Dump ScreenStack bottom-up",         nullptr, cmd_stack,       nullptr, nullptr, nullptr},
@@ -203,6 +228,8 @@ void registerIntrospectCommands() {
         {"ble-status",  "BLE HID host state",                 nullptr, cmd_ble_status,  nullptr, nullptr, nullptr},
         {"migration",   "Last migration result",              nullptr, cmd_migration,   nullptr, nullptr, nullptr},
         {"fb-dump",     "Framebuffer as base64 PGM P5",       nullptr, cmd_fb_dump,     nullptr, nullptr, nullptr},
+        {"dashboard-active-card", "Index/label of the currently visible Dashboard card",
+         nullptr, cmd_dashboard_active_card, nullptr, nullptr, nullptr},
     };
     for (const auto& c : cmds) esp_console_cmd_register(&c);
 }
