@@ -207,13 +207,68 @@ void renderHeadlineCard(onebit::IFramebuffer& fb,
     renderHeadlineCardFooter(fb, font, card, snap);
 }
 
+void drawSparklineWithPattern(onebit::IFramebuffer& fb,
+                              int x, int y, int w, int h,
+                              const float* data, int data_len, int head,
+                              float max_val, const onebit::Pattern& fill_pattern) {
+    if (max_val <= 0) max_val = 1;
+    if (w <= 0 || h <= 0 || data_len <= 0) return;
+    int prev_vy = -1;
+    for (int px = 0; px < w; px++) {
+        int sample_idx = (px * data_len) / w;
+        int idx = (head - data_len + sample_idx + data_len) % data_len;
+        float val = data[idx];
+        if (val > max_val) val = max_val;
+        int vy = y + h - 1 - static_cast<int>((val / max_val) * (h - 1));
+        if (vy < y + h) {
+            onebit::fillPatternRect(fb, x + px, vy, 1, y + h - vy, fill_pattern);
+        }
+        fb.setPixel(x + px, vy, onebit::BLACK);
+        if (prev_vy >= 0) {
+            onebit::drawLine(fb, x + px - 1, prev_vy, x + px, vy, onebit::BLACK);
+        }
+        prev_vy = vy;
+    }
+}
+
+void renderTrendsCard(onebit::IFramebuffer& fb,
+                      const onebit::BitmapFont& font,
+                      const DashboardCard& card,
+                      const DashboardSnapshot& snap) {
+    onebit::drawRect(fb, 0, 0, 400, 300, onebit::BLACK);
+    onebit::drawRect(fb, 1, 1, 398, 298, onebit::BLACK);
+    renderHeadlineCardTitleStrip(fb, font, card, snap);
+
+    char now_buf[24];
+    std::snprintf(now_buf, sizeof(now_buf), "now %.2f", snap.cpu_load[0]);
+    int now_w = onebit::getBitmapTextWidth(onebit::fonts::TERM_8X12, now_buf, 1);
+    onebit::drawBitmapText(fb, onebit::fonts::TERM_8X12, 8, 30, "CPU 60s", onebit::BLACK, 1);
+    onebit::drawBitmapText(fb, onebit::fonts::TERM_8X12, 392 - now_w, 30, now_buf, onebit::BLACK, 1);
+
+    float cpu_max = 1.0f;
+    for (int i = 0; i < 60; ++i) if (snap.cpu_history[i] > cpu_max) cpu_max = snap.cpu_history[i];
+    cpu_max *= 1.2f;
+    drawSparklineWithPattern(fb, 8, 44, 384, 92,
+                             snap.cpu_history, 60, snap.history_pos,
+                             cpu_max, onebit::benDay(128, 6, 2));
+
+    std::snprintf(now_buf, sizeof(now_buf), "now %.0f%%", snap.mem_percent);
+    now_w = onebit::getBitmapTextWidth(onebit::fonts::TERM_8X12, now_buf, 1);
+    onebit::drawBitmapText(fb, onebit::fonts::TERM_8X12, 8, 144, "Memory 60s", onebit::BLACK, 1);
+    onebit::drawBitmapText(fb, onebit::fonts::TERM_8X12, 392 - now_w, 144, now_buf, onebit::BLACK, 1);
+
+    drawSparklineWithPattern(fb, 8, 158, 384, 84,
+                             snap.mem_history, 60, snap.history_pos,
+                             100.0f, onebit::halftone(128, 8));
+}
+
 } // namespace
 
 void renderCard(onebit::IFramebuffer& fb, const onebit::BitmapFont& font,
                 const DashboardCard& card, const DashboardSnapshot& snap) {
     switch (card.layout) {
         case CardLayout::Headline: renderHeadlineCard(fb, font, card, snap); break;
-        case CardLayout::Trends:   /* Task 13 */ break;
+        case CardLayout::Trends:   renderTrendsCard(fb, font, card, snap); break;
     }
 }
 
