@@ -67,3 +67,51 @@ TEST_CASE("Headline border + title strip drawn", "[app][dashboard][render]") {
     }
     CHECK(any_title_black);
 }
+
+TEST_CASE("Headline numeral drawn in band region (vector font)", "[app][dashboard][render]") {
+    DynamicFramebuffer fb(400, 300);
+    fb.clear(WHITE);
+
+    auto card = makeCpuCard();
+    auto snap = makeBaseSnapshot();
+    renderCard(fb, fonts::TERM_5X7, card, snap);
+
+    // Vector-font "47%" lives roughly inside (50,30)..(350,200). Count BLACK
+    // pixels in the headline area; expect a healthy chunk (more than the
+    // pattern band alone would produce).
+    int headline = 0;
+    for (int16_t y = 30; y < 200; ++y) {
+        for (int16_t x = 50; x < 350; ++x) {
+            if (fb.getPixel(x, y) == BLACK) headline++;
+        }
+    }
+    INFO("headline BLACK pixel count: " << headline);
+    // Empirical: BenDay-128 pattern band alone produces 12600 BLACK pixels in
+    // (50..350,30..200). With "47%" headline (white knockout halo cuts band,
+    // BLACK foreground + drop shadow add ink) the count rises to ~14268.
+    // Threshold of 13500 cleanly separates "headline drawn" from
+    // "band-only fill" while leaving headroom for glyph-shape variation.
+    CHECK(headline > 13500);
+}
+
+TEST_CASE("Headline drop-shadow paints below+right of the foreground", "[app][dashboard][render]") {
+    DynamicFramebuffer fb(400, 300);
+    fb.clear(WHITE);
+
+    auto card = makeCpuCard();
+    auto snap = makeBaseSnapshot();
+    renderCard(fb, fonts::TERM_5X7, card, snap);
+
+    int left_count = 0;
+    int right_count = 0;
+    for (int16_t y = 100; y < 130; ++y) {
+        for (int16_t x = 50; x < 200; ++x) if (fb.getPixel(x, y) == BLACK) left_count++;
+        for (int16_t x = 200; x < 350; ++x) if (fb.getPixel(x, y) == BLACK) right_count++;
+    }
+    INFO("y=100..130 left: " << left_count << " right: " << right_count);
+    // Empirical: band-only baseline in this strip is 1125 pixels per side
+    // (BenDay-128 is uniform). With foreground glyphs + shadow the counts
+    // rise to ~1448 left / ~1331 right — both strictly above 1200.
+    CHECK(left_count > 1200);
+    CHECK(right_count > 1200);
+}

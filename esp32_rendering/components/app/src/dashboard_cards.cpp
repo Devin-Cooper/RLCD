@@ -43,6 +43,95 @@ void renderHeadlineCardTitleStrip(onebit::IFramebuffer& fb,
                            onebit::BLACK, 1);
 }
 
+struct VectorFontSize {
+    int16_t char_w, char_h, stroke, spacing;
+};
+
+VectorFontSize pickVectorSize(const char* text) {
+    int len = static_cast<int>(std::strlen(text));
+    if (len <= 2) return {90, 140, 6, 8};
+    if (len == 3) return {70, 110, 5, 6};
+    if (len == 4) return {55, 90,  4, 5};
+    return                {40, 70,  3, 4};
+}
+
+void formatHeadline(const DashboardCard& card,
+                    const DashboardSnapshot& snap,
+                    char* out, size_t out_size) {
+    auto fmt_pct = [&](float v) {
+        if (v < 0) v = 0;
+        if (v > 100) v = 100;
+        std::snprintf(out, out_size, "%.0f%%", v);
+    };
+    switch (card.source) {
+        case MetricRef::Cpu: {
+            float pct = snap.cpu_load[0] * 100.0f;
+            fmt_pct(pct);
+            break;
+        }
+        case MetricRef::Memory: fmt_pct(snap.mem_percent); break;
+        case MetricRef::Disk:   fmt_pct(snap.disk_percent); break;
+        case MetricRef::Uptime:
+            std::snprintf(out, out_size, "%.6s",
+                          snap.uptime_str[0] ? snap.uptime_str : "--");
+            break;
+        case MetricRef::Temp:
+            {
+                const char* s = snap.gpu_str;
+                while (*s == '+' || *s == ' ') ++s;
+                std::snprintf(out, out_size, "%.6s", s[0] ? s : "--");
+            }
+            break;
+        case MetricRef::Screens:
+            std::snprintf(out, out_size, "%.6s",
+                          snap.screens_str[0] ? snap.screens_str : "--");
+            break;
+        case MetricRef::Custom: {
+            int idx = card.command_index;
+            const char* raw = (idx >= 0 && idx < snap.command_count &&
+                               snap.command_outputs[idx]) ? snap.command_outputs[idx] : "--";
+            std::snprintf(out, out_size, "%.6s", raw);
+            break;
+        }
+        default:
+            std::snprintf(out, out_size, "--");
+            break;
+    }
+    for (char* p = out; *p; ++p) {
+        if (!onebit::getGlyph(*p)) *p = '?';
+    }
+}
+
+void renderHeadlineCardBody(onebit::IFramebuffer& fb,
+                            const DashboardCard& card,
+                            const DashboardSnapshot& snap) {
+    char text[16];
+    formatHeadline(card, snap, text, sizeof(text));
+    if (!text[0] || std::strcmp(text, "--") == 0) {
+        const onebit::BitmapFont& f = onebit::fonts::TERM_8X12;
+        int w = onebit::getBitmapTextWidth(f, "--", 4);
+        onebit::drawBitmapText(fb, f, (400 - w) / 2, 90, "--",
+                               onebit::BLACK, 4);
+        return;
+    }
+
+    VectorFontSize sz = pickVectorSize(text);
+    int total_w = onebit::getStringWidth(text, sz.char_w, sz.spacing);
+    int x = (400 - total_w) / 2;
+    int y = 30 + (170 - sz.char_h) / 2;
+
+    onebit::Pattern shadow_pat = onebit::benDay(128, 6, 2);
+    onebit::drawVectorTextShadow(fb, x, y, text,
+                                 sz.char_w, sz.char_h, sz.spacing, sz.stroke,
+                                 /*dx=*/4, /*dy=*/5, shadow_pat);
+
+    // Foreground knockout halo (wider WHITE stroke first), then BLACK fill.
+    onebit::renderString(fb, text, x, y, sz.char_w, sz.char_h,
+                         sz.spacing, sz.stroke + 4, onebit::WHITE);
+    onebit::renderString(fb, text, x, y, sz.char_w, sz.char_h,
+                         sz.spacing, sz.stroke, onebit::BLACK);
+}
+
 void renderHeadlineCard(onebit::IFramebuffer& fb,
                         const onebit::BitmapFont& font,
                         const DashboardCard& card,
@@ -53,8 +142,9 @@ void renderHeadlineCard(onebit::IFramebuffer& fb,
 
     renderHeadlineCardTitleStrip(fb, font, card, snap);
 
-    // Pattern band — Tasks 10–11 will fill in with the headline + L2/L3.
     onebit::fillPatternRect(fb, 2, 28, 396, 176, card.signature);
+
+    renderHeadlineCardBody(fb, card, snap);
 }
 
 } // namespace
