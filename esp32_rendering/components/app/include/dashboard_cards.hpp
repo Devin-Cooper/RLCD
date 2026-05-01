@@ -41,6 +41,11 @@ void renderCard(onebit::IFramebuffer& fb, const onebit::BitmapFont& font,
 void renderPipStrip(onebit::IFramebuffer& fb, int current_card, int prev_card,
                     int card_count, int16_t underline_x);
 
+/// Compute the pixel center-x of the underline under card `card_idx`
+/// in a strip of `card_count` cards. Used by DashboardScreen to seed
+/// the Animator tween's from/to values.
+int16_t pipUnderlineXFor(int card_idx, int card_count);
+
 /// Full-screen "No dashboard commands" message, centered.
 void renderEmptyState(onebit::IFramebuffer& fb, const onebit::BitmapFont& font);
 

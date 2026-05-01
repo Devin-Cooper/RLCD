@@ -217,10 +217,41 @@ void renderCard(onebit::IFramebuffer& fb, const onebit::BitmapFont& font,
     }
 }
 
+namespace {
+constexpr int16_t kPipStripY      = 282;
+constexpr int16_t kPipStripH      = 14;
+constexpr int16_t kPipDotRadius   = 4;
+constexpr int16_t kPipDotSpacing  = 12;
+
+int16_t pipUnderlineXForFn(int card_idx, int card_count) {
+    int16_t total_w = static_cast<int16_t>(card_count * kPipDotSpacing);
+    int16_t left = static_cast<int16_t>((400 - total_w) / 2);
+    return static_cast<int16_t>(left + card_idx * kPipDotSpacing + kPipDotSpacing / 2);
+}
+} // namespace
+
+int16_t pipUnderlineXFor(int card_idx, int card_count) {
+    return pipUnderlineXForFn(card_idx, card_count);
+}
+
 void renderPipStrip(onebit::IFramebuffer& fb, int current_card, int prev_card,
                     int card_count, int16_t underline_x) {
-    (void)fb; (void)current_card; (void)prev_card; (void)card_count; (void)underline_x;
-    // Filled in by Task 12.
+    if (card_count <= 1) return;
+
+    int16_t cy = kPipStripY + kPipStripH / 2 - 2;
+    for (int i = 0; i < card_count; ++i) {
+        int16_t cx = pipUnderlineXForFn(i, card_count);
+        if (i == current_card) {
+            onebit::fillCircle(fb, cx, cy, kPipDotRadius, onebit::BLACK);
+        } else {
+            onebit::drawCircle(fb, cx, cy, kPipDotRadius, onebit::BLACK);
+        }
+    }
+    if (underline_x <= 0) underline_x = pipUnderlineXForFn(current_card, card_count);
+    onebit::fillRect(fb, underline_x - kPipDotRadius, kPipStripY + kPipStripH - 3,
+                     kPipDotRadius * 2, 2, onebit::BLACK);
+
+    (void)prev_card;
 }
 
 void renderEmptyState(onebit::IFramebuffer& fb, const onebit::BitmapFont& font) {

@@ -149,3 +149,30 @@ TEST_CASE("Headline L3 row 1 shows raw command output", "[app][dashboard][render
     }
     CHECK(l3_black > 20);
 }
+
+TEST_CASE("renderPipStrip: 7 cards → 7 dots, active is filled", "[app][dashboard][render]") {
+    DynamicFramebuffer fb(400, 300);
+    fb.clear(WHITE);
+
+    renderPipStrip(fb, /*current=*/2, /*prev=*/2, /*card_count=*/7, /*underline_x=*/0);
+
+    int center_x_active = 200 - (7 * 12) / 2 + 2 * 12 + 6;  // approx
+    int black_at_active = 0;
+    for (int16_t y = 286; y < 290; ++y) {
+        for (int16_t x = center_x_active - 4; x < center_x_active + 4; ++x) {
+            if (fb.getPixel(x, y) == BLACK) black_at_active++;
+        }
+    }
+    CHECK(black_at_active >= 5);
+}
+
+TEST_CASE("renderPipStrip with card_count<=1 is a no-op", "[app][dashboard][render]") {
+    DynamicFramebuffer fb(400, 300);
+    fb.clear(WHITE);
+    renderPipStrip(fb, 0, 0, 1, 0);
+    for (int16_t y = 282; y < 296; ++y) {
+        for (int16_t x = 2; x < 398; ++x) {
+            CHECK(fb.getPixel(x, y) == WHITE);
+        }
+    }
+}
