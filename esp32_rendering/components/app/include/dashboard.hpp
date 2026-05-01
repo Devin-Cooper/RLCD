@@ -1,7 +1,5 @@
 #pragma once
 
-#include <1bit/core/framebuffer.hpp>
-#include <1bit/render/bitmap_font.hpp>
 #include "ssh_client.hpp"
 #include "settings.hpp"
 #include "config_manager.hpp"
@@ -10,8 +8,9 @@
 
 namespace app {
 
-/// Dashboard mode: runs SSH commands periodically, parses output,
-/// renders formatted information panels with Mac-style chrome.
+/// Dashboard data model: runs SSH commands periodically and parses output
+/// into a `DashboardSnapshot`. Pure data — rendering is performed by
+/// `dashboard_cards.cpp` against the snapshot.
 ///
 /// Reads config from /littlefs/dashboard.cfg if present.
 /// Falls back to built-in defaults: loadavg, free, df, uptime, sensors, screen -ls.

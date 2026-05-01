@@ -1,16 +1,10 @@
 #include "dashboard.hpp"
 #include "dashboard_feed.hpp"
 #include "config_manager.hpp"
-#include <1bit/render/primitives.hpp>
-#include <1bit/render/bitmap_font.hpp>
-#include <1bit/render/pattern.hpp>
-#include <1bit/render/pattern_tiles.hpp>
-#include <1bit/fonts/term_5x7.hpp>
 #include <esp_log.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <cmath>
 
 static const char* TAG = "dashboard";
 
