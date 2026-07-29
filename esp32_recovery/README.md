@@ -12,7 +12,7 @@ partition layout and first-time flash procedure.
 
 ## What recovery does
 
-1. Init PSRAM + ST7305 panel (shared driver with the main app).
+1. Init PSRAM + ST7306 panel (shared transport shim with the main app).
 2. Render a single-shot "RECOVERY MODE" banner + build info + reset
    reason on the 400×300 reflective LCD.
 3. Spawn a 1 Hz heartbeat task that toggles a bottom-right pixel so
@@ -79,10 +79,20 @@ recovery).
 
 ## Size budget
 
-Current binary: ~237 KB (≈45% of the 512 KB slot). Ample headroom for
-future display tweaks or additional REPL commands. CI enforces a
+Current binary: 235,280 bytes (0x39710, ≈45% of the 512 KB slot). Ample
+headroom for future display tweaks or additional REPL commands. CI enforces a
 < 512 KB limit in `scripts/verify_builds.sh`.
 
-The single biggest consumer is the ST7305 driver + rendering primitives
-(~60 KB combined); after that `esp_console` (~30 KB) and `nvs_flash`
-(~30 KB). Disable any of these only if you know what you're giving up.
+The de-fork replaced the forked `rendering` + `st7305` components with a thin
+transport shim over onebit, which recovery already linked. Measured on the same
+toolchain (ESP-IDF v5.5.2), that moved the binary from 237,904 bytes to
+235,280 — a **2,624-byte** saving, not the ~60 KB this section used to claim.
+The old figure counted source that the linker was already dropping as unused.
+
+The real win is RAM, not flash: the retired driver allocated a 240 KB index
+LUT, a 120 KB bit LUT and a 15 KB display buffer in PSRAM. All three are gone,
+replaced by a closed-form transform and a single 15 KB scan-out buffer in
+DMA-capable internal SRAM.
+
+The remaining large flash consumers are `esp_console` (~30 KB) and `nvs_flash`
+(~30 KB). Disable either only if you know what you're giving up.

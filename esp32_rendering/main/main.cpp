@@ -13,7 +13,7 @@
 #include <memory>
 
 // Display and sensors
-#include "st7305.hpp"
+#include "st7306_panel.hpp"
 #include "i2c_bsp.hpp"
 #include "time_service.hpp"
 #include "pcf85063.hpp"
@@ -65,12 +65,10 @@
 #include <1bit/core/framebuffer.hpp>
 #include <1bit/render/primitives.hpp>
 #include <1bit/render/bitmap_font.hpp>
+#include <1bit/render/dirty_rect.hpp>
 #include <1bit/fonts/term_5x7.hpp>
 #include <1bit/fonts/term_6x9.hpp>
 #include <1bit/fonts/term_8x12.hpp>
-
-// Legacy rendering (clock face, shapes)
-#include "rendering/framebuffer.hpp"
 
 static const char* TAG = "main";
 using app::fontForSize;
@@ -91,46 +89,8 @@ static std::atomic<bool>* s_wifi_connected = nullptr;
 // boot BEFORE keyStore.init(); see app_main.
 static ssh_keys::KeyStore* g_key_store_for_resolver = nullptr;
 
-// ============================================================================
-// Framebuffer adapter: onebit::IFramebuffer <-> rendering::IFramebuffer
-// Both use packed 1-bit rows (MSB-first), identical binary layout at 400x300.
-// The ST7305 driver accepts rendering::IFramebuffer& — this thin wrapper
-// lets us render with onebit:: types and display via the existing driver.
-// ============================================================================
-
-class FramebufferAdapter : public rendering::IFramebuffer {
-public:
-    explicit FramebufferAdapter(onebit::IFramebuffer& src) : src_(src) {}
-
-    int16_t width() const override { return src_.width(); }
-    int16_t height() const override { return src_.height(); }
-
-    void setPixel(int16_t x, int16_t y, rendering::Color c) override {
-        src_.setPixel(x, y, static_cast<onebit::Color>(c));
-    }
-    rendering::Color getPixel(int16_t x, int16_t y) const override {
-        return static_cast<rendering::Color>(src_.getPixel(x, y));
-    }
-    void clear(rendering::Color c = rendering::WHITE) override {
-        src_.clear(static_cast<onebit::Color>(c));
-    }
-    void setPixelDirect(int16_t x, int16_t y, rendering::Color c) override {
-        src_.setPixelDirect(x, y, static_cast<onebit::Color>(c));
-    }
-    void fillSpan(int16_t y, int16_t xStart, int16_t xEnd, rendering::Color c) override {
-        src_.fillSpan(y, xStart, xEnd, static_cast<onebit::Color>(c));
-    }
-
-    uint8_t* buffer() override { return src_.buffer(); }
-    const uint8_t* buffer() const override { return src_.buffer(); }
-    size_t bufferSize() const override { return src_.bufferSize(); }
-
-private:
-    onebit::IFramebuffer& src_;
-};
-
 // Forward declarations for helpers defined lower in this file.
-static void showStatus(onebit::IFramebuffer& fb, st7305::Display& display,
+static void showStatus(onebit::IFramebuffer& fb, board::St7306Panel& display,
                        const char* line1, const char* line2 = nullptr);
 
 // ============================================================================
@@ -198,7 +158,7 @@ static void reconnectActiveServer(sdcard::ConfigManager* configMgr,
 // Splash screen
 // ============================================================================
 
-static void showSplash(onebit::IFramebuffer& fb, st7305::Display& display) {
+static void showSplash(onebit::IFramebuffer& fb, board::St7306Panel& display) {
     fb.clear(onebit::WHITE);
 
     // Border
@@ -219,16 +179,14 @@ static void showSplash(onebit::IFramebuffer& fb, st7305::Display& display) {
                            (fb.width() - sw) / 2, fb.height() / 2 + 4,
                            sub, onebit::BLACK);
 
-    // Show via adapter
-    FramebufferAdapter adapter(fb);
-    display.show(adapter);
+    display.push(fb);
 }
 
 // ============================================================================
 // Status / error screens
 // ============================================================================
 
-static void showStatus(onebit::IFramebuffer& fb, st7305::Display& display,
+static void showStatus(onebit::IFramebuffer& fb, board::St7306Panel& display,
                        const char* line1, const char* line2) {
     fb.clear(onebit::WHITE);
     const auto& font = onebit::fonts::TERM_6X9;
@@ -236,8 +194,7 @@ static void showStatus(onebit::IFramebuffer& fb, st7305::Display& display,
     if (line2) {
         onebit::drawBitmapText(fb, font, 10, 24, line2, onebit::BLACK);
     }
-    FramebufferAdapter adapter(fb);
-    display.show(adapter);
+    display.push(fb);
 }
 
 // ============================================================================
@@ -318,9 +275,12 @@ extern "C" void app_main() {
         return;
     }
 
-    st7305::Config displayConfig;
-    st7305::Display display(displayConfig);
-    display.init();
+    board::St7306Pins displayPins;
+    board::St7306Panel display(displayPins);
+    if (display.init() != ESP_OK) {
+        ESP_LOGE(TAG, "Display init failed");
+        return;
+    }
 
     showSplash(fb, display);
     vTaskDelay(pdMS_TO_TICKS(500));
@@ -850,14 +810,14 @@ extern "C" void app_main() {
     );
 
     // ------------------------------------------------------------------
-    // Adapter for ST7305 display (expects rendering::IFramebuffer)
+    // Frame-to-frame change detection. The tracker owns its own shadow, so
+    // there is no second framebuffer to keep in step by hand.
     // ------------------------------------------------------------------
-    FramebufferAdapter displayAdapter(fb);
-
-    // Previous frame for dirty-region tracking
-    onebit::Framebuffer<400, 300> prevFb;
-    FramebufferAdapter prevAdapter(prevFb);
-    bool hasPrevFrame = prevFb.buffer() != nullptr;
+    onebit::DirtyRectTracker dirty(400, 300);
+    if (!dirty.isValid()) {
+        // Reports the whole frame every time — slow, never wrong, never silent.
+        ESP_LOGW(TAG, "dirty tracker shadow alloc failed; pushing every frame");
+    }
 
     ESP_LOGI(TAG, "Entering main loop");
 
@@ -1013,17 +973,15 @@ extern "C" void app_main() {
         overlay.render(fb, fontForSize(currentFontSize));
 
         // ----------------------------------------------------------
-        // Display update (dirty-region optimized)
+        // Display update. caps().partialUpdate is false on this panel, so
+        // pushDirty collapses any non-empty rect list to one full push and
+        // touches the bus not at all when nothing changed.
         // ----------------------------------------------------------
-        if (hasPrevFrame) {
-            display.showIfDirty(displayAdapter, prevAdapter);
-        } else {
-            display.show(displayAdapter);
-        }
+        display.pushDirty(fb, dirty.update(fb));
 
         // ----------------------------------------------------------
         // Power management: DISABLED
-        // Light sleep stops the SPI bus which blanks the ST7305 reflective
+        // Light sleep stops the SPI bus which blanks the ST7306 reflective
         // display. Since the display draws no power (reflective, no backlight),
         // light sleep saves minimal current but causes a blank screen.
         // TODO: Re-enable with proper SPI bus re-init after wake.

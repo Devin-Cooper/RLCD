@@ -8,7 +8,7 @@ The ESP32-S3-RLCD-4.2 is a development board featuring a 4.2" reflective LCD tha
 
 | Component | Specification |
 |-----------|---------------|
-| **Display** | 4.2" RLCD, 400×300 pixels, 1-bit monochrome, SPI (ST7305 driver) |
+| **Display** | 4.2" RLCD, 400×300 pixels, 1-bit monochrome, SPI (ST7306-class controller) |
 | **SoC** | ESP32-S3-WROOM-1-N16R8 (dual-core Xtensa LX7 @ 240MHz) |
 | **Memory** | 16MB Flash, 8MB PSRAM, 512KB SRAM |
 | **Connectivity** | WiFi 2.4GHz, Bluetooth 5 LE |
@@ -33,7 +33,7 @@ ESP-IDF firmware that turns the board into a self-contained SSH terminal and ser
 - **WiFi** -- auto-connect to known networks by signal strength; new networks are added via SD card JSON config (on-screen password entry is not implemented).
 - **3 font sizes** -- 80x37 (5x7), 66x30 (6x9), 50x23 (8x12) -- cycle with button or F-key
 - **Menu system** -- overlay navigable via keyboard or physical buttons
-- **Power management** -- WiFi modem-sleep during active SSH (~20mA). Light sleep is disabled because ST7305 needs continuous SPI power.
+- **Power management** -- WiFi modem-sleep during active SSH (~20mA). Light sleep is disabled because the panel needs continuous SPI power.
 - **Recovery firmware** -- 512KB factory-partition recovery image with auto-fallback: if main fails to `mark_app_valid` within 30s, bootloader boots recovery which keeps USB-JTAG CDC stable and displays a "RECOVERY MODE" banner on the LCD. Recovery exposes a minimal REPL (`ping`/`info`/`reboot-ota`/`erase-nvs`/`coredump-dump`)
 
 #### Hardware-Informed Optimizations
@@ -179,8 +179,7 @@ RLCD/
 ├── esp32_rendering/            # SSH Terminal & Dashboard (main project)
 │   ├── main/                   # Application entry point and boot sequence
 │   ├── components/
-│   │   ├── st7305/             # ST7305 reflective LCD driver (SPI + DMA)
-│   │   ├── rendering/          # Graphics primitives (clock face, shapes)
+│   │   ├── st7306_panel/       # ST7306 panel transport shim (SPI + DMA)
 │   │   ├── wifi_manager/       # WiFi lifecycle, NVS credentials, auto-connect
 │   │   ├── ssh_client/         # libssh SSH with optimized cipher suites
 │   │   ├── ble_hid/            # NimBLE BLE keyboard HID host

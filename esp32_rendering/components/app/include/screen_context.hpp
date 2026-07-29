@@ -4,7 +4,7 @@
 #include <functional>
 
 namespace onebit { class IFramebuffer; }
-namespace st7305 { class Display; }
+namespace board  { class St7306Panel; }
 namespace ssh    { class SshClient; }
 namespace wifi   { class WifiManager; }
 namespace sdcard { class ConfigManager; }
@@ -28,7 +28,7 @@ struct Settings;
 /// stay readable (one param instead of many).
 struct ScreenContext {
     onebit::IFramebuffer&  fb;
-    st7305::Display&       display;
+    board::St7306Panel&    display;
     ssh::SshClient&        sshClient;
     wifi::WifiManager&     wifiMgr;
     sdcard::SDCardManager& sdcard;

@@ -13,8 +13,7 @@ idf_component_register(
         driver
         esp_lcd
         esp_psram
-        rendering
-        st7305
+        st7306_panel
         onebit
         esp_partition
         app_update

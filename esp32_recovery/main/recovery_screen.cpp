@@ -1,5 +1,5 @@
 // Recovery firmware display: renders "RECOVERY MODE" + build info on the
-// ST7305 reflective LCD. Init block mirrors the production main.cpp so
+// ST7306 reflective LCD. Init block mirrors the production main.cpp so
 // the two firmwares produce identical panel setup. A new shared
 // display_bsp component is deliberately NOT introduced here; extracting
 // one is a separate refactor.
@@ -11,8 +11,7 @@
 #include <1bit/render/bitmap_font.hpp>
 #include <1bit/fonts/term_6x9.hpp>
 #include <1bit/fonts/term_8x12.hpp>
-#include "rendering/framebuffer.hpp"
-#include "st7305.hpp"
+#include "st7306_panel.hpp"
 
 #include <cstdio>
 
@@ -29,39 +28,6 @@ namespace recovery {
 namespace {
 
 static const char* TAG = "recovery_screen";
-
-// Mirror the FramebufferAdapter from esp32_rendering/main/main.cpp so the
-// ST7305 driver's rendering::IFramebuffer& API accepts our onebit::IFramebuffer.
-class FramebufferAdapter : public rendering::IFramebuffer {
-public:
-    explicit FramebufferAdapter(onebit::IFramebuffer& src) : src_(src) {}
-
-    int16_t width()  const override { return src_.width();  }
-    int16_t height() const override { return src_.height(); }
-
-    void setPixel(int16_t x, int16_t y, rendering::Color c) override {
-        src_.setPixel(x, y, static_cast<onebit::Color>(c));
-    }
-    rendering::Color getPixel(int16_t x, int16_t y) const override {
-        return static_cast<rendering::Color>(src_.getPixel(x, y));
-    }
-    void clear(rendering::Color c = rendering::WHITE) override {
-        src_.clear(static_cast<onebit::Color>(c));
-    }
-    void setPixelDirect(int16_t x, int16_t y, rendering::Color c) override {
-        src_.setPixelDirect(x, y, static_cast<onebit::Color>(c));
-    }
-    void fillSpan(int16_t y, int16_t xStart, int16_t xEnd, rendering::Color c) override {
-        src_.fillSpan(y, xStart, xEnd, static_cast<onebit::Color>(c));
-    }
-
-    uint8_t* buffer() override { return src_.buffer(); }
-    const uint8_t* buffer() const override { return src_.buffer(); }
-    size_t bufferSize() const override { return src_.bufferSize(); }
-
-private:
-    onebit::IFramebuffer& src_;
-};
 
 const char* resetReasonStr(esp_reset_reason_t r) {
     switch (r) {
@@ -85,10 +51,11 @@ const char* resetReasonStr(esp_reset_reason_t r) {
     }
 }
 
-// Display state — lives for the duration of the process. Framebuffer is
-// in PSRAM via the onebit allocator; display handle owns the SPI bus.
+// Display state — lives for the duration of the process. The framebuffer and
+// the panel's scan-out buffer both come from DMA-capable internal SRAM via the
+// onebit allocator; the panel object owns the SPI bus.
 onebit::Framebuffer<400, 300>* g_fb = nullptr;
-st7305::Display* g_display = nullptr;
+board::St7306Panel* g_display = nullptr;
 
 void render(onebit::IFramebuffer& fb, esp_reset_reason_t reason) {
     fb.clear(onebit::WHITE);
@@ -141,8 +108,7 @@ void render(onebit::IFramebuffer& fb, esp_reset_reason_t reason) {
 
     // Bottom-right heartbeat anchor will live at (396, 296) — see heartbeatTask.
 
-    FramebufferAdapter adapter(fb);
-    g_display->show(adapter);
+    g_display->push(fb);
 }
 
 void heartbeatTask(void* /*arg*/) {
@@ -153,8 +119,7 @@ void heartbeatTask(void* /*arg*/) {
             // Full-screen refresh once a second is acceptable for recovery —
             // this isn't performance-critical.
             g_fb->setPixel(396, 296, on ? onebit::BLACK : onebit::WHITE);
-            FramebufferAdapter adapter(*g_fb);
-            g_display->show(adapter);
+            g_display->push(*g_fb);
             on = !on;
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
@@ -164,9 +129,10 @@ void heartbeatTask(void* /*arg*/) {
 } // anonymous namespace
 
 void startDisplay() {
-    // DMA-capable allocator for the framebuffer — ST7305 does SPI DMA over
-    // the raw buffer pointer so it must come from internal SRAM. Mirrors
-    // esp32_rendering/main/main.cpp:294-300.
+    // DMA-capable allocator for the framebuffer and the panel's scan-out
+    // buffer — both are handed to SPI DMA as raw pointers, so both must come
+    // from internal SRAM. Mirrors esp32_rendering/main/main.cpp.
+    // Must run before the St7306Panel constructor, which allocates through it.
     static onebit::Allocator dma_allocator = {
         .alloc = [](size_t size, void*) -> void* {
             return heap_caps_malloc(size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
@@ -183,9 +149,12 @@ void startDisplay() {
     }
     g_fb = &fb;
 
-    static st7305::Config displayConfig;
-    static st7305::Display display(displayConfig);
-    display.init();
+    static board::St7306Pins displayPins;
+    static board::St7306Panel display(displayPins);
+    if (display.init() != ESP_OK) {
+        ESP_LOGE(TAG, "display init failed");
+        return;
+    }
     g_display = &display;
 
     render(fb, esp_reset_reason());

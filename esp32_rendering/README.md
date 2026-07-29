@@ -8,7 +8,7 @@ ESP-IDF firmware for the Waveshare ESP32-S3-RLCD-4.2 board. Turns the board into
 
 ## What it does
 
-- **Terminal mode** — VT100/xterm emulator rendering vim, htop, and other TUI apps on the 400x300 1-bit ST7305 display. Three font sizes (5x7 / 6x9 / 8x12).
+- **Terminal mode** — VT100/xterm emulator rendering vim, htop, and other TUI apps on the 400x300 1-bit ST7306 display. Three font sizes (5x7 / 6x9 / 8x12).
 - **Dashboard mode** — curated server stats (CPU, memory, disk, GPU, Docker, screen sessions) refreshed on an interval; commands are user-defined.
 - **SSH client** — libssh 0.11.4 (vendored in-tree as `components/libssh/`) with hardware-accelerated AES-128-CTR, Ed25519 / ECDSA P-256 / RSA-SHA2 auth, TOFU host key verification.
 - **BLE HID host** — NimBLE central-role HID keyboard host with bonded-device auto-reconnect and full keycode translation (arrows, F-keys, Ctrl combos).
@@ -33,11 +33,10 @@ esp32_rendering/
 │   ├── buttons/                # Debounced button handler
 │   ├── i2c_bsp/                # I2C bus abstraction
 │   ├── input_queue/            # Unified FreeRTOS event queue
-│   ├── rendering/              # Legacy rendering primitives (superseded by onebit)
 │   ├── sdcard_config/          # SD card FAT mount + JSON server config parser
 │   ├── sensors/                # RTC (PCF85063), SHTC3, battery
 │   ├── ssh_client/             # libssh wrapper + TOFU host key store
-│   ├── st7305/                 # ST7305 1-bit SPI display driver
+│   ├── st7306_panel/           # ST7306 panel transport shim over onebit
 │   └── wifi_manager/           # WiFi STA lifecycle + NVS credential storage
 ```
 
@@ -120,9 +119,17 @@ Place one JSON file per server in `/sdcard/servers/`:
 
 Files larger than 8 KiB are skipped (see `components/sdcard_config/src/config_manager.cpp`).
 
-## ST7305 display notes
+## ST7306 display notes
 
-The ST7305 reflective LCD requires Display Inversion Mode ON (0x21) to prevent flicker with high-frequency dither patterns. The driver inverts pixel logic (framebuffer initialised to 0xFF, BLACK clears the corresponding bit).
+The reflective LCD requires Display Inversion Mode ON (0x21) to prevent flicker
+with high-frequency dither patterns. Pixel logic is therefore inverted: the
+scan-out buffer starts at 0xFF and a BLACK framebuffer pixel *clears* the
+corresponding bit. That inversion lives in `onebit::st7306Convert`, not in this
+repo — `components/st7306_panel/` only carries bytes over `esp_lcd`.
+
+Every vendor labels this controller an ST7305, but the die behaves as an
+ST7306 (the init sets 400 gate lines, past the ST7305's documented 320, and
+Zephyr's board port binds `sitronix,st7306`).
 
 ## Pin configuration
 
