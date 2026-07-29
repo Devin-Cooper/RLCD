@@ -39,7 +39,9 @@ CONFIG_ESP_CONSOLE_UART_DEFAULT=n
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 
-# PSRAM required — ST7305 allocates framebuffer with MALLOC_CAP_SPIRAM.
+# PSRAM enabled for the app's own use. NOTE: the display no longer needs it --
+# the 360 KB of scan-out LUTs were retired with the onebit migration, and the
+# framebuffer is internal DMA-capable SRAM.
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y

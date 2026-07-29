@@ -143,8 +143,9 @@ void St7306Panel::sendData(const uint8_t* data, size_t len) {
 }
 
 void St7306Panel::sendPixels(const uint8_t* data, size_t len) {
-    // Belt-and-braces for the clear() path, which push() does not bracket with
-    // beginFrame()/endFrame().
+    // Second line of defence. clear() and push() both bracket with
+    // beginFrame(), which is where the buffer is actually protected; this drain
+    // only guarantees the transaction queue is free.
     waitTxDone();
     if (esp_lcd_panel_io_tx_color(io_, -1, data, len) == ESP_OK) {
         txPending_ = true;  // asynchronous: DMA still owns `data`
